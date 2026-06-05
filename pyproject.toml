@@ -1,0 +1,9 @@
+[project]
+name = "agentic-optimization"
+version = "0.1.0"
+description = "An agent-based prototype for generating mathematical optimization models from user inputs."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "langgraph>=1.2.4",
+]
