@@ -6,4 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "langgraph>=1.2.4",
+    "pulp>=2.9",
+    "streamlit>=1.45",
+    "groq>=0.28",
 ]
