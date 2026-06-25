@@ -1,41 +1,117 @@
+import json
+import re
 from agentic_optimization.state import GraphState
 
+REQUIRED_FIELDS = ["decision", "objective", "demand_type", "constraints"]
 
-REQUIRED_FIELDS = [
-    "decision",
-    "objective",
-    "demand_type",
-    "constraints",
-]
+SYSTEM_PROMPT = """Du bist ein Assistent, der Optimierungsprobleme analysiert.
+
+Der Nutzer hat ein Formular ausgefüllt und optional einen Freitext eingegeben.
+Deine Aufgabe: Extrahiere die vier wichtigsten Angaben für ein Optimierungsmodell.
+
+Gib deine Antwort NUR als JSON zurück, ohne Erklärungen, ohne Markdown-Backticks.
+
+Format:
+{
+  "decision": "...",
+  "objective": "...",
+  "demand_type": "...",
+  "constraints": "...",
+  "missing_fields": ["field1", "field2"]
+}
+
+Felder:
+- decision: Welche Entscheidung soll optimiert werden? (z.B. Bestellmenge, Produktionsmenge)
+- objective: Was ist das Ziel? (z.B. Gewinn maximieren, Kosten minimieren)
+- demand_type: Wie ist die Nachfrage? (z.B. sicher, unsicher, saisonal)
+- constraints: Welche Nebenbedingungen gibt es? (z.B. Budget, Kapazität, Lagerplatz)
+
+Wenn eine Information weder im Formular noch im Freitext erkennbar ist, setze das Feld auf null
+und füge den Feldnamen in missing_fields ein.
+"""
 
 
 def requirement_agent(state: GraphState) -> GraphState:
-    """
-    Analysiert die Eingaben des Nutzers und prüft,
-    ob die wichtigsten Informationen für ein Optimierungsmodell vorhanden sind.
-
-    Aktuell ist diese Version bewusst regelbasiert.
-    Später kann hier ein LLM eingebaut werden.
-    """
-
     form_data = state.get("form_data", {})
     raw_input = state.get("raw_input", "")
 
+    user_message = _build_user_message(form_data, raw_input)
+
+    print("=== LLM INPUT ===")
+    print(user_message)
+
+    try:
+        extracted = _extract_with_llm(user_message)
+        print("=== LLM OUTPUT ===")
+        print(extracted)
+    except Exception as e:
+        print(f"=== LLM FEHLER: {e} ===")
+        extracted = _extract_rule_based(form_data, raw_input)
+
+    missing_fields = extracted.get("missing_fields") or [
+        f for f in REQUIRED_FIELDS if not extracted.get(f)
+    ]
+
     requirements = {
-        "decision": form_data.get("decision"),
-        "objective": form_data.get("objective"),
-        "demand_type": form_data.get("demand_type"),
-        "constraints": form_data.get("constraints"),
+        "decision":        extracted.get("decision"),
+        "objective":       extracted.get("objective"),
+        "demand_type":     extracted.get("demand_type"),
+        "constraints":     extracted.get("constraints"),
         "raw_description": raw_input,
     }
 
-    missing_fields = [
-        field
-        for field in REQUIRED_FIELDS
-        if not requirements.get(field)
-    ]
+    return {
+        **state,
+        "requirements":   requirements,
+        "missing_fields": missing_fields,
+    }
 
-    state["requirements"] = requirements
-    state["missing_fields"] = missing_fields
 
-    return state
+# ── LLM ────────────────────────────────────────────────────────────────────
+
+def _extract_with_llm(user_message: str) -> dict:
+    from groq import Groq
+
+    client = Groq()  # liest GROQ_API_KEY automatisch aus Umgebungsvariable
+
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user",   "content": user_message},
+        ],
+    )
+
+    raw_text = response.choices[0].message.content
+    return _parse_json(raw_text)
+
+
+# ── Hilfsfunktionen ───────────────────────────────────────────────────────────
+
+def _build_user_message(form_data: dict, raw_input: str) -> str:
+    lines = ["Formulareingaben:"]
+    for key, value in form_data.items():
+        lines.append(f"  {key}: {value}")
+    if raw_input:
+        lines.append(f"\nFreitext des Nutzers:\n{raw_input}")
+    return "\n".join(lines)
+
+
+def _parse_json(text: str) -> dict:
+    """Extrahiert JSON aus LLM-Antwort, auch wenn Markdown-Backticks vorhanden."""
+    clean = re.sub(r"```(?:json)?|```", "", text).strip()
+    return json.loads(clean)
+
+
+def _extract_rule_based(form_data: dict, raw_input: str) -> dict:
+    """Fallback: direkte Übernahme der Formularfelder."""
+    return {
+        "decision":    form_data.get("decision"),
+        "objective":   form_data.get("objective"),
+        "demand_type": form_data.get("demand_type"),
+        "constraints": form_data.get("constraints"),
+        "missing_fields": [
+            f for f in REQUIRED_FIELDS
+            if not form_data.get(f)
+        ],
+    }
