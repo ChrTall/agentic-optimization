@@ -1,5 +1,8 @@
 import streamlit as st
+
+from agentic_optimization.configuration.llm_config import load_llm_configuration
 from agentic_optimization.graph import build_graph
+from agentic_optimization.llm.factory import create_chat_model
 
 # ── Seitenkonfiguration ───────────────────────────────────────────────────────
 
@@ -102,7 +105,9 @@ elif st.session_state.step == "freitext":
 
     if analyze:
         with st.spinner("🤖 LLM analysiert dein Problem …"):
-            app = build_graph()
+            llm_config = load_llm_configuration()
+            llm = create_chat_model(llm_config)
+            app = build_graph(llm)
             initial_state = {
                 "raw_input":  raw_input,
                 "form_data":  st.session_state.form_data,
@@ -142,7 +147,9 @@ elif st.session_state.step == "clarify":
         with st.spinner("🤖 LLM analysiert erneut …"):
             prev = st.session_state.graph_state
             combined = (prev.get("raw_input") or "") + "\n\nNachtrag: " + answer
-            app = build_graph()
+            llm_config = load_llm_configuration()
+            llm = create_chat_model(llm_config)
+            app = build_graph(llm)
             st.session_state.graph_state = app.invoke({
                 "raw_input": combined,
                 "form_data": st.session_state.form_data,

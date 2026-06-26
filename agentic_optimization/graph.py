@@ -1,7 +1,8 @@
+from langchain_core.language_models import BaseChatModel
 from langgraph.graph import StateGraph, END
 
 from agentic_optimization.state import GraphState
-from agentic_optimization.agents.requirement_agent import requirement_agent
+from agentic_optimization.agents.requirement_agent import create_requirement_agent
 from agentic_optimization.agents.clarification import clarification_node
 from agentic_optimization.agents.modeling_agent import modeling_agent
 from agentic_optimization.agents.code_agent import code_agent
@@ -19,14 +20,14 @@ def route_after_requirements(state: GraphState) -> str:
     return "complete"
 
 
-def build_graph():
+def build_graph(llm: BaseChatModel):
     """
     Baut den LangGraph-Workflow für das Optimierungssystem.
     """
 
     graph = StateGraph(GraphState)
 
-    graph.add_node("requirement_agent", requirement_agent)
+    graph.add_node("requirement_agent", create_requirement_agent(llm))
     graph.add_node("clarification", clarification_node)
     graph.add_node("modeling_agent", modeling_agent)
     graph.add_node("code_agent", code_agent)
