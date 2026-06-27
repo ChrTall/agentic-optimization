@@ -87,7 +87,7 @@ The application requires access to a Large Language Model. The configuration can
 For local development, copy the example environment file:
 
 ```bash
-cp env.example .env
+cp example.env .env
 ```
 
 On Windows PowerShell:
