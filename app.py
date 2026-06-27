@@ -108,8 +108,12 @@ elif st.session_state.step == "freitext":
         with st.spinner("🤖 LLM analysiert dein Problem …"):
             llm = st.session_state.get("llm")
             if llm is None:
-                llm_config = load_llm_configuration()
-                llm = create_chat_model(llm_config)
+                try:
+                    llm_config = load_llm_configuration()
+                    llm = create_chat_model(llm_config)
+                except ValueError as e:
+                    st.error(str(e))
+                    st.stop()
                 st.session_state.llm = llm
             app = build_graph(llm)
             initial_state = {
@@ -153,8 +157,12 @@ elif st.session_state.step == "clarify":
             combined = (prev.get("raw_input") or "") + "\n\nNachtrag: " + answer
             llm = st.session_state.get("llm")
             if llm is None:
-                llm_config = load_llm_configuration()
-                llm = create_chat_model(llm_config)
+                try:
+                    llm_config = load_llm_configuration()
+                    llm = create_chat_model(llm_config)
+                except ValueError as e:
+                    st.error(str(e))
+                    st.stop()
                 st.session_state.llm = llm
             app = build_graph(llm)
             st.session_state.graph_state = app.invoke({

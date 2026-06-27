@@ -93,7 +93,7 @@ cp example.env .env
 On Windows PowerShell:
 
 ```ps1
-Copy-Item env.example .env
+Copy-Item example.env .env
 ```
 
 Then edit the `.env` file and provide the required values:
@@ -132,7 +132,7 @@ LLM_API_KEY=your-anthropic-api-key
 
 > [!IMPORTANT]
 > Never commit real API keys to the repository. The `.env` file should stay local and should be listed in `.gitignore`.
-> Only `env.example` should be committed.
+> Only `example.env` should be committed.
 
 Alternatively, the variables can be set manually in the shell.
 
