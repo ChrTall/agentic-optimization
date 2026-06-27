@@ -1,5 +1,6 @@
 import json
 import re
+from typing import Callable
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -35,7 +36,7 @@ und füge den Feldnamen in missing_fields ein.
 """
 
 
-def create_requirement_agent(llm: BaseChatModel) -> GraphState:
+def create_requirement_agent(llm: BaseChatModel) -> Callable[[GraphState], GraphState]:
     def requirement_agent(state: GraphState) -> GraphState:
         form_data = state.get("form_data", {})
         raw_input = state.get("raw_input", "")
@@ -58,18 +59,19 @@ def create_requirement_agent(llm: BaseChatModel) -> GraphState:
         ]
 
         requirements = {
-            "decision":        extracted.get("decision"),
-            "objective":       extracted.get("objective"),
-            "demand_type":     extracted.get("demand_type"),
-            "constraints":     extracted.get("constraints"),
+            "decision": extracted.get("decision"),
+            "objective": extracted.get("objective"),
+            "demand_type": extracted.get("demand_type"),
+            "constraints": extracted.get("constraints"),
             "raw_description": raw_input,
         }
 
         return {
             **state,
-            "requirements":   requirements,
+            "requirements": requirements,
             "missing_fields": missing_fields,
         }
+
     return requirement_agent
 
 
@@ -105,8 +107,8 @@ def _parse_json(text: str) -> dict:
 def _extract_rule_based(form_data: dict, raw_input: str) -> dict:
     """Fallback: direkte Übernahme der Formularfelder."""
     return {
-        "decision":    form_data.get("decision"),
-        "objective":   form_data.get("objective"),
+        "decision": form_data.get("decision"),
+        "objective": form_data.get("objective"),
         "demand_type": form_data.get("demand_type"),
         "constraints": form_data.get("constraints"),
         "missing_fields": [
