@@ -1,5 +1,8 @@
 import streamlit as st
+
+from agentic_optimization.configuration.llm_config import load_llm_configuration
 from agentic_optimization.graph import build_graph
+from agentic_optimization.llm.factory import create_chat_model
 
 # ── Seitenkonfiguration ───────────────────────────────────────────────────────
 
@@ -30,7 +33,8 @@ for i, (col, label) in enumerate(zip(cols, STEP_LABELS)):
         if i < step_index:
             st.markdown(f"<p style='color:gray;text-align:center'>{label} ✓</p>", unsafe_allow_html=True)
         elif i == step_index:
-            st.markdown(f"<p style='color:#1f6feb;font-weight:bold;text-align:center'>{label}</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='color:#1f6feb;font-weight:bold;text-align:center'>{label}</p>",
+                        unsafe_allow_html=True)
         else:
             st.markdown(f"<p style='color:lightgray;text-align:center'>{label}</p>", unsafe_allow_html=True)
 
@@ -65,8 +69,8 @@ if st.session_state.step == "form":
 
     if submitted:
         st.session_state.form_data = {
-            "decision":    decision    or None,
-            "objective":   objective   or None,
+            "decision": decision or None,
+            "objective": objective or None,
             "demand_type": demand_type or None,
             "constraints": constraints or None,
         }
@@ -102,11 +106,20 @@ elif st.session_state.step == "freitext":
 
     if analyze:
         with st.spinner("🤖 LLM analysiert dein Problem …"):
-            app = build_graph()
+            llm = st.session_state.get("llm")
+            if llm is None:
+                try:
+                    llm_config = load_llm_configuration()
+                    llm = create_chat_model(llm_config)
+                except ValueError as e:
+                    st.error(str(e))
+                    st.stop()
+                st.session_state.llm = llm
+            app = build_graph(llm)
             initial_state = {
-                "raw_input":  raw_input,
-                "form_data":  st.session_state.form_data,
-                "messages":   [],
+                "raw_input": raw_input,
+                "form_data": st.session_state.form_data,
+                "messages": [],
             }
             st.session_state.graph_state = app.invoke(initial_state)
 
@@ -142,11 +155,20 @@ elif st.session_state.step == "clarify":
         with st.spinner("🤖 LLM analysiert erneut …"):
             prev = st.session_state.graph_state
             combined = (prev.get("raw_input") or "") + "\n\nNachtrag: " + answer
-            app = build_graph()
+            llm = st.session_state.get("llm")
+            if llm is None:
+                try:
+                    llm_config = load_llm_configuration()
+                    llm = create_chat_model(llm_config)
+                except ValueError as e:
+                    st.error(str(e))
+                    st.stop()
+                st.session_state.llm = llm
+            app = build_graph(llm)
             st.session_state.graph_state = app.invoke({
                 "raw_input": combined,
                 "form_data": st.session_state.form_data,
-                "messages":  [],
+                "messages": [],
             })
 
         if st.session_state.graph_state.get("clarification_question"):
@@ -173,11 +195,11 @@ elif st.session_state.step == "result":
     col1, col2 = st.columns(2)
 
     with col1:
-        st.metric("Entscheidung",  reqs.get("decision",    "–"))
-        st.metric("Ziel",          reqs.get("objective",   "–"))
+        st.metric("Entscheidung", reqs.get("decision", "–"))
+        st.metric("Ziel", reqs.get("objective", "–"))
     with col2:
-        st.metric("Nachfrage",     reqs.get("demand_type", "–"))
-        st.metric("Constraints",   reqs.get("constraints", "–") or "–")
+        st.metric("Nachfrage", reqs.get("demand_type", "–"))
+        st.metric("Constraints", reqs.get("constraints", "–") or "–")
 
     st.divider()
 
