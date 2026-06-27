@@ -1,5 +1,5 @@
 from agentic_optimization.state import GraphState
-
+from agentic_optimization.visualization.markdown_renderer import render_model_markdown
 
 def result_node(state: GraphState) -> GraphState:
     """
@@ -20,6 +20,7 @@ def result_node(state: GraphState) -> GraphState:
             "name": model_config.get("model_name"),
             "explanation": model_config.get("explanation"),
         },
+        "model_markdown": render_model_markdown(model_config, requirements),
         "generated_code": pulp_code,
         "next_steps": [
             "Konkrete Parameter aus der Kundeneingabe extrahieren.",
