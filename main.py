@@ -1,8 +1,12 @@
+from agentic_optimization.configuration.llm_config import load_llm_configuration
+from langchain_core.language_models import BaseChatModel
+
 from agentic_optimization.graph import build_graph
+from agentic_optimization.llm.factory import create_chat_model
 
 
-def run_example_complete_input():
-    app = build_graph()
+def run_example_complete_input(llm: BaseChatModel):
+    app = build_graph(llm)
 
     state = {
         "raw_input": (
@@ -22,8 +26,8 @@ def run_example_complete_input():
     print_result(result_state)
 
 
-def run_example_missing_input():
-    app = build_graph()
+def run_example_missing_input(llm: BaseChatModel):
+    app = build_graph(llm)
 
     state = {
         "raw_input": (
@@ -72,5 +76,7 @@ def print_result(result_state: dict):
 
 
 if __name__ == "__main__":
-    run_example_complete_input()
+    g_llm_config = load_llm_configuration()
+    g_llm = create_chat_model(g_llm_config)
+    run_example_complete_input(g_llm)
     # run_example_missing_input()
