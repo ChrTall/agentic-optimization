@@ -23,11 +23,11 @@ if "graph_state" not in st.session_state:
 
 # ── Fortschrittsanzeige ───────────────────────────────────────────────────────
 
-STEPS = ["form", "freitext", "result"]
-STEP_LABELS = ["① Formular", "② Beschreibung", "③ Ergebnis"]
+STEPS = ["form", "freitext", "newsvendor_input", "result"]
+STEP_LABELS = ["① Formular", "② Beschreibung", "③ Modellinput", "④ Ergebnis"]
 
 step_index = STEPS.index(st.session_state.step) if st.session_state.step in STEPS else 1
-cols = st.columns(3)
+cols = st.columns(len(STEP_LABELS))
 for i, (col, label) in enumerate(zip(cols, STEP_LABELS)):
     with col:
         if i < step_index:
@@ -125,6 +125,8 @@ elif st.session_state.step == "freitext":
 
         if st.session_state.graph_state.get("clarification_question"):
             st.session_state.step = "clarify"
+        elif st.session_state.graph_state.get("model_config", {}).get("model_type") == "newsvendor":
+            st.session_state.step = "newsvendor_input"
         else:
             st.session_state.step = "result"
         st.rerun()
@@ -173,12 +175,90 @@ elif st.session_state.step == "clarify":
 
         if st.session_state.graph_state.get("clarification_question"):
             st.rerun()
+        elif st.session_state.graph_state.get("model_config", {}).get("model_type") == "newsvendor":
+            st.session_state.step = "newsvendor_input"
+            st.rerun()
         else:
             st.session_state.step = "result"
             st.rerun()
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SCHRITT 3: Ergebnis
+# SCHRITT 3: Newsvendor-spezifische Eingaben
+# ═══════════════════════════════════════════════════════════════════════════════
+
+elif st.session_state.step == "newsvendor_input":
+    st.subheader("Newsvendor-Parameter")
+    st.info("Es wurde ein Newsvendor-Modell erkannt. Bitte ergänze die modellspezifischen Eingaben.")
+
+    with st.form("newsvendor_form"):
+        selling_price = st.number_input(
+            "Verkaufspreis pro Einheit",
+            min_value=0.0,
+            step=0.5,
+            value=0.0,
+        )
+
+        purchase_cost = st.number_input(
+            "Einkaufskosten pro Einheit",
+            min_value=0.0,
+            step=0.5,
+            value=0.0,
+        )
+
+        salvage_value = st.number_input(
+            "Restwert pro unverkaufter Einheit",
+            min_value=0.0,
+            step=0.5,
+            value=0.0,
+        )
+
+        demand_scenarios = st.text_input(
+            "Nachfrageszenarien",
+            placeholder="z.B. 80, 100, 120, 140",
+        )
+
+        scenario_probabilities = st.text_input(
+            "Wahrscheinlichkeiten der Szenarien",
+            placeholder="z.B. 0.25, 0.25, 0.25, 0.25",
+        )
+
+        submitted = st.form_submit_button(
+            "Ergebnis anzeigen →",
+            use_container_width=True,
+            type="primary",
+        )
+
+    if submitted:
+        newsvendor_parameters = {
+            "selling_price": selling_price or None,
+            "purchase_cost": purchase_cost or None,
+            "salvage_value": salvage_value or None,
+            "demand_scenarios": demand_scenarios or None,
+            "scenario_probabilities": scenario_probabilities or None,
+        }
+
+        st.session_state.form_data["model_parameters"] = {
+            "newsvendor": newsvendor_parameters
+        }
+
+        if st.session_state.graph_state is not None:
+            st.session_state.graph_state.setdefault("requirements", {})
+            st.session_state.graph_state["requirements"]["model_parameters"] = {
+                "newsvendor": newsvendor_parameters
+            }
+
+            st.session_state.graph_state.setdefault("result", {})
+            st.session_state.graph_state["result"].setdefault("requirements", {})
+            st.session_state.graph_state["result"]["requirements"]["model_parameters"] = {
+                "newsvendor": newsvendor_parameters
+            }
+
+        st.session_state.step = "result"
+        st.rerun()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SCHRITT 4: Ergebnis
 # ═══════════════════════════════════════════════════════════════════════════════
 
 elif st.session_state.step == "result":
@@ -201,6 +281,11 @@ elif st.session_state.step == "result":
         st.metric("Nachfrage", reqs.get("demand_type", "–"))
         st.metric("Constraints", reqs.get("constraints", "–") or "–")
 
+    model_parameters = reqs.get("model_parameters", {})
+
+    if model_parameters:
+        st.markdown("### 🧾 Erfasste Modellparameter")
+        st.json(model_parameters)
     st.divider()
 
     # ── Ausgewähltes Modell ───────────────────────────────────────────────────
