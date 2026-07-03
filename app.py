@@ -3,6 +3,7 @@ import streamlit as st
 from agentic_optimization.configuration.llm_config import load_llm_configuration
 from agentic_optimization.graph import build_graph
 from agentic_optimization.llm.factory import create_chat_model
+from agentic_optimization.visualization.markdown_renderer import render_model_markdown
 
 # ── Seitenkonfiguration ───────────────────────────────────────────────────────
 
@@ -275,6 +276,10 @@ elif st.session_state.step == "newsvendor_input":
                 st.session_state.graph_state["result"]["requirements"]["model_parameters"] = {
                     "newsvendor": newsvendor_parameters
                 }
+                st.session_state.graph_state["result"]["model_markdown"] = render_model_markdown(
+                    st.session_state.graph_state.get("model_config", {}),
+                    st.session_state.graph_state.get("requirements", {}),
+                )
 
             st.session_state.step = "result"
             st.rerun()
@@ -309,11 +314,50 @@ elif st.session_state.step == "result":
         st.metric("Nachfrage", reqs.get("demand_type", "–"))
         st.metric("Constraints", reqs.get("constraints", "–") or "–")
 
-    model_parameters = reqs.get("model_parameters", {})
+    newsvendor_params = reqs.get("model_parameters", {}).get("newsvendor", {})
 
-    if model_parameters:
+    if newsvendor_params:
         st.markdown("### 🧾 Erfasste Modellparameter")
-        st.json(model_parameters)
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric(
+                "Verkaufspreis",
+                newsvendor_params.get("selling_price", "–"),
+            )
+
+        with col2:
+            st.metric(
+                "Einkaufskosten",
+                newsvendor_params.get("purchase_cost", "–"),
+            )
+
+        with col3:
+            st.metric(
+                "Restwert",
+                newsvendor_params.get("salvage_value", "–"),
+            )
+
+        demand_scenarios = newsvendor_params.get("demand_scenarios", [])
+        scenario_probabilities = newsvendor_params.get("scenario_probabilities", [])
+
+        if demand_scenarios and scenario_probabilities:
+            st.markdown("#### Nachfrageszenarien")
+
+            scenario_rows = [
+                {
+                    "Szenario": index + 1,
+                    "Nachfrage": f"{demand:g}",
+                    "Wahrscheinlichkeit": f"{probability:.0%}",
+                }
+                for index, (demand, probability) in enumerate(
+                    zip(demand_scenarios, scenario_probabilities)
+                )
+            ]
+
+            st.table(scenario_rows)
+
     st.divider()
 
     # ── Ausgewähltes Modell ───────────────────────────────────────────────────
