@@ -1,6 +1,7 @@
 from agentic_optimization.state import GraphState
 from agentic_optimization.visualization.markdown_renderer import render_model_markdown
 
+
 def result_node(state: GraphState) -> GraphState:
     """
     Fasst die Ergebnisse des Workflows strukturiert zusammen.
