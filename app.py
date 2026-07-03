@@ -185,7 +185,6 @@ elif st.session_state.step == "result":
     gs = st.session_state.graph_state
     result = gs.get("result", {})
     reqs = result.get("requirements", {})
-    model = result.get("selected_model", {})
 
     st.subheader("Ergebnis")
     st.success(result.get("summary", ""))
@@ -205,54 +204,7 @@ elif st.session_state.step == "result":
 
     # ── Ausgewähltes Modell ───────────────────────────────────────────────────
     st.markdown("### 📐 Optimierungsmodell")
-    st.markdown(f"**{model.get('name', '–')}**")
-    st.caption(model.get("explanation", ""))
-
-    # Mathematische Darstellung (Markdown, #36)
-    model_type = model.get("type", "")
-    decision_var = reqs.get("decision", "x")
-    objective_text = reqs.get("objective", "")
-    constraints_text = reqs.get("constraints", "keine angegeben")
-
-    if model_type == "newsvendor":
-        st.markdown("""
-**Mathematische Struktur:**
-```
-maximize  E[ p · min(q, D) + s · max(q − D, 0) − c · q ]
-
-subject to
-    q ≥ 0
-```
-- `q` = Bestellmenge (Entscheidungsvariable)
-- `D` = Nachfrage (unsicher)
-- `p` = Verkaufspreis, `c` = Einkaufspreis, `s` = Restwert
-""")
-
-    elif model_type == "linear_programming":
-        st.markdown(f"""
-**Mathematische Struktur:**
-```
-maximize  c^T · x
-
-subject to
-    A · x ≤ b
-    x ≥ 0
-```
-- `x` = {decision_var}
-- Nebenbedingungen: {constraints_text}
-""")
-
-    else:
-        st.markdown(f"""
-**Mathematische Struktur:**
-```
-{"maximize" if "gewinn" in objective_text.lower() else "minimize"}  f(x)
-
-subject to
-    x ≥ 0
-    {constraints_text}
-```
-""")
+    st.markdown(result.get("model_markdown", "Keine Modellvisualisierung verfügbar."))
 
     st.divider()
 
