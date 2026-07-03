@@ -228,33 +228,62 @@ elif st.session_state.step == "newsvendor_input":
             type="primary",
         )
 
+    def parse_number_list(value: str) -> list[float]:
+        return [float(item.strip()) for item in value.split(",") if item.strip()]
+    
     if submitted:
-        newsvendor_parameters = {
-            "selling_price": selling_price or None,
-            "purchase_cost": purchase_cost or None,
-            "salvage_value": salvage_value or None,
-            "demand_scenarios": demand_scenarios or None,
-            "scenario_probabilities": scenario_probabilities or None,
-        }
+        try:
+            parsed_demand_scenarios = parse_number_list(demand_scenarios)
+            parsed_scenario_probabilities = parse_number_list(scenario_probabilities)
 
-        st.session_state.form_data["model_parameters"] = {
-            "newsvendor": newsvendor_parameters
-        }
+            if not parsed_demand_scenarios:
+                st.error("Bitte gib mindestens ein Nachfrageszenario ein.")
+                st.stop()
 
-        if st.session_state.graph_state is not None:
-            st.session_state.graph_state.setdefault("requirements", {})
-            st.session_state.graph_state["requirements"]["model_parameters"] = {
+            if not parsed_scenario_probabilities:
+                st.error("Bitte gib mindestens eine Wahrscheinlichkeit ein.")
+                st.stop()
+
+            if len(parsed_demand_scenarios) != len(parsed_scenario_probabilities):
+                st.error("Die Anzahl der Nachfrageszenarien muss zur Anzahl der Wahrscheinlichkeiten passen.")
+                st.stop()
+
+            if abs(sum(parsed_scenario_probabilities) - 1.0) > 0.001:
+                st.error("Die Wahrscheinlichkeiten müssen zusammen 1 ergeben.")
+                st.stop()
+
+            newsvendor_parameters = {
+                "selling_price": selling_price,
+                "purchase_cost": purchase_cost,
+                "salvage_value": salvage_value,
+                "demand_scenarios": parsed_demand_scenarios,
+                "scenario_probabilities": parsed_scenario_probabilities,
+            }
+
+            st.session_state.form_data["model_parameters"] = {
                 "newsvendor": newsvendor_parameters
             }
 
-            st.session_state.graph_state.setdefault("result", {})
-            st.session_state.graph_state["result"].setdefault("requirements", {})
-            st.session_state.graph_state["result"]["requirements"]["model_parameters"] = {
-                "newsvendor": newsvendor_parameters
-            }
+            if st.session_state.graph_state is not None:
+                st.session_state.graph_state.setdefault("requirements", {})
+                st.session_state.graph_state["requirements"]["model_parameters"] = {
+                    "newsvendor": newsvendor_parameters
+                }
 
-        st.session_state.step = "result"
-        st.rerun()
+                st.session_state.graph_state.setdefault("result", {})
+                st.session_state.graph_state["result"].setdefault("requirements", {})
+                st.session_state.graph_state["result"]["requirements"]["model_parameters"] = {
+                    "newsvendor": newsvendor_parameters
+                }
+
+            st.session_state.step = "result"
+            st.rerun()
+
+        except ValueError:
+            st.error(
+                "Bitte gib Nachfrageszenarien und Wahrscheinlichkeiten als kommagetrennte Zahlen ein, "
+                "z.B. 80, 100, 120 und 0.2, 0.5, 0.3."
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
