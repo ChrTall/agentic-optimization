@@ -21,7 +21,7 @@ Format:
   "decision": "...",
   "objective": "...",
   "demand_type": "...",
-  "constraints": "...",
+  "constraints": ["...", "..."],
   "missing_fields": ["field1", "field2"]
 }
 
@@ -65,6 +65,8 @@ def create_requirement_agent(llm: BaseChatModel) -> Callable[[GraphState], Graph
             "constraints": extracted.get("constraints"),
             "raw_description": raw_input,
         }
+
+        print("requirements after LLM: ", requirements)
 
         return {
             **state,

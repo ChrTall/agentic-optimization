@@ -73,7 +73,7 @@ if st.session_state.step == "form":
             "decision": decision or None,
             "objective": objective or None,
             "demand_type": demand_type or None,
-            "constraints": constraints or None,
+            "constraints": [constraints] or None,
         }
         st.session_state.step = "freitext"
         st.rerun()
@@ -229,9 +229,11 @@ elif st.session_state.step == "newsvendor_input":
             type="primary",
         )
 
+
     def parse_number_list(value: str) -> list[float]:
         return [float(item.strip()) for item in value.split(",") if item.strip()]
-    
+
+
     if submitted:
         try:
             parsed_demand_scenarios = parse_number_list(demand_scenarios)
@@ -312,7 +314,8 @@ elif st.session_state.step == "result":
         st.metric("Ziel", reqs.get("objective", "–"))
     with col2:
         st.metric("Nachfrage", reqs.get("demand_type", "–"))
-        st.metric("Constraints", reqs.get("constraints", "–") or "–")
+        constraints_list = reqs.get("constraints", [])
+        st.metric("Constraints", ", ".join(constraints_list) if constraints_list else "–")
 
     newsvendor_params = reqs.get("model_parameters", {}).get("newsvendor", {})
 
@@ -367,10 +370,10 @@ elif st.session_state.step == "result":
     st.divider()
 
     # ── Generierter PuLP-Code ─────────────────────────────────────────────────
-    st.markdown("### 💻 Generierter PuLP-Code")
-    st.code(result.get("generated_code", ""), language="python")
-
-    st.divider()
+    # st.markdown("### 💻 Generierter PuLP-Code")
+    # st.code(result.get("generated_code", ""), language="python")
+    #
+    # st.divider()
 
     # ── Nächste Schritte ──────────────────────────────────────────────────────
     st.markdown("### 🔜 Nächste Schritte")

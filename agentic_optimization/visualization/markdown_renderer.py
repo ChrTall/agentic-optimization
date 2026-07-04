@@ -22,7 +22,16 @@ def _value_or_dash(value) -> str:
         return "–"
 
     if isinstance(value, list):
-        return ", ".join(_format_number(item) for item in value)
+        if not value:
+            return "–"
+        return ", ".join(_format_value(item) for item in value)
+
+    return _format_value(value)
+
+
+def _format_value(value) -> str:
+    if value is None or value == "":
+        return "–"
 
     if isinstance(value, (int, float)):
         return _format_number(value)
