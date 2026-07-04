@@ -73,7 +73,7 @@ if st.session_state.step == "form":
             "decision": decision or None,
             "objective": objective or None,
             "demand_type": demand_type or None,
-            "constraints": [constraints] or None,
+            "constraints": [constraints] if constraints else [],
         }
         st.session_state.step = "freitext"
         st.rerun()
@@ -229,10 +229,8 @@ elif st.session_state.step == "newsvendor_input":
             type="primary",
         )
 
-
     def parse_number_list(value: str) -> list[float]:
         return [float(item.strip()) for item in value.split(",") if item.strip()]
-
 
     if submitted:
         try:
@@ -307,15 +305,23 @@ elif st.session_state.step == "result":
 
     # ── Erkannte Anforderungen ────────────────────────────────────────────────
     st.markdown("### 📋 Erkannte Anforderungen")
-    col1, col2 = st.columns(2)
 
-    with col1:
-        st.metric("Entscheidung", reqs.get("decision", "–"))
-        st.metric("Ziel", reqs.get("objective", "–"))
-    with col2:
-        st.metric("Nachfrage", reqs.get("demand_type", "–"))
-        constraints_list = reqs.get("constraints", [])
-        st.metric("Constraints", ", ".join(constraints_list) if constraints_list else "–")
+    constraints_list = reqs.get("constraints", [])
+
+    if isinstance(constraints_list, str):
+        constraints_list = [constraints_list]
+
+    st.markdown("#### Problemstruktur")
+    st.markdown(f"- **Entscheidung:** {reqs.get('decision', '–')}")
+    st.markdown(f"- **Ziel:** {reqs.get('objective', '–')}")
+    st.markdown(f"- **Nachfrage:** {reqs.get('demand_type', '–')}")
+
+    st.markdown("#### Restriktionen")
+    if constraints_list:
+        for constraint in constraints_list:
+            st.markdown(f"- {constraint}")
+    else:
+        st.markdown("- –")
 
     newsvendor_params = reqs.get("model_parameters", {}).get("newsvendor", {})
 
