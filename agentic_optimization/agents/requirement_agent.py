@@ -66,8 +66,6 @@ def create_requirement_agent(llm: BaseChatModel) -> Callable[[GraphState], Graph
             "raw_description": raw_input,
         }
 
-        print("requirements after LLM: ", requirements)
-
         return {
             **state,
             "requirements": requirements,

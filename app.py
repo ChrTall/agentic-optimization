@@ -249,8 +249,32 @@ elif st.session_state.step == "newsvendor_input":
                 st.error("Die Anzahl der Nachfrageszenarien muss zur Anzahl der Wahrscheinlichkeiten passen.")
                 st.stop()
 
+            if any(demand < 0 for demand in parsed_demand_scenarios):
+                st.error("Nachfrageszenarien dürfen nicht negativ sein.")
+                st.stop()
+
+            if any(probability < 0 or probability > 1 for probability in parsed_scenario_probabilities):
+                st.error("Wahrscheinlichkeiten müssen zwischen 0 und 1 liegen.")
+                st.stop()
+
             if abs(sum(parsed_scenario_probabilities) - 1.0) > 0.001:
                 st.error("Die Wahrscheinlichkeiten müssen zusammen 1 ergeben.")
+                st.stop()
+
+            if selling_price <= 0:
+                st.error("Der Verkaufspreis muss größer als 0 sein.")
+                st.stop()
+
+            if purchase_cost <= 0:
+                st.error("Die Einkaufskosten müssen größer als 0 sein.")
+                st.stop()
+
+            if selling_price <= purchase_cost:
+                st.error("Der Verkaufspreis muss größer als die Einkaufskosten sein.")
+                st.stop()
+
+            if salvage_value > purchase_cost:
+                st.error("Der Restwert darf nicht größer als die Einkaufskosten sein.")
                 st.stop()
 
             newsvendor_parameters = {
