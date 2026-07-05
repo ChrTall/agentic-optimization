@@ -285,21 +285,19 @@ elif st.session_state.step == "newsvendor_input":
                 "scenario_probabilities": parsed_scenario_probabilities,
             }
 
-            st.session_state.form_data["model_parameters"] = {
-                "newsvendor": newsvendor_parameters
-            }
+            st.session_state.form_data.setdefault("model_parameters", {})
+            st.session_state.form_data["model_parameters"]["newsvendor"] = newsvendor_parameters
 
             if st.session_state.graph_state is not None:
                 st.session_state.graph_state.setdefault("requirements", {})
-                st.session_state.graph_state["requirements"]["model_parameters"] = {
-                    "newsvendor": newsvendor_parameters
-                }
+                st.session_state.graph_state["requirements"].setdefault("model_parameters", {})
+                st.session_state.graph_state["requirements"]["model_parameters"]["newsvendor"] = newsvendor_parameters
 
                 st.session_state.graph_state.setdefault("result", {})
                 st.session_state.graph_state["result"].setdefault("requirements", {})
-                st.session_state.graph_state["result"]["requirements"]["model_parameters"] = {
-                    "newsvendor": newsvendor_parameters
-                }
+                st.session_state.graph_state["result"]["requirements"].setdefault("model_parameters", {})
+                st.session_state.graph_state["result"]["requirements"]["model_parameters"]["newsvendor"] = newsvendor_parameters
+
                 st.session_state.graph_state["result"]["model_markdown"] = render_model_markdown(
                     st.session_state.graph_state.get("model_config", {}),
                     st.session_state.graph_state.get("requirements", {}),

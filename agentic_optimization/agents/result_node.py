@@ -25,7 +25,7 @@ def result_node(state: GraphState) -> GraphState:
         "generated_code": pulp_code,
         "next_steps": [
             "Modellannahmen validieren.",
-            "PuLP-Tool mit echten Daten befüllen.",
+            "PuLP-Code mit echten Daten befüllen.",
             "Optimierungsmodell lösen.",
             "Ergebnis fachlich erklären und Empfehlung ausgeben.",
         ],
