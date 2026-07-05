@@ -41,6 +41,14 @@ for i, (col, label) in enumerate(zip(cols, STEP_LABELS)):
 
 st.divider()
 
+
+def parse_constraints(value: str) -> list[str]:
+    return [
+        item.strip()
+        for item in value.splitlines()
+        if item.strip()
+    ]
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # SCHRITT 1: Formular
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -62,9 +70,14 @@ if st.session_state.step == "form":
             "Wie verhält sich die Nachfrage?",
             ["", "Sicher / bekannt", "Unsicher / saisonal", "Historisch geschätzt", "Andere"],
         )
-        constraints = st.text_input(
+        constraints = st.text_area(
             "Welche Nebenbedingungen gibt es? (optional)",
-            placeholder="z.B. Budget 10.000 €, Lagerkapazität 500 Einheiten",
+            placeholder=(
+                "Eine Nebenbedingung pro Zeile, z.B.\n"
+                "Budget 10.000 €\n"
+                "Lagerkapazität 500 Einheiten"
+            ),
+            height=120,
         )
         submitted = st.form_submit_button("Weiter →", use_container_width=True, type="primary")
 
@@ -73,7 +86,7 @@ if st.session_state.step == "form":
             "decision": decision or None,
             "objective": objective or None,
             "demand_type": demand_type or None,
-            "constraints": [constraints] if constraints else [],
+            "constraints": parse_constraints(constraints) if constraints else [],
         }
         st.session_state.step = "freitext"
         st.rerun()
