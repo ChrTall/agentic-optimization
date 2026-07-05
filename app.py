@@ -49,6 +49,7 @@ def parse_constraints(value: str) -> list[str]:
         if item.strip()
     ]
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # SCHRITT 1: Formular
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -102,7 +103,12 @@ elif st.session_state.step == "freitext":
     with st.expander("Deine Formularauswahl", expanded=False):
         for key, value in st.session_state.form_data.items():
             if value:
-                st.markdown(f"**{key}:** {value}")
+                if isinstance(value, list):
+                    st.markdown(f"**{key}:**")
+                    for item in value:
+                        st.markdown(f"- {item}")
+                else:
+                    st.markdown(f"**{key}:** {value}")
 
     raw_input = st.text_area(
         "Beschreibe dein Problem in eigenen Worten",
@@ -307,9 +313,7 @@ elif st.session_state.step == "newsvendor_input":
                 st.session_state.graph_state["requirements"]["model_parameters"]["newsvendor"] = newsvendor_parameters
 
                 st.session_state.graph_state.setdefault("result", {})
-                st.session_state.graph_state["result"].setdefault("requirements", {})
-                st.session_state.graph_state["result"]["requirements"].setdefault("model_parameters", {})
-                st.session_state.graph_state["result"]["requirements"]["model_parameters"]["newsvendor"] = newsvendor_parameters
+                st.session_state.graph_state["result"]["requirements"] = st.session_state.graph_state["requirements"]
 
                 st.session_state.graph_state["result"]["model_markdown"] = render_model_markdown(
                     st.session_state.graph_state.get("model_config", {}),
