@@ -20,7 +20,30 @@ def render_model_markdown(model_config: dict, requirements: dict) -> str:
 def _value_or_dash(value) -> str:
     if value is None or value == "":
         return "–"
+
+    if isinstance(value, list):
+        if not value:
+            return "–"
+        return ", ".join(_format_value(item) for item in value)
+
+    return _format_value(value)
+
+
+def _format_value(value) -> str:
+    if value is None or value == "":
+        return "–"
+
+    if isinstance(value, (int, float)):
+        return _format_number(value)
+
     return str(value)
+
+
+def _format_number(value: int | float) -> str:
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+
+    return f"{value:g}"
 
 
 def _render_newsvendor_markdown(model_config: dict, requirements: dict) -> str:
@@ -28,6 +51,14 @@ def _render_newsvendor_markdown(model_config: dict, requirements: dict) -> str:
     objective = _value_or_dash(requirements.get("objective"))
     demand_type = _value_or_dash(requirements.get("demand_type"))
     constraints = _value_or_dash(requirements.get("constraints"))
+    model_parameters = requirements.get("model_parameters", {})
+    newsvendor_params = model_parameters.get("newsvendor", {})
+
+    demand_scenarios = _value_or_dash(newsvendor_params.get("demand_scenarios"))
+    scenario_probabilities = _value_or_dash(newsvendor_params.get("scenario_probabilities"))
+    selling_price = _value_or_dash(newsvendor_params.get("selling_price"))
+    purchase_cost = _value_or_dash(newsvendor_params.get("purchase_cost"))
+    salvage_value = _value_or_dash(newsvendor_params.get("salvage_value"))
 
     return f"""
 ### {model_config.get("model_name", "Newsvendor-Modell")}
@@ -51,12 +82,13 @@ def _render_newsvendor_markdown(model_config: dict, requirements: dict) -> str:
 
 #### Parameter
 
-| Symbol | Bedeutung |
-|---|---|
-| `D` | unsichere Nachfrage |
-| `p` | Verkaufspreis pro Einheit |
-| `c` | Einkaufskosten pro Einheit |
-| `s` | Restwert pro Einheit |
+| Symbol | Bedeutung | Erfasster Wert |
+|---|---|---|
+| `D` | unsichere Nachfrage | {demand_scenarios} |
+| `P(D)` | Szenario-Wahrscheinlichkeiten | {scenario_probabilities} |
+| `p` | Verkaufspreis pro Einheit | {selling_price} |
+| `c` | Einkaufskosten pro Einheit | {purchase_cost} |
+| `s` | Restwert pro Einheit | {salvage_value} |
 
 #### Abgeleitete Kennzahlen
 

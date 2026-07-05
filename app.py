@@ -3,6 +3,7 @@ import streamlit as st
 from agentic_optimization.configuration.llm_config import load_llm_configuration
 from agentic_optimization.graph import build_graph
 from agentic_optimization.llm.factory import create_chat_model
+from agentic_optimization.visualization.markdown_renderer import render_model_markdown
 
 # ── Seitenkonfiguration ───────────────────────────────────────────────────────
 
@@ -23,11 +24,11 @@ if "graph_state" not in st.session_state:
 
 # ── Fortschrittsanzeige ───────────────────────────────────────────────────────
 
-STEPS = ["form", "freitext", "result"]
-STEP_LABELS = ["① Formular", "② Beschreibung", "③ Ergebnis"]
+STEPS = ["form", "freitext", "newsvendor_input", "result"]
+STEP_LABELS = ["① Formular", "② Beschreibung", "③ Modellinput", "④ Ergebnis"]
 
 step_index = STEPS.index(st.session_state.step) if st.session_state.step in STEPS else 1
-cols = st.columns(3)
+cols = st.columns(len(STEP_LABELS))
 for i, (col, label) in enumerate(zip(cols, STEP_LABELS)):
     with col:
         if i < step_index:
@@ -39,6 +40,15 @@ for i, (col, label) in enumerate(zip(cols, STEP_LABELS)):
             st.markdown(f"<p style='color:lightgray;text-align:center'>{label}</p>", unsafe_allow_html=True)
 
 st.divider()
+
+
+def parse_constraints(value: str) -> list[str]:
+    return [
+        item.strip()
+        for item in value.splitlines()
+        if item.strip()
+    ]
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SCHRITT 1: Formular
@@ -61,9 +71,14 @@ if st.session_state.step == "form":
             "Wie verhält sich die Nachfrage?",
             ["", "Sicher / bekannt", "Unsicher / saisonal", "Historisch geschätzt", "Andere"],
         )
-        constraints = st.text_input(
+        constraints = st.text_area(
             "Welche Nebenbedingungen gibt es? (optional)",
-            placeholder="z.B. Budget 10.000 €, Lagerkapazität 500 Einheiten",
+            placeholder=(
+                "Eine Nebenbedingung pro Zeile, z.B.\n"
+                "Budget 10.000 €\n"
+                "Lagerkapazität 500 Einheiten"
+            ),
+            height=120,
         )
         submitted = st.form_submit_button("Weiter →", use_container_width=True, type="primary")
 
@@ -72,7 +87,7 @@ if st.session_state.step == "form":
             "decision": decision or None,
             "objective": objective or None,
             "demand_type": demand_type or None,
-            "constraints": constraints or None,
+            "constraints": parse_constraints(constraints) if constraints else [],
         }
         st.session_state.step = "freitext"
         st.rerun()
@@ -88,7 +103,12 @@ elif st.session_state.step == "freitext":
     with st.expander("Deine Formularauswahl", expanded=False):
         for key, value in st.session_state.form_data.items():
             if value:
-                st.markdown(f"**{key}:** {value}")
+                if isinstance(value, list):
+                    st.markdown(f"**{key}:**")
+                    for item in value:
+                        st.markdown(f"- {item}")
+                else:
+                    st.markdown(f"**{key}:** {value}")
 
     raw_input = st.text_area(
         "Beschreibe dein Problem in eigenen Worten",
@@ -125,6 +145,8 @@ elif st.session_state.step == "freitext":
 
         if st.session_state.graph_state.get("clarification_question"):
             st.session_state.step = "clarify"
+        elif st.session_state.graph_state.get("model_config", {}).get("model_type") == "newsvendor":
+            st.session_state.step = "newsvendor_input"
         else:
             st.session_state.step = "result"
         st.rerun()
@@ -173,12 +195,143 @@ elif st.session_state.step == "clarify":
 
         if st.session_state.graph_state.get("clarification_question"):
             st.rerun()
+        elif st.session_state.graph_state.get("model_config", {}).get("model_type") == "newsvendor":
+            st.session_state.step = "newsvendor_input"
+            st.rerun()
         else:
             st.session_state.step = "result"
             st.rerun()
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SCHRITT 3: Ergebnis
+# SCHRITT 3: Newsvendor-spezifische Eingaben
+# ═══════════════════════════════════════════════════════════════════════════════
+
+elif st.session_state.step == "newsvendor_input":
+    st.subheader("Newsvendor-Parameter")
+    st.info("Es wurde ein Newsvendor-Modell erkannt. Bitte ergänze die modellspezifischen Eingaben.")
+
+    with st.form("newsvendor_form"):
+        selling_price = st.number_input(
+            "Verkaufspreis pro Einheit",
+            min_value=0.0,
+            step=0.5,
+            value=0.0,
+        )
+
+        purchase_cost = st.number_input(
+            "Einkaufskosten pro Einheit",
+            min_value=0.0,
+            step=0.5,
+            value=0.0,
+        )
+
+        salvage_value = st.number_input(
+            "Restwert pro unverkaufter Einheit",
+            min_value=0.0,
+            step=0.5,
+            value=0.0,
+        )
+
+        demand_scenarios = st.text_input(
+            "Nachfrageszenarien",
+            placeholder="z.B. 80, 100, 120, 140",
+        )
+
+        scenario_probabilities = st.text_input(
+            "Wahrscheinlichkeiten der Szenarien",
+            placeholder="z.B. 0.25, 0.25, 0.25, 0.25",
+        )
+
+        submitted = st.form_submit_button(
+            "Ergebnis anzeigen →",
+            use_container_width=True,
+            type="primary",
+        )
+
+    def parse_number_list(value: str) -> list[float]:
+        return [float(item.strip()) for item in value.split(",") if item.strip()]
+
+    if submitted:
+        try:
+            parsed_demand_scenarios = parse_number_list(demand_scenarios)
+            parsed_scenario_probabilities = parse_number_list(scenario_probabilities)
+
+            if not parsed_demand_scenarios:
+                st.error("Bitte gib mindestens ein Nachfrageszenario ein.")
+                st.stop()
+
+            if not parsed_scenario_probabilities:
+                st.error("Bitte gib mindestens eine Wahrscheinlichkeit ein.")
+                st.stop()
+
+            if len(parsed_demand_scenarios) != len(parsed_scenario_probabilities):
+                st.error("Die Anzahl der Nachfrageszenarien muss zur Anzahl der Wahrscheinlichkeiten passen.")
+                st.stop()
+
+            if any(demand < 0 for demand in parsed_demand_scenarios):
+                st.error("Nachfrageszenarien dürfen nicht negativ sein.")
+                st.stop()
+
+            if any(probability < 0 or probability > 1 for probability in parsed_scenario_probabilities):
+                st.error("Wahrscheinlichkeiten müssen zwischen 0 und 1 liegen.")
+                st.stop()
+
+            if abs(sum(parsed_scenario_probabilities) - 1.0) > 0.001:
+                st.error("Die Wahrscheinlichkeiten müssen zusammen 1 ergeben.")
+                st.stop()
+
+            if selling_price <= 0:
+                st.error("Der Verkaufspreis muss größer als 0 sein.")
+                st.stop()
+
+            if purchase_cost <= 0:
+                st.error("Die Einkaufskosten müssen größer als 0 sein.")
+                st.stop()
+
+            if selling_price <= purchase_cost:
+                st.error("Der Verkaufspreis muss größer als die Einkaufskosten sein.")
+                st.stop()
+
+            if salvage_value > purchase_cost:
+                st.error("Der Restwert darf nicht größer als die Einkaufskosten sein.")
+                st.stop()
+
+            newsvendor_parameters = {
+                "selling_price": selling_price,
+                "purchase_cost": purchase_cost,
+                "salvage_value": salvage_value,
+                "demand_scenarios": parsed_demand_scenarios,
+                "scenario_probabilities": parsed_scenario_probabilities,
+            }
+
+            st.session_state.form_data.setdefault("model_parameters", {})
+            st.session_state.form_data["model_parameters"]["newsvendor"] = newsvendor_parameters
+
+            if st.session_state.graph_state is not None:
+                st.session_state.graph_state.setdefault("requirements", {})
+                st.session_state.graph_state["requirements"].setdefault("model_parameters", {})
+                st.session_state.graph_state["requirements"]["model_parameters"]["newsvendor"] = newsvendor_parameters
+
+                st.session_state.graph_state.setdefault("result", {})
+                st.session_state.graph_state["result"]["requirements"] = st.session_state.graph_state["requirements"]
+
+                st.session_state.graph_state["result"]["model_markdown"] = render_model_markdown(
+                    st.session_state.graph_state.get("model_config", {}),
+                    st.session_state.graph_state.get("requirements", {}),
+                )
+
+            st.session_state.step = "result"
+            st.rerun()
+
+        except ValueError:
+            st.error(
+                "Bitte gib Nachfrageszenarien und Wahrscheinlichkeiten als kommagetrennte Zahlen ein, "
+                "z.B. 80, 100, 120 und 0.2, 0.5, 0.3."
+            )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SCHRITT 4: Ergebnis
 # ═══════════════════════════════════════════════════════════════════════════════
 
 elif st.session_state.step == "result":
@@ -191,14 +344,67 @@ elif st.session_state.step == "result":
 
     # ── Erkannte Anforderungen ────────────────────────────────────────────────
     st.markdown("### 📋 Erkannte Anforderungen")
-    col1, col2 = st.columns(2)
 
-    with col1:
-        st.metric("Entscheidung", reqs.get("decision", "–"))
-        st.metric("Ziel", reqs.get("objective", "–"))
-    with col2:
-        st.metric("Nachfrage", reqs.get("demand_type", "–"))
-        st.metric("Constraints", reqs.get("constraints", "–") or "–")
+    constraints_list = reqs.get("constraints", [])
+
+    if isinstance(constraints_list, str):
+        constraints_list = [constraints_list]
+
+    st.markdown("#### Problemstruktur")
+    st.markdown(f"- **Entscheidung:** {reqs.get('decision', '–')}")
+    st.markdown(f"- **Ziel:** {reqs.get('objective', '–')}")
+    st.markdown(f"- **Nachfrage:** {reqs.get('demand_type', '–')}")
+
+    st.markdown("#### Restriktionen")
+    if constraints_list:
+        for constraint in constraints_list:
+            st.markdown(f"- {constraint}")
+    else:
+        st.markdown("- –")
+
+    newsvendor_params = reqs.get("model_parameters", {}).get("newsvendor", {})
+
+    if newsvendor_params:
+        st.markdown("### 🧾 Erfasste Modellparameter")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric(
+                "Verkaufspreis",
+                newsvendor_params.get("selling_price", "–"),
+            )
+
+        with col2:
+            st.metric(
+                "Einkaufskosten",
+                newsvendor_params.get("purchase_cost", "–"),
+            )
+
+        with col3:
+            st.metric(
+                "Restwert",
+                newsvendor_params.get("salvage_value", "–"),
+            )
+
+        demand_scenarios = newsvendor_params.get("demand_scenarios", [])
+        scenario_probabilities = newsvendor_params.get("scenario_probabilities", [])
+
+        if demand_scenarios and scenario_probabilities:
+            st.markdown("#### Nachfrageszenarien")
+
+            scenario_rows = [
+                {
+                    "Szenario": index + 1,
+                    "Nachfrage": f"{demand:g}",
+                    "Wahrscheinlichkeit": f"{probability:.0%}",
+                }
+                for index, (demand, probability) in enumerate(
+                    zip(demand_scenarios, scenario_probabilities)
+                )
+            ]
+
+            st.table(scenario_rows)
 
     st.divider()
 
@@ -209,10 +415,10 @@ elif st.session_state.step == "result":
     st.divider()
 
     # ── Generierter PuLP-Code ─────────────────────────────────────────────────
-    st.markdown("### 💻 Generierter PuLP-Code")
-    st.code(result.get("generated_code", ""), language="python")
-
-    st.divider()
+    # st.markdown("### 💻 Generierter PuLP-Code")
+    # st.code(result.get("generated_code", ""), language="python")
+    #
+    # st.divider()
 
     # ── Nächste Schritte ──────────────────────────────────────────────────────
     st.markdown("### 🔜 Nächste Schritte")

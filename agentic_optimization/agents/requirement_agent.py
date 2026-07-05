@@ -21,7 +21,7 @@ Format:
   "decision": "...",
   "objective": "...",
   "demand_type": "...",
-  "constraints": "...",
+  "constraints": ["...", "..."],
   "missing_fields": ["field1", "field2"]
 }
 

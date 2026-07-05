@@ -24,7 +24,6 @@ def result_node(state: GraphState) -> GraphState:
         "model_markdown": render_model_markdown(model_config, requirements),
         "generated_code": pulp_code,
         "next_steps": [
-            "Konkrete Parameter aus der Kundeneingabe extrahieren.",
             "Modellannahmen validieren.",
             "PuLP-Code mit echten Daten befüllen.",
             "Optimierungsmodell lösen.",
