@@ -3,7 +3,18 @@ import streamlit as st
 from agentic_optimization.configuration.llm_config import load_llm_configuration
 from agentic_optimization.graph import build_graph
 from agentic_optimization.llm.factory import create_chat_model
-from agentic_optimization.visualization.markdown_renderer import render_model_markdown
+from agentic_optimization.state import (
+
+    WORKFLOW_MODEL_INPUTS_INVALID,
+    WORKFLOW_MODEL_SPECIFIC_INPUTS_SUBMITTED,
+    EVENT_NEW_PROBLEM,
+    EVENT_GENERAL_CLARIFICATION_SUBMITTED,
+    EVENT_MODEL_INPUTS_SUBMITTED,
+    WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
+    WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS,
+    WORKFLOW_READY_FOR_RESULT,
+    get_workflow_status,
+)
 
 # ── Seitenkonfiguration ───────────────────────────────────────────────────────
 
@@ -24,7 +35,7 @@ if "graph_state" not in st.session_state:
 
 # ── Fortschrittsanzeige ───────────────────────────────────────────────────────
 
-STEPS = ["form", "freitext", "newsvendor_input", "result"]
+STEPS = ["form", "freitext", "model_input_form", "result"]
 STEP_LABELS = ["① Formular", "② Beschreibung", "③ Modellinput", "④ Ergebnis"]
 
 step_index = STEPS.index(st.session_state.step) if st.session_state.step in STEPS else 1
@@ -49,6 +60,23 @@ def parse_constraints(value: str) -> list[str]:
         if item.strip()
     ]
 
+
+def route_ui_from_graph_state(graph_state: dict) -> str:
+    status = get_workflow_status(graph_state)
+
+    if status == WORKFLOW_NEEDS_GENERAL_CLARIFICATION:
+        return "clarify"
+
+    if status in {
+        WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS,
+        WORKFLOW_MODEL_INPUTS_INVALID,
+    }:
+        return "model_input_form"
+
+    if status == WORKFLOW_READY_FOR_RESULT:
+        return "result"
+
+    return "freitext"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SCHRITT 1: Formular
@@ -137,18 +165,18 @@ elif st.session_state.step == "freitext":
                 st.session_state.llm = llm
             app = build_graph(llm)
             initial_state = {
+                "control": {
+                    "event": EVENT_NEW_PROBLEM,
+                },
                 "raw_input": raw_input,
                 "form_data": st.session_state.form_data,
                 "messages": [],
             }
             st.session_state.graph_state = app.invoke(initial_state)
 
-        if st.session_state.graph_state.get("clarification_question"):
-            st.session_state.step = "clarify"
-        elif st.session_state.graph_state.get("model_config", {}).get("model_type") == "newsvendor":
-            st.session_state.step = "newsvendor_input"
-        else:
-            st.session_state.step = "result"
+        st.session_state.step = route_ui_from_graph_state(
+            st.session_state.graph_state
+        )
         st.rerun()
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -175,7 +203,7 @@ elif st.session_state.step == "clarify":
 
     if retry and answer:
         with st.spinner("🤖 LLM analysiert erneut …"):
-            prev = st.session_state.graph_state
+            prev = st.session_state.graph_state or {}
             combined = (prev.get("raw_input") or "") + "\n\nNachtrag: " + answer
             llm = st.session_state.get("llm")
             if llm is None:
@@ -188,27 +216,43 @@ elif st.session_state.step == "clarify":
                 st.session_state.llm = llm
             app = build_graph(llm)
             st.session_state.graph_state = app.invoke({
+                **prev,
+                "control": {
+                    **prev.get("control", {}),
+                    "event": EVENT_GENERAL_CLARIFICATION_SUBMITTED,
+                },
                 "raw_input": combined,
                 "form_data": st.session_state.form_data,
                 "messages": [],
             })
 
-        if st.session_state.graph_state.get("clarification_question"):
-            st.rerun()
-        elif st.session_state.graph_state.get("model_config", {}).get("model_type") == "newsvendor":
-            st.session_state.step = "newsvendor_input"
-            st.rerun()
-        else:
-            st.session_state.step = "result"
-            st.rerun()
+        st.session_state.step = route_ui_from_graph_state(
+            st.session_state.graph_state
+        )
+        st.rerun()
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SCHRITT 3: Newsvendor-spezifische Eingaben
 # ═══════════════════════════════════════════════════════════════════════════════
 
-elif st.session_state.step == "newsvendor_input":
-    st.subheader("Newsvendor-Parameter")
-    st.info("Es wurde ein Newsvendor-Modell erkannt. Bitte ergänze die modellspezifischen Eingaben.")
+elif st.session_state.step == "model_input_form":
+    st.subheader("Modellspezifische Eingaben")
+
+    graph_state = st.session_state.graph_state or {}
+    selected_model = graph_state.get("selected_model")
+
+    validation_errors = graph_state.get("model_input_validation_errors", [])
+    for error in validation_errors:
+        st.error(error)
+
+    if selected_model != "newsvendor":
+        st.warning("Für dieses Modell gibt es noch kein spezifisches Eingabeformular.")
+        st.stop()
+
+    st.info(
+        "Es wurde ein Newsvendor-Modell erkannt. "
+        "Bitte ergänze die modellspezifischen Eingaben."
+    )
 
     with st.form("newsvendor_form"):
         selling_price = st.number_input(
@@ -243,60 +287,26 @@ elif st.session_state.step == "newsvendor_input":
         )
 
         submitted = st.form_submit_button(
-            "Ergebnis anzeigen →",
+            "Eingaben prüfen →",
             use_container_width=True,
             type="primary",
         )
 
     def parse_number_list(value: str) -> list[float]:
-        return [float(item.strip()) for item in value.split(",") if item.strip()]
+        return [
+            float(item.strip())
+            for item in value.split(",")
+            if item.strip()
+        ]
 
     if submitted:
         try:
             parsed_demand_scenarios = parse_number_list(demand_scenarios)
-            parsed_scenario_probabilities = parse_number_list(scenario_probabilities)
+            parsed_scenario_probabilities = parse_number_list(
+                scenario_probabilities
+            )
 
-            if not parsed_demand_scenarios:
-                st.error("Bitte gib mindestens ein Nachfrageszenario ein.")
-                st.stop()
-
-            if not parsed_scenario_probabilities:
-                st.error("Bitte gib mindestens eine Wahrscheinlichkeit ein.")
-                st.stop()
-
-            if len(parsed_demand_scenarios) != len(parsed_scenario_probabilities):
-                st.error("Die Anzahl der Nachfrageszenarien muss zur Anzahl der Wahrscheinlichkeiten passen.")
-                st.stop()
-
-            if any(demand < 0 for demand in parsed_demand_scenarios):
-                st.error("Nachfrageszenarien dürfen nicht negativ sein.")
-                st.stop()
-
-            if any(probability < 0 or probability > 1 for probability in parsed_scenario_probabilities):
-                st.error("Wahrscheinlichkeiten müssen zwischen 0 und 1 liegen.")
-                st.stop()
-
-            if abs(sum(parsed_scenario_probabilities) - 1.0) > 0.001:
-                st.error("Die Wahrscheinlichkeiten müssen zusammen 1 ergeben.")
-                st.stop()
-
-            if selling_price <= 0:
-                st.error("Der Verkaufspreis muss größer als 0 sein.")
-                st.stop()
-
-            if purchase_cost <= 0:
-                st.error("Die Einkaufskosten müssen größer als 0 sein.")
-                st.stop()
-
-            if selling_price <= purchase_cost:
-                st.error("Der Verkaufspreis muss größer als die Einkaufskosten sein.")
-                st.stop()
-
-            if salvage_value > purchase_cost:
-                st.error("Der Restwert darf nicht größer als die Einkaufskosten sein.")
-                st.stop()
-
-            newsvendor_parameters = {
+            newsvendor_inputs = {
                 "selling_price": selling_price,
                 "purchase_cost": purchase_cost,
                 "salvage_value": salvage_value,
@@ -304,29 +314,45 @@ elif st.session_state.step == "newsvendor_input":
                 "scenario_probabilities": parsed_scenario_probabilities,
             }
 
-            st.session_state.form_data.setdefault("model_parameters", {})
-            st.session_state.form_data["model_parameters"]["newsvendor"] = newsvendor_parameters
+            prev_state = st.session_state.graph_state or {}
 
-            if st.session_state.graph_state is not None:
-                st.session_state.graph_state.setdefault("requirements", {})
-                st.session_state.graph_state["requirements"].setdefault("model_parameters", {})
-                st.session_state.graph_state["requirements"]["model_parameters"]["newsvendor"] = newsvendor_parameters
+            next_state = {
+                **prev_state,
+                "control": {
+                    **prev_state.get("control", {}),
+                    "event": EVENT_MODEL_INPUTS_SUBMITTED,
+                    "workflow_status": WORKFLOW_MODEL_SPECIFIC_INPUTS_SUBMITTED,
+                },
+                "model_specific_inputs": {
+                    **prev_state.get("model_specific_inputs", {}),
+                    "newsvendor": newsvendor_inputs,
+                },
+            }
 
-                st.session_state.graph_state.setdefault("result", {})
-                st.session_state.graph_state["result"]["requirements"] = st.session_state.graph_state["requirements"]
+            llm = st.session_state.get("llm")
+            if llm is None:
+                try:
+                    llm_config = load_llm_configuration()
+                    llm = create_chat_model(llm_config)
+                except ValueError as e:
+                    st.error(str(e))
+                    st.stop()
 
-                st.session_state.graph_state["result"]["model_markdown"] = render_model_markdown(
-                    st.session_state.graph_state.get("model_config", {}),
-                    st.session_state.graph_state.get("requirements", {}),
-                )
+                st.session_state.llm = llm
 
-            st.session_state.step = "result"
+            app = build_graph(llm)
+            st.session_state.graph_state = app.invoke(next_state)
+
+            st.session_state.step = route_ui_from_graph_state(
+                st.session_state.graph_state
+            )
+
             st.rerun()
 
         except ValueError:
             st.error(
-                "Bitte gib Nachfrageszenarien und Wahrscheinlichkeiten als kommagetrennte Zahlen ein, "
-                "z.B. 80, 100, 120 und 0.2, 0.5, 0.3."
+                "Bitte gib Nachfrageszenarien und Wahrscheinlichkeiten als "
+                "kommagetrennte Zahlen ein, z.B. 80, 100, 120 und 0.2, 0.5, 0.3."
             )
 
 
@@ -335,9 +361,12 @@ elif st.session_state.step == "newsvendor_input":
 # ═══════════════════════════════════════════════════════════════════════════════
 
 elif st.session_state.step == "result":
-    gs = st.session_state.graph_state
+    gs = st.session_state.graph_state or {}
     result = gs.get("result", {})
     reqs = result.get("requirements", {})
+    selected_model = result.get("selected_model", {})
+    selected_model_type = selected_model.get("type")
+    selected_model_inputs = result.get("selected_model_inputs", {})
 
     st.subheader("Ergebnis")
     st.success(result.get("summary", ""))
@@ -362,63 +391,86 @@ elif st.session_state.step == "result":
     else:
         st.markdown("- –")
 
-    newsvendor_params = reqs.get("model_parameters", {}).get("newsvendor", {})
+    # ── Ausgewähltes Modell ───────────────────────────────────────────────────
+    st.markdown("### 📐 Ausgewähltes Modell")
 
-    if newsvendor_params:
+    st.markdown(f"- **Typ:** {selected_model_type or '–'}")
+    st.markdown(f"- **Name:** {selected_model.get('name', '–')}")
+
+    explanation = selected_model.get("explanation")
+    if explanation:
+        st.markdown(f"- **Begründung:** {explanation}")
+
+    # ── Modellspezifische Eingaben ────────────────────────────────────────────
+    if selected_model_inputs:
         st.markdown("### 🧾 Erfasste Modellparameter")
 
-        col1, col2, col3 = st.columns(3)
+        if selected_model_type == "newsvendor":
+            col1, col2, col3 = st.columns(3)
 
-        with col1:
-            st.metric(
-                "Verkaufspreis",
-                newsvendor_params.get("selling_price", "–"),
-            )
-
-        with col2:
-            st.metric(
-                "Einkaufskosten",
-                newsvendor_params.get("purchase_cost", "–"),
-            )
-
-        with col3:
-            st.metric(
-                "Restwert",
-                newsvendor_params.get("salvage_value", "–"),
-            )
-
-        demand_scenarios = newsvendor_params.get("demand_scenarios", [])
-        scenario_probabilities = newsvendor_params.get("scenario_probabilities", [])
-
-        if demand_scenarios and scenario_probabilities:
-            st.markdown("#### Nachfrageszenarien")
-
-            scenario_rows = [
-                {
-                    "Szenario": index + 1,
-                    "Nachfrage": f"{demand:g}",
-                    "Wahrscheinlichkeit": f"{probability:.0%}",
-                }
-                for index, (demand, probability) in enumerate(
-                    zip(demand_scenarios, scenario_probabilities)
+            with col1:
+                st.metric(
+                    "Verkaufspreis",
+                    selected_model_inputs.get("selling_price", "–"),
                 )
-            ]
 
-            st.table(scenario_rows)
+            with col2:
+                st.metric(
+                    "Einkaufskosten",
+                    selected_model_inputs.get("purchase_cost", "–"),
+                )
+
+            with col3:
+                st.metric(
+                    "Restwert",
+                    selected_model_inputs.get("salvage_value", "–"),
+                )
+
+            demand_scenarios = selected_model_inputs.get("demand_scenarios", [])
+            scenario_probabilities = selected_model_inputs.get(
+                "scenario_probabilities",
+                [],
+            )
+
+            if demand_scenarios and scenario_probabilities:
+                st.markdown("#### Nachfrageszenarien")
+
+                scenario_rows = [
+                    {
+                        "Szenario": index + 1,
+                        "Nachfrage": f"{demand:g}",
+                        "Wahrscheinlichkeit": f"{probability:.0%}",
+                    }
+                    for index, (demand, probability) in enumerate(
+                        zip(demand_scenarios, scenario_probabilities)
+                    )
+                ]
+
+                st.table(scenario_rows)
+
+        else:
+            st.json(selected_model_inputs)
 
     st.divider()
 
-    # ── Ausgewähltes Modell ───────────────────────────────────────────────────
+    # ── Modellvisualisierung ──────────────────────────────────────────────────
     st.markdown("### 📐 Optimierungsmodell")
-    st.markdown(result.get("model_markdown", "Keine Modellvisualisierung verfügbar."))
+    st.markdown(
+        result.get(
+            "model_markdown",
+            "Keine Modellvisualisierung verfügbar.",
+        )
+    )
 
     st.divider()
 
     # ── Generierter PuLP-Code ─────────────────────────────────────────────────
-    # st.markdown("### 💻 Generierter PuLP-Code")
-    # st.code(result.get("generated_code", ""), language="python")
-    #
-    # st.divider()
+    # Code-Generierung ist aktuell bewusst noch nicht Hauptfokus.
+    generated_code = result.get("generated_code", "")
+    if generated_code:
+        st.markdown("### 💻 Generierter PuLP-Code")
+        st.code(generated_code, language="python")
+        st.divider()
 
     # ── Nächste Schritte ──────────────────────────────────────────────────────
     st.markdown("### 🔜 Nächste Schritte")
@@ -429,5 +481,6 @@ elif st.session_state.step == "result":
     st.divider()
     if st.button("↺ Neu starten", use_container_width=True):
         for key in ["step", "form_data", "graph_state"]:
-            del st.session_state[key]
+            if key in st.session_state:
+                del st.session_state[key]
         st.rerun()

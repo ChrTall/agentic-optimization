@@ -1,11 +1,14 @@
 import json
 import re
 from typing import Callable
-
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage, HumanMessage
+from agentic_optimization.state import (
+    GraphState,
+    WORKFLOW_GENERAL_REQUIREMENTS_EXTRACTED,
+    with_control,
+)
 
-from agentic_optimization.state import GraphState
 
 REQUIRED_FIELDS = ["decision", "objective", "demand_type", "constraints"]
 
@@ -66,11 +69,18 @@ def create_requirement_agent(llm: BaseChatModel) -> Callable[[GraphState], Graph
             "raw_description": raw_input,
         }
 
-        return {
-            **state,
-            "requirements": requirements,
-            "missing_fields": missing_fields,
-        }
+        return with_control(
+            {
+                **state,
+                "requirements": requirements,
+                "missing_fields": missing_fields,
+                "clarification_question": "",
+                "general_validation_errors": [],
+                "consistency_warnings": [],
+            },
+            event=None,
+            workflow_status=WORKFLOW_GENERAL_REQUIREMENTS_EXTRACTED,
+        )
 
     return requirement_agent
 

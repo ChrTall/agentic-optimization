@@ -1,0 +1,135 @@
+from typing import Any, Callable, TypedDict
+
+
+class ModelInputField(TypedDict):
+    name: str
+    label: str
+    type: str
+    required: bool
+    help: str | None
+
+
+class ModelDefinition(TypedDict):
+    model_type: str
+    model_name: str
+    required_fields: list[str]
+    input_fields: list[ModelInputField]
+    validator: Callable[[dict[str, Any]], list[str]]
+
+
+def validate_newsvendor_inputs(inputs: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+
+    selling_price = inputs.get("selling_price")
+    purchase_cost = inputs.get("purchase_cost")
+    salvage_value = inputs.get("salvage_value")
+    demand_scenarios = inputs.get("demand_scenarios") or []
+    scenario_probabilities = inputs.get("scenario_probabilities") or []
+
+    if selling_price is None or selling_price <= 0:
+        errors.append("Der Verkaufspreis muss größer als 0 sein.")
+
+    if purchase_cost is None or purchase_cost <= 0:
+        errors.append("Die Einkaufskosten müssen größer als 0 sein.")
+
+    if (
+        selling_price is not None
+        and purchase_cost is not None
+        and selling_price <= purchase_cost
+    ):
+        errors.append("Der Verkaufspreis muss größer als die Einkaufskosten sein.")
+
+    if salvage_value is None:
+        errors.append("Der Restwert muss angegeben werden.")
+
+    if (
+        salvage_value is not None
+        and purchase_cost is not None
+        and salvage_value > purchase_cost
+    ):
+        errors.append("Der Restwert darf nicht größer als die Einkaufskosten sein.")
+
+    if not demand_scenarios:
+        errors.append("Bitte gib mindestens ein Nachfrageszenario ein.")
+
+    if not scenario_probabilities:
+        errors.append("Bitte gib mindestens eine Wahrscheinlichkeit ein.")
+
+    if len(demand_scenarios) != len(scenario_probabilities):
+        errors.append(
+            "Die Anzahl der Nachfrageszenarien muss zur Anzahl der Wahrscheinlichkeiten passen."
+        )
+
+    if any(demand < 0 for demand in demand_scenarios):
+        errors.append("Nachfrageszenarien dürfen nicht negativ sein.")
+
+    if any(
+        probability < 0 or probability > 1
+        for probability in scenario_probabilities
+    ):
+        errors.append("Wahrscheinlichkeiten müssen zwischen 0 und 1 liegen.")
+
+    if scenario_probabilities and abs(sum(scenario_probabilities) - 1.0) > 0.001:
+        errors.append("Die Wahrscheinlichkeiten müssen zusammen 1 ergeben.")
+
+    return errors
+
+
+MODEL_REGISTRY: dict[str, ModelDefinition] = {
+    "newsvendor": {
+        "model_type": "newsvendor",
+        "model_name": "Newsvendor-Modell",
+        "required_fields": [
+            "selling_price",
+            "purchase_cost",
+            "salvage_value",
+            "demand_scenarios",
+            "scenario_probabilities",
+        ],
+        "input_fields": [
+            {
+                "name": "selling_price",
+                "label": "Verkaufspreis pro Einheit",
+                "type": "number",
+                "required": True,
+                "help": None,
+            },
+            {
+                "name": "purchase_cost",
+                "label": "Einkaufskosten pro Einheit",
+                "type": "number",
+                "required": True,
+                "help": None,
+            },
+            {
+                "name": "salvage_value",
+                "label": "Restwert pro unverkaufter Einheit",
+                "type": "number",
+                "required": True,
+                "help": None,
+            },
+            {
+                "name": "demand_scenarios",
+                "label": "Nachfrageszenarien",
+                "type": "number_list",
+                "required": True,
+                "help": "Kommagetrennt, z.B. 80, 100, 120",
+            },
+            {
+                "name": "scenario_probabilities",
+                "label": "Wahrscheinlichkeiten der Szenarien",
+                "type": "number_list",
+                "required": True,
+                "help": "Kommagetrennt, z.B. 0.25, 0.5, 0.25",
+            },
+        ],
+        "validator": validate_newsvendor_inputs,
+    }
+}
+
+
+def get_model_definition(model_type: str | None) -> ModelDefinition | None:
+    if not model_type:
+        return None
+
+    return MODEL_REGISTRY.get(model_type)
