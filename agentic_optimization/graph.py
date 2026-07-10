@@ -28,6 +28,8 @@ from agentic_optimization.agents.validation_agent import (
 
 
 def route_workflow(state: GraphState) -> str:
+    """Entscheidet, an welcher Stelle der Graph gestartet wird."""
+
     event = get_event(state)
 
     if event == EVENT_NEW_PROBLEM:
@@ -43,6 +45,8 @@ def route_workflow(state: GraphState) -> str:
 
 
 def route_after_general_validation(state: GraphState) -> str:
+    """Routet nach der allgemeinen Validierung."""
+
     status = get_workflow_status(state)
 
     if status == WORKFLOW_NEEDS_GENERAL_CLARIFICATION:
@@ -55,6 +59,8 @@ def route_after_general_validation(state: GraphState) -> str:
 
 
 def route_after_model_selection(state: GraphState) -> str:
+    """Routet nach der Modellauswahl."""
+
     status = get_workflow_status(state)
 
     if status == WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS:
@@ -67,6 +73,8 @@ def route_after_model_selection(state: GraphState) -> str:
 
 
 def route_after_model_input_validation(state: GraphState) -> str:
+    """Routet nach der Validierung der modellspezifischen Eingaben."""
+
     status = get_workflow_status(state)
 
     if status == WORKFLOW_MODEL_INPUTS_INVALID:
@@ -82,8 +90,8 @@ def build_graph(llm: BaseChatModel):
     """
     Baut den LangGraph-Workflow für das Optimierungssystem.
 
-    Der Graph kann sowohl einen neuen Workflow starten als auch nach
-    UI-Eingaben an der passenden Stelle fortsetzen.
+    Bei jedem app.invoke()-Aufruf entscheidet das Event,
+    an welcher Stelle der Workflow fortgesetzt wird.
     """
 
     graph = StateGraph(GraphState)
@@ -95,13 +103,15 @@ def build_graph(llm: BaseChatModel):
     # sollte aber perspektivisch eher "select_model" heißen.
     graph.add_node("modeling_agent", modeling_agent)
 
-    # Neue Architektur-Nodes:
+    # Validierungs- und Input-Erkennungs-Nodes
     graph.add_node("validate_general_requirements", validate_general_requirements)
     graph.add_node("detect_model_specific_inputs", detect_model_specific_inputs)
     graph.add_node("validate_model_specific_inputs", validate_model_specific_inputs)
 
+    # Bereitet das finale Ergebnis für die UI auf.
     graph.add_node("result_node", result_node)
 
+    # Einstiegspunkt: abhängig vom Event an der richtigen Stelle starten.
     graph.add_conditional_edges(
         START,
         route_workflow,
@@ -111,8 +121,10 @@ def build_graph(llm: BaseChatModel):
         },
     )
 
+    # Nach der Requirement-Extraktion immer allgemein validieren.
     graph.add_edge("requirement_agent", "validate_general_requirements")
 
+    # Je nach Validierung entweder Rückfrage stellen oder Modell auswählen.
     graph.add_conditional_edges(
         "validate_general_requirements",
         route_after_general_validation,
@@ -122,10 +134,13 @@ def build_graph(llm: BaseChatModel):
         },
     )
 
+    # Bei Rückfragen endet der Graph, die UI wartet auf Nutzereingabe.
     graph.add_edge("clarification", END)
 
+    # Nach der Modellauswahl prüfen, ob modellabhängige Eingaben fehlen.
     graph.add_edge("modeling_agent", "detect_model_specific_inputs")
 
+    # Fehlen Eingaben, endet der Graph und die UI zeigt das Modellformular.
     graph.add_conditional_edges(
         "detect_model_specific_inputs",
         route_after_model_selection,
@@ -135,6 +150,7 @@ def build_graph(llm: BaseChatModel):
         },
     )
 
+    # Ungültige Modellinputs stoppen den Graph, gültige führen zum Ergebnis.
     graph.add_conditional_edges(
         "validate_model_specific_inputs",
         route_after_model_input_validation,
@@ -144,6 +160,7 @@ def build_graph(llm: BaseChatModel):
         },
     )
 
+    # Nach der Ergebnisaufbereitung ist der Workflow abgeschlossen.
     graph.add_edge("result_node", END)
 
     return graph.compile()

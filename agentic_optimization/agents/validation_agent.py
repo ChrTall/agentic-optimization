@@ -40,6 +40,9 @@ def validate_general_requirements(state: GraphState) -> GraphState:
 def detect_model_specific_inputs(state: GraphState) -> GraphState:
     """
     Prüft nach der Modellauswahl, ob modellspezifische Eingaben fehlen.
+
+    Dafür wird die Model Registry als Bauplan genutzt:
+    Sie definiert, welche Pflichtfelder das ausgewählte Modell benötigt.
     """
 
     model_config = state.get("model_config", {})
@@ -102,9 +105,12 @@ def detect_model_specific_inputs(state: GraphState) -> GraphState:
         workflow_status=WORKFLOW_MODEL_SPECIFIC_INPUTS_COMPLETE,
     )
 
+
 def validate_model_specific_inputs(state: GraphState) -> GraphState:
     """
-    Validiert modellspezifische Eingaben.
+    Validiert die eingegebenen Modellparameter.
+
+    Der passende Validator wird aus der Model Registry geholt.
     """
 
     selected_model = state.get("selected_model")

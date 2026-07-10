@@ -2,6 +2,10 @@ from typing import Any, Callable, TypedDict
 
 
 class ModelInputField(TypedDict):
+    """
+    Beschreibt ein einzelnes Eingabefeld für ein Modellformular.
+    """
+
     name: str
     label: str
     type: str
@@ -10,6 +14,13 @@ class ModelInputField(TypedDict):
 
 
 class ModelDefinition(TypedDict):
+    """
+    Beschreibt ein unterstütztes Optimierungsmodell.
+
+    Enthält die benötigten Pflichtfelder, Formularfelder
+    und die passende Validierungsfunktion.
+    """
+
     model_type: str
     model_name: str
     required_fields: list[str]
@@ -18,6 +29,13 @@ class ModelDefinition(TypedDict):
 
 
 def validate_newsvendor_inputs(inputs: dict[str, Any]) -> list[str]:
+    """
+    Prüft die eingegebenen Parameter für das Newsvendor-Modell.
+
+    Gibt eine Liste mit Fehlermeldungen zurück.
+    Ist die Liste leer, sind die Eingaben gültig.
+    """
+
     errors: list[str] = []
 
     selling_price = inputs.get("selling_price")
@@ -75,6 +93,7 @@ def validate_newsvendor_inputs(inputs: dict[str, Any]) -> list[str]:
     return errors
 
 
+# Zentrale Registry aller unterstützten Modelltypen.
 MODEL_REGISTRY: dict[str, ModelDefinition] = {
     "newsvendor": {
         "model_type": "newsvendor",
@@ -129,6 +148,12 @@ MODEL_REGISTRY: dict[str, ModelDefinition] = {
 
 
 def get_model_definition(model_type: str | None) -> ModelDefinition | None:
+    """
+    Gibt die ModelDefinition für einen Modelltyp zurück.
+
+    Falls der Modelltyp unbekannt oder leer ist, wird None zurückgegeben.
+    """
+
     if not model_type:
         return None
 

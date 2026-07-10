@@ -4,7 +4,6 @@ from agentic_optimization.configuration.llm_config import load_llm_configuration
 from agentic_optimization.graph import build_graph
 from agentic_optimization.llm.factory import create_chat_model
 from agentic_optimization.state import (
-
     WORKFLOW_MODEL_INPUTS_INVALID,
     WORKFLOW_MODEL_SPECIFIC_INPUTS_SUBMITTED,
     EVENT_NEW_PROBLEM,
@@ -62,6 +61,14 @@ def parse_constraints(value: str) -> list[str]:
 
 
 def route_ui_from_graph_state(graph_state: dict) -> str:
+    """
+    Übersetzt den fachlichen Workflow-Status aus dem Graph
+    in den nächsten Streamlit-Schritt.
+
+    Der Graph entscheidet, was fachlich als Nächstes nötig ist.
+    Diese Funktion entscheidet, welche UI-Seite dafür angezeigt wird.
+    """
+
     status = get_workflow_status(graph_state)
 
     if status == WORKFLOW_NEEDS_GENERAL_CLARIFICATION:

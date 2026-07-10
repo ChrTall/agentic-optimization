@@ -1,5 +1,11 @@
 from typing import Any, Final, Literal, TypedDict
 
+# ---------------------------------------------------------------------------
+# Workflow-Status
+# ---------------------------------------------------------------------------
+# Diese Konstanten beschreiben, in welchem fachlichen Zustand sich der Workflow
+# gerade befindet. Sie werden nach einzelnen Graph-Nodes gesetzt und später
+# für Routing-Entscheidungen im Graph oder in der Streamlit-UI verwendet.
 
 WORKFLOW_GENERAL_REQUIREMENTS_EXTRACTED: Final = "general_requirements_extracted"
 WORKFLOW_NEEDS_GENERAL_CLARIFICATION: Final = "needs_general_clarification"
@@ -12,10 +18,24 @@ WORKFLOW_MODEL_SPECIFIC_INPUTS_COMPLETE: Final = "model_specific_inputs_complete
 WORKFLOW_MODEL_INPUTS_INVALID: Final = "model_inputs_invalid"
 WORKFLOW_READY_FOR_RESULT: Final = "ready_for_result"
 
+# ---------------------------------------------------------------------------
+# Workflow-Events
+# ---------------------------------------------------------------------------
+# Events beschreiben, wodurch ein Graph-Durchlauf ausgelöst wurde.
+# Beispiel:
+# - neues Problem wurde eingegeben
+# - eine Rückfrage wurde beantwortet
+# - modellspezifische Eingaben wurden abgeschickt
+
 EVENT_NEW_PROBLEM: Final = "new_problem"
 EVENT_GENERAL_CLARIFICATION_SUBMITTED: Final = "general_clarification_submitted"
 EVENT_MODEL_INPUTS_SUBMITTED: Final = "model_inputs_submitted"
 
+# Interner Platzhalter für with_control().
+# Damit können wir unterscheiden zwischen:
+# - Event unverändert lassen
+# - Event bewusst löschen
+# - Event neu setzen
 _CLEAR = object()
 
 WorkflowStatus = Literal[
@@ -37,9 +57,21 @@ WorkflowEvent = Literal[
     "model_inputs_submitted",
 ]
 
+
 class ControlState(TypedDict, total=False):
+    """
+    Steuerbereich des GraphState.
+
+    event:
+        Beschreibt, wodurch der aktuelle Graph-Durchlauf gestartet wurde.
+
+    workflow_status:
+        Beschreibt, in welchem Zustand sich der Workflow nach einem Node befindet.
+    """
+
     event: WorkflowEvent
     workflow_status: WorkflowStatus
+
 
 class GraphState(TypedDict, total=False):
     """
@@ -49,7 +81,7 @@ class GraphState(TypedDict, total=False):
     Jeder Agent liest relevante Felder aus und ergänzt neue Ergebnisse.
     """
 
-    # Workflow control
+    # Steuerinformationen für Routing im Graph und in der UI
     control: ControlState
 
     # Eingaben aus UI / Formular / Chat
@@ -57,19 +89,18 @@ class GraphState(TypedDict, total=False):
     form_data: dict[str, Any]
     messages: list[dict[str, str]]
 
-
-    # Allgemeine Requirement-Extraktion
+    # Ergebnis der allgemeinen Requirement-Extraktion
     requirements: dict[str, Any]
     missing_fields: list[str]
     clarification_question: str
 
-    # Allgemeine Validierung
+    # Ergebnis der allgemeinen Validierung
     general_validation_errors: list[str]
 
     # Für spätere Konsistenzprüfung zwischen Formular, Freitext und Modellformularen
     consistency_warnings: list[dict[str, Any]]
 
-    # Modell-Auswahl
+    # Ergebnis der Modellauswahl
     selected_model: str
     model_config: dict[str, Any]
 
@@ -78,25 +109,36 @@ class GraphState(TypedDict, total=False):
     model_specific_inputs: dict[str, Any]
     missing_model_input_fields: list[str]
 
-    # Modellspezifische Validierung
+    # Ergebnis der modellspezifischen Validierung
     model_input_validation_errors: list[str]
 
-    # Spätere Generierung / Ergebnisaufbereitung
+    # Flag für spätere Codegenerierung / Ergebnisaufbereitung
     ready_for_generation: bool
 
-    # Ergebnis des Code Agents, später optional
+    # Ergebnis des Code Agents, aktuell optional
     pulp_code: str
 
-    # Ergebnis des Result Nodes
+    # Aufbereitete Ausgabe für UI / API / Chat
     result: dict[str, Any]
 
 
 def get_event(state: GraphState) -> WorkflowEvent:
+    """
+    Gibt das aktuelle Workflow-Event zurück.
+
+    Falls kein Event gesetzt ist, wird standardmäßig
+    EVENT_NEW_PROBLEM angenommen.
+    """
     control = state.get("control", {})
     return control.get("event") or EVENT_NEW_PROBLEM
 
 
 def get_workflow_status(state: GraphState) -> WorkflowStatus | None:
+    """
+    Gibt den aktuellen Workflow-Status zurück.
+
+    Wenn noch kein Status gesetzt wurde, wird None zurückgegeben.
+    """
     control = state.get("control", {})
     return control.get("workflow_status")
 
@@ -107,10 +149,17 @@ def with_control(
     event: WorkflowEvent | None | object = _CLEAR,
     workflow_status: WorkflowStatus | None = None,
 ) -> GraphState:
+    """
+    Aktualisiert den control-Bereich des GraphState.
+
+    Der restliche State bleibt unverändert erhalten.
+    """
+
     control = {
         **state.get("control", {}),
     }
 
+    # Event unverändert lassen, löschen oder neu setzen.
     if event is _CLEAR:
         pass
     elif event is None:
@@ -118,9 +167,11 @@ def with_control(
     else:
         control["event"] = event
 
+    # Workflow-Status nur aktualisieren, wenn ein neuer Status übergeben wurde.
     if workflow_status is not None:
         control["workflow_status"] = workflow_status
 
+    # Gesamten State kopieren und nur den control-Block ersetzen.
     return {
         **state,
         "control": control,

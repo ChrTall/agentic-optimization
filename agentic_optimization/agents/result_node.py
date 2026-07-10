@@ -64,7 +64,6 @@ def result_node(state: GraphState) -> GraphState:
         },
         event=None,
         workflow_status=WORKFLOW_READY_FOR_RESULT,
-        
     )
 
 
