@@ -5,7 +5,6 @@ from agentic_optimization.graph import build_graph
 from agentic_optimization.llm.factory import create_chat_model
 from agentic_optimization.state import (
     WORKFLOW_MODEL_INPUTS_INVALID,
-    WORKFLOW_MODEL_SPECIFIC_INPUTS_SUBMITTED,
     EVENT_NEW_PROBLEM,
     EVENT_GENERAL_CLARIFICATION_SUBMITTED,
     EVENT_MODEL_INPUTS_SUBMITTED,
@@ -328,7 +327,6 @@ elif st.session_state.step == "model_input_form":
                 "control": {
                     **prev_state.get("control", {}),
                     "event": EVENT_MODEL_INPUTS_SUBMITTED,
-                    "workflow_status": WORKFLOW_MODEL_SPECIFIC_INPUTS_SUBMITTED,
                 },
                 "model_specific_inputs": {
                     **prev_state.get("model_specific_inputs", {}),
