@@ -101,7 +101,7 @@ class GraphState(TypedDict, total=False):
     consistency_warnings: list[dict[str, Any]]
 
     # Ergebnis der Modellauswahl
-    selected_model: str
+    selected_model: str | None
     model_config: dict[str, Any]
 
     # Modellspezifische Eingaben
