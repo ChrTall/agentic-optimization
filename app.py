@@ -401,8 +401,7 @@ elif st.session_state.step == "result":
     st.markdown("### 📐 Ausgewähltes Modell")
 
     st.markdown(f"- **Typ:** {selected_model_type or '–'}")
-    st.markdown(f"- **Name:** {selected_model.get('name', '–')}")
-
+    st.markdown(f"- **Name:** {selected_model.get('name') or '–'}")
     explanation = selected_model.get("explanation")
     if explanation:
         st.markdown(f"- **Begründung:** {explanation}")
