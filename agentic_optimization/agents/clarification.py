@@ -1,4 +1,9 @@
-from agentic_optimization.state import GraphState
+from agentic_optimization.state import (
+    GraphState,
+    WORKFLOW_GENERAL_INPUTS_VALID,
+    WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
+    with_control,
+)
 
 
 FIELD_QUESTIONS = {
@@ -20,8 +25,14 @@ def clarification_node(state: GraphState) -> GraphState:
     missing_fields = state.get("missing_fields", [])
 
     if not missing_fields:
-        state["clarification_question"] = ""
-        return state
+        return with_control(
+            {
+                **state,
+                "clarification_question": "",
+            },
+            event=None,
+            workflow_status=WORKFLOW_GENERAL_INPUTS_VALID,
+        )
 
     questions = [
         FIELD_QUESTIONS.get(field, f"Bitte ergänze die Angabe: {field}.")
@@ -31,6 +42,11 @@ def clarification_node(state: GraphState) -> GraphState:
     clarification_question = "Ich brauche noch folgende Informationen:\n\n"
     clarification_question += "\n".join(f"- {question}" for question in questions)
 
-    state["clarification_question"] = clarification_question
-
-    return state
+    return with_control(
+        {
+            **state,
+            "clarification_question": clarification_question,
+        },
+        event=None,
+        workflow_status=WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
+    )

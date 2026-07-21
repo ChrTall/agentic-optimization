@@ -1,12 +1,16 @@
-from agentic_optimization.state import GraphState
+from agentic_optimization.state import (
+    GraphState,
+    WORKFLOW_MODEL_SELECTED,
+    with_control,
+)
 
 
 def modeling_agent(state: GraphState) -> GraphState:
     """
     Wählt auf Basis der erkannten Anforderungen einen passenden Modelltyp aus.
 
-    Aktuell ist diese Version bewusst regelbasiert.
-    Später kann hier ein LLM oder eine Modellbibliothek eingebaut werden.
+    Dieser Node trifft nur die Modellauswahl.
+    Ob danach modellspezifische Eingaben fehlen, entscheidet der nächste Node.
     """
 
     requirements = state.get("requirements", {})
@@ -57,7 +61,7 @@ def modeling_agent(state: GraphState) -> GraphState:
             "Als Startpunkt wird ein allgemeines lineares Optimierungsmodell vorgeschlagen."
         )
 
-    state["model_config"] = {
+    model_config = {
         "model_type": model_type,
         "model_name": model_name,
         "explanation": explanation,
@@ -66,4 +70,12 @@ def modeling_agent(state: GraphState) -> GraphState:
         "constraints": requirements.get("constraints"),
     }
 
-    return state
+    return with_control(
+        {
+            **state,
+            "selected_model": model_type,
+            "model_config": model_config,
+        },
+        event=None,
+        workflow_status=WORKFLOW_MODEL_SELECTED,
+    )
