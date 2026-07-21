@@ -143,22 +143,27 @@ def validate_model_specific_inputs(state: GraphState) -> GraphState:
                     "fields": model_definition["input_fields"],
                 }
             ]
-            if errors
+            if errors or missing_fields
             else []
         )
+
+    validation_errors = errors + [
+        f"Fehlende Eingabe: {field}"
+        for field in missing_fields
+    ]
 
     return with_control(
         {
             **state,
             "missing_model_input_fields": missing_fields,
             "required_model_inputs": required_model_inputs,
-            "model_input_validation_errors": errors,
-            "ready_for_generation": not errors,
+            "model_input_validation_errors": validation_errors,
+            "ready_for_generation": not validation_errors,
         },
         event=None,
         workflow_status=(
             WORKFLOW_MODEL_INPUTS_INVALID
-            if errors
+            if validation_errors
             else WORKFLOW_READY_FOR_RESULT
         ),
     )
