@@ -121,18 +121,44 @@ def validate_model_specific_inputs(state: GraphState) -> GraphState:
 
     if model_definition is None:
         errors = []
+        missing_fields = []
+        required_model_inputs = []
     else:
+        required_fields = model_definition["required_fields"]
+
+        missing_fields = [
+            field
+            for field in required_fields
+            if selected_model_inputs.get(field) in (None, "", [])
+        ]
+
         validator = model_definition["validator"]
         errors = validator(selected_model_inputs)
+
+        required_model_inputs = (
+            [
+                {
+                    "model": selected_model,
+                    "form_id": f"{selected_model}_parameters",
+                    "fields": model_definition["input_fields"],
+                }
+            ]
+            if errors
+            else []
+        )
 
     return with_control(
         {
             **state,
+            "missing_model_input_fields": missing_fields,
+            "required_model_inputs": required_model_inputs,
             "model_input_validation_errors": errors,
             "ready_for_generation": not errors,
         },
         event=None,
         workflow_status=(
-            WORKFLOW_MODEL_INPUTS_INVALID if errors else WORKFLOW_READY_FOR_RESULT
+            WORKFLOW_MODEL_INPUTS_INVALID
+            if errors
+            else WORKFLOW_READY_FOR_RESULT
         ),
     )

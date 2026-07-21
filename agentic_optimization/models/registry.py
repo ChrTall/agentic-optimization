@@ -73,7 +73,11 @@ def validate_newsvendor_inputs(inputs: dict[str, Any]) -> list[str]:
     if not scenario_probabilities:
         errors.append("Bitte gib mindestens eine Wahrscheinlichkeit ein.")
 
-    if len(demand_scenarios) != len(scenario_probabilities):
+    if (
+        demand_scenarios
+        and scenario_probabilities
+        and len(demand_scenarios) != len(scenario_probabilities)
+    ):
         errors.append(
             "Die Anzahl der Nachfrageszenarien muss zur Anzahl der Wahrscheinlichkeiten passen."
         )
