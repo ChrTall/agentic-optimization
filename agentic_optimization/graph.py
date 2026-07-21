@@ -92,6 +92,10 @@ def build_graph(llm: BaseChatModel):
 
     Bei jedem app.invoke()-Aufruf entscheidet das Event,
     an welcher Stelle der Workflow fortgesetzt wird.
+
+    Der Graph kann vorzeitig bei END stoppen, z.B. bei Rückfragen
+    oder fehlenden Modellinputs. Dann enthält der State kein `result`;
+    `control.workflow_status` signalisiert, wie fortzufahren ist.
     """
 
     graph = StateGraph(GraphState)

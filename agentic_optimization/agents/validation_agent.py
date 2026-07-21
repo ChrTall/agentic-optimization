@@ -113,13 +113,26 @@ def validate_model_specific_inputs(state: GraphState) -> GraphState:
     Der passende Validator wird aus der Model Registry geholt.
     """
 
-    selected_model = state.get("selected_model")
+    model_config = state.get("model_config", {})
+    selected_model = (
+        state.get("selected_model")
+        or model_config.get("model_type")
+    )
+
     model_specific_inputs = state.get("model_specific_inputs", {})
-    selected_model_inputs = model_specific_inputs.get(selected_model, {})
+    selected_model_inputs = (
+        model_specific_inputs.get(selected_model, {})
+        if selected_model
+        else {}
+    )
 
     model_definition = get_model_definition(selected_model)
 
-    if model_definition is None:
+    if selected_model is None:
+        errors = ["Es wurde kein Modell ausgewählt."]
+        missing_fields = []
+        required_model_inputs = []
+    elif model_definition is None:
         errors = []
         missing_fields = []
         required_model_inputs = []
