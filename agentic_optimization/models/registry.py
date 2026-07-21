@@ -1,4 +1,5 @@
 from typing import Any, Callable, TypedDict
+import math
 
 
 class ModelInputField(TypedDict):
@@ -43,6 +44,47 @@ def validate_newsvendor_inputs(inputs: dict[str, Any]) -> list[str]:
     salvage_value = inputs.get("salvage_value")
     demand_scenarios = inputs.get("demand_scenarios") or []
     scenario_probabilities = inputs.get("scenario_probabilities") or []
+
+    if not isinstance(demand_scenarios, list):
+        errors.append("Nachfrageszenarien müssen als Liste angegeben werden.")
+        demand_scenarios = []
+
+    if not isinstance(scenario_probabilities, list):
+        errors.append("Wahrscheinlichkeiten müssen als Liste angegeben werden.")
+        scenario_probabilities = []
+
+    numeric_values = {
+        "selling_price": selling_price,
+        "purchase_cost": purchase_cost,
+        "salvage_value": salvage_value,
+    }
+
+    for field_name, value in numeric_values.items():
+        if value is not None and (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(value)
+        ):
+            errors.append(f"{field_name} muss eine endliche Zahl sein.")
+
+    if any(
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not math.isfinite(value)
+        for value in demand_scenarios
+    ):
+        errors.append("Nachfrageszenarien müssen endliche Zahlen sein.")
+
+    if any(
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not math.isfinite(value)
+        for value in scenario_probabilities
+    ):
+        errors.append("Wahrscheinlichkeiten müssen endliche Zahlen sein.")
+
+    if errors:
+        return errors
 
     if selling_price is None or selling_price <= 0:
         errors.append("Der Verkaufspreis muss größer als 0 sein.")
