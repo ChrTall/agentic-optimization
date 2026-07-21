@@ -58,6 +58,11 @@ def validate_newsvendor_inputs(inputs: dict[str, Any]) -> list[str]:
         "purchase_cost": purchase_cost,
         "salvage_value": salvage_value,
     }
+    numeric_labels = {
+        "selling_price": "Der Verkaufspreis",
+        "purchase_cost": "Die Einkaufskosten",
+        "salvage_value": "Der Restwert",
+    }
 
     for field_name, value in numeric_values.items():
         if value is not None and (
@@ -65,7 +70,7 @@ def validate_newsvendor_inputs(inputs: dict[str, Any]) -> list[str]:
             or isinstance(value, bool)
             or not math.isfinite(value)
         ):
-            errors.append(f"{field_name} muss eine endliche Zahl sein.")
+            errors.append(f"{numeric_labels[field_name]} muss eine endliche Zahl sein.")
 
     if any(
         not isinstance(value, (int, float))
