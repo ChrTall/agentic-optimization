@@ -36,7 +36,8 @@ if "graph_state" not in st.session_state:
 STEPS = ["form", "freitext", "model_input_form", "result"]
 STEP_LABELS = ["① Formular", "② Beschreibung", "③ Modellinput", "④ Ergebnis"]
 
-step_index = STEPS.index(st.session_state.step) if st.session_state.step in STEPS else 1
+step_for_progress = "freitext" if st.session_state.step == "clarify" else st.session_state.step
+step_index = STEPS.index(step_for_progress) if step_for_progress in STEPS else 1
 cols = st.columns(len(STEP_LABELS))
 for i, (col, label) in enumerate(zip(cols, STEP_LABELS)):
     with col:
@@ -238,7 +239,7 @@ elif st.session_state.step == "clarify":
         st.rerun()
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SCHRITT 3: Newsvendor-spezifische Eingaben
+# SCHRITT 3: Modellspezifische Eingaben
 # ═══════════════════════════════════════════════════════════════════════════════
 
 elif st.session_state.step == "model_input_form":
