@@ -4,10 +4,10 @@ from agentic_optimization.configuration.llm_config import load_llm_configuration
 from agentic_optimization.graph import build_graph
 from agentic_optimization.llm.factory import create_chat_model
 from agentic_optimization.state import (
-    WORKFLOW_MODEL_INPUTS_INVALID,
-    EVENT_NEW_PROBLEM,
     EVENT_GENERAL_CLARIFICATION_SUBMITTED,
     EVENT_MODEL_INPUTS_SUBMITTED,
+    EVENT_NEW_PROBLEM,
+    WORKFLOW_MODEL_INPUTS_INVALID,
     WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
     WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS,
     WORKFLOW_READY_FOR_RESULT,
@@ -246,52 +246,178 @@ elif st.session_state.step == "model_input_form":
     st.subheader("Modellspezifische Eingaben")
 
     graph_state = st.session_state.graph_state or {}
-    selected_model = graph_state.get("selected_model")
+    selected_family = graph_state.get("selected_model_family")
+    selected_variant = graph_state.get("selected_model_variant")
 
-    validation_errors = graph_state.get("model_input_validation_errors", [])
+    required_constraint_inputs = graph_state.get(
+        "required_constraint_inputs",
+        [],
+    )
+
+    constraint_validation_errors = graph_state.get(
+        "constraint_validation_errors",
+        [],
+    )
+
+    for error in constraint_validation_errors:
+        st.error(error)
+
+    # Technische Fehler beim Freitext-Mapping
+    mapping_errors = graph_state.get(
+        "constraint_mapping_errors",
+        [],
+    )
+
+    if mapping_errors:
+        for error in mapping_errors:
+            st.error(error)
+
+        st.warning(
+            "Die genannten Nebenbedingungen konnten technisch nicht "
+            "verarbeitet werden. Bitte gehe zurück und versuche es erneut."
+        )
+
+        if st.button(
+            "← Problembeschreibung bearbeiten",
+            use_container_width=True,
+        ):
+            st.session_state.step = "freitext"
+            st.rerun()
+
+        st.stop()
+
+    # Fehler der modellspezifischen Eingaben
+    validation_errors = graph_state.get(
+        "model_input_validation_errors",
+        [],
+    )
+
     for error in validation_errors:
         st.error(error)
 
-    if selected_model != "newsvendor":
-        st.warning("Für dieses Modell gibt es noch kein spezifisches Eingabeformular.")
+    if (
+        selected_family != "newsvendor"
+        or selected_variant != "single_product_single_period"
+    ):
+        st.warning(
+            "Für die ausgewählte Modellfamilie und Variante "
+            "gibt es noch kein spezifisches Eingabeformular."
+        )
         st.stop()
 
-    st.info(
-        "Es wurde ein Newsvendor-Modell erkannt. "
-        "Bitte ergänze die modellspezifischen Eingaben."
+    if required_constraint_inputs:
+        st.info(
+            "Die Modellparameter sind vollständig. "
+            "Bitte ergänze noch die fehlenden Werte der Nebenbedingungen."
+        )
+    else:
+        st.info(
+            "Es wurde ein Newsvendor-Modell erkannt. "
+            "Bitte ergänze die modellspezifischen Eingaben."
+        )
+
+    existing_newsvendor_inputs = (
+        graph_state.get("model_specific_inputs", {})
+        .get("newsvendor", {})
+        .get("single_product_single_period", {})
     )
+
+    existing_demand_scenarios = existing_newsvendor_inputs.get(
+        "demand_scenarios",
+        [],
+    )
+
+    existing_scenario_probabilities = existing_newsvendor_inputs.get(
+        "scenario_probabilities",
+        [],
+    )
+
+    constraint_input_values: dict[
+        tuple[int, str],
+        float | None,
+    ] = {}
 
     with st.form("newsvendor_form"):
         selling_price = st.number_input(
             "Verkaufspreis pro Einheit",
             min_value=0.0,
             step=0.5,
-            value=0.0,
+            value=float(
+                existing_newsvendor_inputs.get("selling_price", 0.0)
+            ),
         )
 
         purchase_cost = st.number_input(
             "Einkaufskosten pro Einheit",
             min_value=0.0,
             step=0.5,
-            value=0.0,
+            value=float(
+                existing_newsvendor_inputs.get("purchase_cost", 0.0)
+            ),
         )
 
         salvage_value = st.number_input(
             "Restwert pro unverkaufter Einheit",
             min_value=0.0,
             step=0.5,
-            value=0.0,
+            value=float(
+                existing_newsvendor_inputs.get("salvage_value", 0.0)
+            ),
         )
 
         demand_scenarios = st.text_input(
             "Nachfrageszenarien",
+            value=", ".join(
+                str(value)
+                for value in existing_demand_scenarios
+            ),
             placeholder="z.B. 80, 100, 120, 140",
         )
 
         scenario_probabilities = st.text_input(
             "Wahrscheinlichkeiten der Szenarien",
+            value=", ".join(
+                str(value)
+                for value in existing_scenario_probabilities
+            ),
             placeholder="z.B. 0.25, 0.25, 0.25, 0.25",
         )
+
+        if required_constraint_inputs:
+            st.divider()
+            st.markdown("#### Fehlende Werte für Nebenbedingungen")
+
+            for required_input in required_constraint_inputs:
+                constraint_index = required_input["constraint_index"]
+                constraint_type = required_input["constraint_type"]
+                source_text = required_input.get("source_text")
+
+                if source_text:
+                    st.caption(source_text)
+
+                for field in required_input.get("fields", []):
+                    field_name = field["name"]
+                    field_type = field["type"]
+
+                    widget_key = (
+                        f"constraint_{constraint_index}_{field_name}"
+                    )
+
+                    if field_type == "number":
+                        constraint_input_values[
+                            (constraint_index, field_name)
+                        ] = st.number_input(
+                            field["label"],
+                            value=None,
+                            step=1.0,
+                            help=field.get("help"),
+                            key=widget_key,
+                        )
+                    else:
+                        st.error(
+                            f"Der Constraint-Feldtyp '{field_type}' "
+                            f"für '{constraint_type}' wird noch nicht unterstützt."
+                        )
 
         submitted = st.form_submit_button(
             "Eingaben prüfen →",
@@ -308,58 +434,105 @@ elif st.session_state.step == "model_input_form":
 
     if submitted:
         try:
-            parsed_demand_scenarios = parse_number_list(demand_scenarios)
+            parsed_demand_scenarios = parse_number_list(
+                demand_scenarios
+            )
             parsed_scenario_probabilities = parse_number_list(
                 scenario_probabilities
             )
-
-            newsvendor_inputs = {
-                "selling_price": selling_price,
-                "purchase_cost": purchase_cost,
-                "salvage_value": salvage_value,
-                "demand_scenarios": parsed_demand_scenarios,
-                "scenario_probabilities": parsed_scenario_probabilities,
-            }
-
-            prev_state = st.session_state.graph_state or {}
-
-            next_state = {
-                **prev_state,
-                "control": {
-                    **prev_state.get("control", {}),
-                    "event": EVENT_MODEL_INPUTS_SUBMITTED,
-                },
-                "model_specific_inputs": {
-                    **prev_state.get("model_specific_inputs", {}),
-                    "newsvendor": newsvendor_inputs,
-                },
-            }
-
-            llm = st.session_state.get("llm")
-            if llm is None:
-                try:
-                    llm_config = load_llm_configuration()
-                    llm = create_chat_model(llm_config)
-                except ValueError as e:
-                    st.error(str(e))
-                    st.stop()
-
-                st.session_state.llm = llm
-
-            app = build_graph(llm)
-            st.session_state.graph_state = app.invoke(next_state)
-
-            st.session_state.step = route_ui_from_graph_state(
-                st.session_state.graph_state
-            )
-
-            st.rerun()
-
         except ValueError:
             st.error(
                 "Bitte gib Nachfrageszenarien und Wahrscheinlichkeiten als "
-                "kommagetrennte Zahlen ein, z.B. 80, 100, 120 und 0.2, 0.5, 0.3."
+                "kommagetrennte Zahlen ein, z.B. 80, 100, 120 und "
+                "0.2, 0.5, 0.3."
             )
+            st.stop()
+
+        newsvendor_inputs = {
+            "selling_price": selling_price,
+            "purchase_cost": purchase_cost,
+            "salvage_value": salvage_value,
+            "demand_scenarios": parsed_demand_scenarios,
+            "scenario_probabilities": parsed_scenario_probabilities,
+        }
+
+        prev_state = st.session_state.graph_state or {}
+
+        existing_constraints = prev_state.get(
+            "structured_constraints",
+            [],
+        )
+
+        updated_constraints = [
+            {
+                **constraint,
+                "parameters": dict(
+                    constraint.get("parameters", {})
+                ),
+            }
+            for constraint in existing_constraints
+        ]
+
+        for (
+            constraint_index,
+            parameter_name,
+        ), parameter_value in constraint_input_values.items():
+            if parameter_value is None:
+                continue
+
+            if not 0 <= constraint_index < len(updated_constraints):
+                st.error(
+                    "Ein Constraint konnte nicht eindeutig aktualisiert werden."
+                )
+                st.stop()
+
+            updated_constraints[
+                constraint_index
+            ]["parameters"][parameter_name] = parameter_value
+
+        existing_model_inputs = prev_state.get(
+            "model_specific_inputs",
+            {},
+        )
+
+        next_state = {
+            **prev_state,
+            "control": {
+                **prev_state.get("control", {}),
+                "event": EVENT_MODEL_INPUTS_SUBMITTED,
+            },
+            "model_specific_inputs": {
+                **existing_model_inputs,
+                "newsvendor": {
+                    **existing_model_inputs.get("newsvendor", {}),
+                    "single_product_single_period": newsvendor_inputs,
+                },
+            },
+            "structured_constraints": updated_constraints,
+            "constraint_validation_errors": [],
+            "required_constraint_inputs": [],
+        }
+
+        llm = st.session_state.get("llm")
+
+        if llm is None:
+            try:
+                llm_config = load_llm_configuration()
+                llm = create_chat_model(llm_config)
+            except ValueError as error:
+                st.error(str(error))
+                st.stop()
+
+            st.session_state.llm = llm
+
+        app = build_graph(llm)
+        st.session_state.graph_state = app.invoke(next_state)
+
+        st.session_state.step = route_ui_from_graph_state(
+            st.session_state.graph_state
+        )
+
+        st.rerun()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -371,8 +544,17 @@ elif st.session_state.step == "result":
     result = gs.get("result", {})
     reqs = result.get("requirements", {})
     selected_model = result.get("selected_model", {})
-    selected_model_type = selected_model.get("type")
-    selected_model_inputs = result.get("selected_model_inputs", {})
+
+    selected_family = selected_model.get("family_id")
+    selected_family_name = selected_model.get("family_name")
+
+    selected_variant = selected_model.get("variant_id")
+    selected_variant_name = selected_model.get("variant_name")
+
+    selected_model_inputs = result.get(
+        "selected_model_inputs",
+        {},
+    )
 
     st.subheader("Ergebnis")
     st.success(result.get("summary", ""))
@@ -400,8 +582,15 @@ elif st.session_state.step == "result":
     # ── Ausgewähltes Modell ───────────────────────────────────────────────────
     st.markdown("### 📐 Ausgewähltes Modell")
 
-    st.markdown(f"- **Typ:** {selected_model_type or '–'}")
-    st.markdown(f"- **Name:** {selected_model.get('name') or '–'}")
+    st.markdown(
+        f"- **Modellfamilie:** "
+        f"{selected_family_name or selected_family or '–'}"
+    )
+
+    st.markdown(
+        f"- **Variante:** "
+        f"{selected_variant_name or selected_variant or '–'}"
+    )
     explanation = selected_model.get("explanation")
     if explanation:
         st.markdown(f"- **Begründung:** {explanation}")
@@ -410,7 +599,10 @@ elif st.session_state.step == "result":
     if selected_model_inputs:
         st.markdown("### 🧾 Erfasste Modellparameter")
 
-        if selected_model_type == "newsvendor":
+        if (
+            selected_family == "newsvendor"
+            and selected_variant == "single_product_single_period"
+        ):
             col1, col2, col3 = st.columns(3)
 
             with col1:
@@ -458,6 +650,36 @@ elif st.session_state.step == "result":
 
     st.divider()
 
+    structured_constraints = result.get(
+        "structured_constraints",
+        [],
+    )
+
+    unsupported_constraints = result.get(
+        "unsupported_constraints",
+        [],
+    )
+
+    if unsupported_constraints:
+        st.markdown("#### Nicht unterstützte Constraints")
+
+        for constraint in unsupported_constraints:
+            st.error(str(constraint))
+
+        st.markdown("### 🔒 Strukturierte optionale Constraints")
+
+        if structured_constraints:
+            for constraint in structured_constraints:
+                constraint_type = constraint.get("type", "unbekannt")
+                parameters = constraint.get("parameters", {})
+
+                st.markdown(f"- **{constraint_type}**: `{parameters}`")
+        else:
+            st.markdown("- Keine optionalen Constraints angegeben.")
+
+    st.divider()
+
+
     # ── Modellvisualisierung ──────────────────────────────────────────────────
     st.markdown("### 📐 Optimierungsmodell")
     st.markdown(
@@ -470,13 +692,17 @@ elif st.session_state.step == "result":
     st.divider()
 
     # ── Generierter PuLP-Code ─────────────────────────────────────────────────
-    # Code-Generierung ist aktuell bewusst noch nicht Hauptfokus.
-    generated_code = result.get("generated_code", "")
-    if generated_code:
-        st.markdown("### 💻 Generierter PuLP-Code")
-        st.code(generated_code, language="python")
-        st.divider()
+    generated_code = result.get("generated_code")
+    generation_errors = result.get("generation_errors", [])
 
+    with st.expander("Technische Details: generierter PuLP-Code"):
+        if generated_code:
+            st.code(generated_code, language="python")
+        elif generation_errors:
+            for error in generation_errors:
+                st.error(error)
+        else:
+            st.info("Es wurde noch kein PuLP-Code erzeugt.")
     # ── Nächste Schritte ──────────────────────────────────────────────────────
     st.markdown("### 🔜 Nächste Schritte")
     for step in result.get("next_steps", []):

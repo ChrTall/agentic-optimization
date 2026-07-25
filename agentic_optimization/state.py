@@ -15,8 +15,12 @@ WORKFLOW_MODEL_SELECTED: Final = "model_selected"
 WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS: Final = "needs_model_specific_inputs"
 WORKFLOW_MODEL_SPECIFIC_INPUTS_SUBMITTED: Final = "model_specific_inputs_submitted"
 WORKFLOW_MODEL_SPECIFIC_INPUTS_COMPLETE: Final = "model_specific_inputs_complete"
+WORKFLOW_MODEL_INPUTS_VALID: Final = "model_inputs_valid"
 WORKFLOW_MODEL_INPUTS_INVALID: Final = "model_inputs_invalid"
 WORKFLOW_READY_FOR_RESULT: Final = "ready_for_result"
+WORKFLOW_READY_FOR_GENERATION: Final = "ready_for_generation"
+WORKFLOW_CODE_GENERATED: Final = "code_generated"
+WORKFLOW_CODE_GENERATION_FAILED: Final = "code_generation_failed"
 
 # ---------------------------------------------------------------------------
 # Workflow-Events
@@ -47,8 +51,12 @@ WorkflowStatus = Literal[
     "needs_model_specific_inputs",
     "model_specific_inputs_submitted",
     "model_specific_inputs_complete",
+    "model_inputs_valid",
     "model_inputs_invalid",
     "ready_for_result",
+    "ready_for_generation",
+    "code_generated",
+    "code_generation_failed",
 ]
 
 WorkflowEvent = Literal[
@@ -71,6 +79,23 @@ class ControlState(TypedDict, total=False):
 
     event: WorkflowEvent
     workflow_status: WorkflowStatus
+
+
+class StructuredConstraint(TypedDict):
+    type: str
+    parameters: dict[str, int | float]
+    source_text: str | None
+
+
+class ModelConfig(TypedDict, total=False):
+    family_id: str
+    family_name: str
+    variant_id: str
+    variant_name: str
+    explanation: str
+    objective: Any
+    decision: Any
+
 
 
 class GraphState(TypedDict, total=False):
@@ -100,25 +125,31 @@ class GraphState(TypedDict, total=False):
     # Für spätere Konsistenzprüfung zwischen Formular, Freitext und Modellformularen
     consistency_warnings: list[dict[str, Any]]
 
-    # Ergebnis der Modellauswahl
-    selected_model: str | None
-    model_config: dict[str, Any]
+    # Modellauswahl
+    selected_model_family: str | None
+    selected_model_variant: str | None
+    model_config: ModelConfig
 
-    # Modellspezifische Eingaben
+    # Modellspezifische Eingaben:
+    # family -> variant -> inputs
+    model_specific_inputs: dict[str, dict[str, dict[str, Any]]]
     required_model_inputs: list[dict[str, Any]]
-    model_specific_inputs: dict[str, Any]
     missing_model_input_fields: list[str]
-
-    # Ergebnis der modellspezifischen Validierung
     model_input_validation_errors: list[str]
 
-    # Flag für spätere Codegenerierung / Ergebnisaufbereitung
+    # Strukturierte optionale Constraints
+    structured_constraints: list[StructuredConstraint]
+    unsupported_constraints: list[str]
+    constraint_mapping_errors: list[str]
+    constraint_validation_errors: list[str]
+    required_constraint_inputs: list[dict[str, Any]]
+
+    # Codegenerierung
     ready_for_generation: bool
+    generation_errors: list[str]
+    pulp_code: str | None
 
-    # Ergebnis des Code Agents, aktuell optional
-    pulp_code: str
-
-    # Aufbereitete Ausgabe für UI / API / Chat
+    # Ergebnis
     result: dict[str, Any]
 
 

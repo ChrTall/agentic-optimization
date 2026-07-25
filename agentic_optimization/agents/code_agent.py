@@ -1,151 +1,95 @@
-from agentic_optimization.state import GraphState
-
-
-def code_agent(state: GraphState) -> GraphState:
-    """
-    Erstellt auf Basis der Modellkonfiguration einen ersten PuLP-Code-Skeleton.
-
-    Diese Version generiert noch keinen vollständig individuellen Code,
-    sondern zeigt die Struktur, die später durch konkrete Parameter ergänzt wird.
-    """
-
-    model_config = state.get("model_config", {})
-    model_type = model_config.get("model_type")
-
-    if model_type == "newsvendor":
-        pulp_code = _build_newsvendor_code()
-
-    elif model_type == "linear_programming":
-        pulp_code = _build_linear_programming_code()
-
-    elif model_type == "routing":
-        pulp_code = _build_routing_code()
-
-    else:
-        pulp_code = _build_generic_linear_programming_code()
-
-    state["pulp_code"] = pulp_code
-
-    return state
-
-
-def _build_newsvendor_code() -> str:
-    return '''import pulp
-
-# Newsvendor-Modell
-# Ziel: Optimale Bestellmenge bei unsicherer Nachfrage bestimmen
-
-# Beispielparameter
-selling_price = 10
-purchase_cost = 5
-salvage_value = 2
-demand_scenarios = [80, 100, 120, 140]
-scenario_probabilities = [0.25, 0.25, 0.25, 0.25]
-
-# Modell erstellen
-model = pulp.LpProblem("Newsvendor_Model", pulp.LpMaximize)
-
-# Entscheidungsvariable
-order_quantity = pulp.LpVariable("order_quantity", lowBound=0)
-
-# Hilfsvariablen pro Szenario
-sold = {
-    i: pulp.LpVariable(f"sold_{i}", lowBound=0)
-    for i in range(len(demand_scenarios))
-}
-
-leftover = {
-    i: pulp.LpVariable(f"leftover_{i}", lowBound=0)
-    for i in range(len(demand_scenarios))
-}
-
-# Nebenbedingungen
-for i, demand in enumerate(demand_scenarios):
-    model += sold[i] <= demand
-    model += sold[i] <= order_quantity
-    model += leftover[i] >= order_quantity - demand
-
-# Zielfunktion: Erwarteter Gewinn
-expected_profit = pulp.lpSum(
-    scenario_probabilities[i] * (
-        selling_price * sold[i]
-        + salvage_value * leftover[i]
-        - purchase_cost * order_quantity
-    )
-    for i in range(len(demand_scenarios))
+from agentic_optimization.models.registry import get_model_variant_definition
+from agentic_optimization.state import (
+    WORKFLOW_CODE_GENERATED,
+    WORKFLOW_CODE_GENERATION_FAILED,
+    GraphState,
+    with_control,
 )
 
-model += expected_profit
 
-# Optimierung lösen
-model.solve()
+def generate_pulp_code(state: GraphState) -> GraphState:
+    """
+    Erzeugt PuLP-Code ausschließlich nach erfolgreicher Validierung.
+    """
 
-print("Status:", pulp.LpStatus[model.status])
-print("Optimale Bestellmenge:", order_quantity.value())
-print("Erwarteter Gewinn:", pulp.value(model.objective))
-'''
+    if not state.get("ready_for_generation"):
+        return with_control(
+            {
+                **state,
+                "pulp_code": None,
+                "generation_errors": [
+                    "Die Codegenerierung ist erst nach erfolgreicher Validierung aller Eingaben und Constraints möglich."
+                ],
+            },
+            event=None,
+            workflow_status=WORKFLOW_CODE_GENERATION_FAILED,
+        )
 
+    family = state.get("selected_model_family")
+    variant = state.get("selected_model_variant")
 
-def _build_linear_programming_code() -> str:
-    return '''import pulp
+    if not family or not variant:
+        return with_control(
+            {
+                **state,
+                "pulp_code": None,
+                "generation_errors": [
+                    "Für die Codegenerierung fehlen Modellfamilie oder Modellvariante."
+                ],
+            },
+            event=None,
+            workflow_status=WORKFLOW_CODE_GENERATION_FAILED,
+        )
 
-# Lineares Optimierungsmodell
-# Beispiel: Produktionsmengen unter Kapazitätsrestriktionen optimieren
+    model_definition = get_model_variant_definition(
+        family,
+        variant,
+    )
 
-model = pulp.LpProblem("Linear_Optimization_Model", pulp.LpMaximize)
+    if model_definition is None:
+        return with_control(
+            {
+                **state,
+                "pulp_code": None,
+                "generation_errors": [
+                    f"Die Modellvariante '{family}/{variant}' ist nicht registriert."
+                ],
+            },
+            event=None,
+            workflow_status=WORKFLOW_CODE_GENERATION_FAILED,
+        )
 
-# Entscheidungsvariablen
-x1 = pulp.LpVariable("product_1_quantity", lowBound=0)
-x2 = pulp.LpVariable("product_2_quantity", lowBound=0)
+    inputs = (
+        state.get("model_specific_inputs", {})
+        .get(family, {})
+        .get(variant, {})
+    )
 
-# Zielfunktion
-model += 30 * x1 + 50 * x2
+    constraints = state.get("structured_constraints", [])
+    code_builder = model_definition["code_builder"]
 
-# Nebenbedingungen
-model += 2 * x1 + 4 * x2 <= 100
-model += 3 * x1 + 2 * x2 <= 90
+    try:
+        pulp_code = code_builder(
+            inputs,
+            constraints,
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        return with_control(
+            {
+                **state,
+                "pulp_code": None,
+                "generation_errors": [str(error)],
+            },
+            event=None,
+            workflow_status=WORKFLOW_CODE_GENERATION_FAILED,
+        )
 
-# Optimierung lösen
-model.solve()
-
-print("Status:", pulp.LpStatus[model.status])
-print("Produkt 1:", x1.value())
-print("Produkt 2:", x2.value())
-print("Zielfunktionswert:", pulp.value(model.objective))
-'''
-
-
-def _build_routing_code() -> str:
-    return '''# Routing-Modell Skeleton
-
-# Für Routing-Probleme wird häufig OR-Tools statt PuLP verwendet.
-# Dieser Skeleton dient zunächst nur als Platzhalter.
-
-print("Routing-Modell erkannt.")
-print("Hier könnte später ein OR-Tools-Modell erzeugt werden.")
-'''
-
-
-def _build_generic_linear_programming_code() -> str:
-    return '''import pulp
-
-# Allgemeines lineares Optimierungsmodell
-
-model = pulp.LpProblem("Generic_Linear_Optimization_Model", pulp.LpMaximize)
-
-# Entscheidungsvariable
-x = pulp.LpVariable("x", lowBound=0)
-
-# Zielfunktion
-model += x
-
-# Beispielhafte Nebenbedingung
-model += x <= 100
-
-# Optimierung lösen
-model.solve()
-
-print("Status:", pulp.LpStatus[model.status])
-print("x:", x.value())
-print("Zielfunktionswert:", pulp.value(model.objective))
-'''
+    return with_control(
+        {
+            **state,
+            "pulp_code": pulp_code,
+            "generation_errors": [],
+        },
+        event=None,
+        workflow_status=WORKFLOW_CODE_GENERATED,
+    )

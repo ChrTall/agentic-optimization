@@ -1,65 +1,94 @@
+from typing import Any
+
 from agentic_optimization.state import (
-    GraphState,
     WORKFLOW_READY_FOR_RESULT,
+    GraphState,
     with_control,
 )
-from agentic_optimization.visualization.markdown_renderer import render_model_markdown
+from agentic_optimization.visualization.markdown_renderer import (
+    render_model_markdown,
+)
 
 
 def result_node(state: GraphState) -> GraphState:
     """
-    Fasst die Ergebnisse des Workflows strukturiert zusammen.
+    Bereitet die Modellvorschau für UI, API oder Chat auf.
 
-    Dieser Node bereitet nur das Ergebnis für UI/API/Chat auf.
-    Fachliche Validierung und spätere Code-Generierung gehören in eigene Nodes.
+    Validierung und PuLP-Codegenerierung erfolgen bereits in eigenen Nodes.
     """
 
     requirements = state.get("requirements", {})
     model_config = state.get("model_config", {})
-    selected_model = (
-        state.get("selected_model")
-        or model_config.get("model_type")
+
+    family = state.get("selected_model_family")
+    variant = state.get("selected_model_variant")
+
+    selected_model_inputs = _get_selected_model_inputs(
+        state=state,
+        family=family,
+        variant=variant,
     )
-    model_specific_inputs = state.get("model_specific_inputs", {})
-    selected_model_inputs = model_specific_inputs.get(selected_model, {})
-    pulp_code = state.get("pulp_code", "")
+
+    requirements_with_model_inputs = _requirements_with_model_inputs(
+        requirements=requirements,
+        family=family,
+        variant=variant,
+        selected_model_inputs=selected_model_inputs,
+    )
 
     result = {
         "summary": _build_summary(
             requirements=requirements,
             model_config=model_config,
-            selected_model=selected_model,
+            family=family,
+            variant=variant,
         ),
         "requirements": requirements,
         "selected_model": {
-            "type": selected_model,
-            "name": model_config.get("model_name"),
+            "family_id": family,
+            "family_name": model_config.get("family_name"),
+            "variant_id": variant,
+            "variant_name": model_config.get("variant_name"),
             "explanation": model_config.get("explanation"),
         },
         "model_config": model_config,
-        "model_specific_inputs": model_specific_inputs,
+        "model_specific_inputs": state.get(
+            "model_specific_inputs",
+            {},
+        ),
         "selected_model_inputs": selected_model_inputs,
+        "structured_constraints": state.get(
+            "structured_constraints",
+            [],
+        ),
+        "unsupported_constraints": state.get(
+            "unsupported_constraints",
+            [],
+        ),
+        "constraint_validation_errors": state.get(
+            "constraint_validation_errors",
+            [],
+        ),
         "model_markdown": render_model_markdown(
             model_config,
-            _requirements_with_model_inputs(
-                requirements=requirements,
-                selected_model=selected_model,
-                selected_model_inputs=selected_model_inputs,
-            ),
+            requirements_with_model_inputs,
         ),
-        "generated_code": pulp_code,
+        "generated_code": state.get("pulp_code"),
+        "generation_errors": state.get(
+            "generation_errors",
+            [],
+        ),
         "next_steps": [
-            "Modellannahmen validieren.",
-            "PuLP-Code mit echten Daten befüllen.",
+            "Modellvorschau fachlich prüfen.",
             "Optimierungsmodell lösen.",
-            "Ergebnis fachlich erklären und Empfehlung ausgeben.",
+            "Solver-Ergebnis auswerten.",
+            "Fachliche Empfehlung erstellen.",
         ],
     }
 
     return with_control(
         {
             **state,
-            "ready_for_generation": True,
             "result": result,
         },
         event=None,
@@ -67,17 +96,39 @@ def result_node(state: GraphState) -> GraphState:
     )
 
 
+def _get_selected_model_inputs(
+    state: GraphState,
+    family: str | None,
+    variant: str | None,
+) -> dict[str, Any]:
+    if not family or not variant:
+        return {}
+
+    return (
+        state.get("model_specific_inputs", {})
+        .get(family, {})
+        .get(variant, {})
+    )
+
+
 def _requirements_with_model_inputs(
-    requirements: dict,
-    selected_model: str | None,
-    selected_model_inputs: dict,
-) -> dict:
-    if not selected_model or not selected_model_inputs:
+    requirements: dict[str, Any],
+    family: str | None,
+    variant: str | None,
+    selected_model_inputs: dict[str, Any],
+) -> dict[str, Any]:
+    if not family or not variant or not selected_model_inputs:
         return requirements
 
     model_parameters = {
         **requirements.get("model_parameters", {}),
-        selected_model: selected_model_inputs,
+        family: {
+            **requirements.get(
+                "model_parameters",
+                {},
+            ).get(family, {}),
+            variant: selected_model_inputs,
+        },
     }
 
     return {
@@ -87,15 +138,34 @@ def _requirements_with_model_inputs(
 
 
 def _build_summary(
-    requirements: dict,
-    model_config: dict,
-    selected_model: str | None,
+    requirements: dict[str, Any],
+    model_config: dict[str, Any],
+    family: str | None,
+    variant: str | None,
 ) -> str:
-    decision = requirements.get("decision", "nicht angegeben")
-    objective = requirements.get("objective", "nicht angegeben")
-    model_name = model_config.get("model_name") or selected_model or "kein Modell ausgewählt"
+    decision = requirements.get(
+        "decision",
+        "nicht angegeben",
+    )
+    objective = requirements.get(
+        "objective",
+        "nicht angegeben",
+    )
+
+    family_name = (
+        model_config.get("family_name")
+        or family
+        or "keine Modellfamilie"
+    )
+    variant_name = (
+        model_config.get("variant_name")
+        or variant
+        or "keine Modellvariante"
+    )
 
     return (
-        f"Für die Entscheidung '{decision}' mit dem Ziel '{objective}' "
-        f"wurde als passender Startpunkt das Modell '{model_name}' ausgewählt."
+        f"Für die Entscheidung '{decision}' mit dem Ziel "
+        f"'{objective}' wurde die Modellfamilie "
+        f"'{family_name}' mit der Variante "
+        f"'{variant_name}' ausgewählt."
     )

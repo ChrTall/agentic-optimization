@@ -1,20 +1,27 @@
-def render_model_markdown(model_config: dict, requirements: dict) -> str:
+def render_model_markdown(
+    model_config: dict,
+    requirements: dict,
+) -> str:
     """
-    Erstellt eine Markdown-Darstellung des ausgewählten Optimierungsmodells.
+    Erstellt eine Markdown-Darstellung der ausgewählten Modellvariante.
     """
 
-    model_type = model_config.get("model_type")
+    family_id = model_config.get("family_id")
+    variant_id = model_config.get("variant_id")
 
-    if model_type == "newsvendor":
-        return _render_newsvendor_markdown(model_config, requirements)
+    if (
+        family_id == "newsvendor"
+        and variant_id == "single_product_single_period"
+    ):
+        return _render_newsvendor_single_product_single_period_markdown(
+            model_config,
+            requirements,
+        )
 
-    if model_type == "linear_programming":
-        return _render_linear_programming_markdown(model_config, requirements)
-
-    if model_type == "routing":
-        return _render_routing_markdown(model_config, requirements)
-
-    return _render_generic_markdown(model_config, requirements)
+    return _render_generic_markdown(
+        model_config,
+        requirements,
+    )
 
 
 def _value_or_dash(value) -> str:
@@ -24,7 +31,11 @@ def _value_or_dash(value) -> str:
     if isinstance(value, list):
         if not value:
             return "–"
-        return ", ".join(_format_value(item) for item in value)
+
+        return ", ".join(
+            _format_value(item)
+            for item in value
+        )
 
     return _format_value(value)
 
@@ -39,31 +50,77 @@ def _format_value(value) -> str:
     return str(value)
 
 
-def _format_number(value: int | float) -> str:
+def _format_number(value: float) -> str:
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
 
     return f"{value:g}"
 
 
-def _render_newsvendor_markdown(model_config: dict, requirements: dict) -> str:
-    decision = _value_or_dash(requirements.get("decision"))
-    objective = _value_or_dash(requirements.get("objective"))
-    demand_type = _value_or_dash(requirements.get("demand_type"))
-    constraints = _value_or_dash(requirements.get("constraints"))
-    model_parameters = requirements.get("model_parameters", {})
-    newsvendor_params = model_parameters.get("newsvendor", {})
+def _render_newsvendor_single_product_single_period_markdown(
+    model_config: dict,
+    requirements: dict,
+) -> str:
+    decision = _value_or_dash(
+        requirements.get("decision")
+    )
+    objective = _value_or_dash(
+        requirements.get("objective")
+    )
+    demand_type = _value_or_dash(
+        requirements.get("demand_type")
+    )
+    original_constraints = _value_or_dash(
+        requirements.get("constraints")
+    )
 
-    demand_scenarios = _value_or_dash(newsvendor_params.get("demand_scenarios"))
-    scenario_probabilities = _value_or_dash(newsvendor_params.get("scenario_probabilities"))
-    selling_price = _value_or_dash(newsvendor_params.get("selling_price"))
-    purchase_cost = _value_or_dash(newsvendor_params.get("purchase_cost"))
-    salvage_value = _value_or_dash(newsvendor_params.get("salvage_value"))
+    model_parameters = requirements.get(
+        "model_parameters",
+        {},
+    )
+
+    newsvendor_params = (
+        model_parameters
+        .get("newsvendor", {})
+        .get("single_product_single_period", {})
+    )
+
+    demand_scenarios = _value_or_dash(
+        newsvendor_params.get("demand_scenarios")
+    )
+    scenario_probabilities = _value_or_dash(
+        newsvendor_params.get("scenario_probabilities")
+    )
+    selling_price = _value_or_dash(
+        newsvendor_params.get("selling_price")
+    )
+    purchase_cost = _value_or_dash(
+        newsvendor_params.get("purchase_cost")
+    )
+    salvage_value = _value_or_dash(
+        newsvendor_params.get("salvage_value")
+    )
+
+    family_name = model_config.get(
+        "family_name",
+        "Newsvendor",
+    )
+    variant_name = model_config.get(
+        "variant_name",
+        "Single Product, Single Period",
+    )
+
+    explanation = model_config.get(
+        "explanation",
+        "",
+    )
 
     return f"""
-### {model_config.get("model_name", "Newsvendor-Modell")}
+### {family_name}
 
-{model_config.get("explanation", "")}
+**Variante:** {variant_name}
+
+{explanation}
 
 #### Erkannte Problemstruktur
 
@@ -72,60 +129,96 @@ def _render_newsvendor_markdown(model_config: dict, requirements: dict) -> str:
 | Entscheidung | {decision} |
 | Ziel | {objective} |
 | Nachfrage | {demand_type} |
-| Nebenbedingungen | {constraints} |
+| Ursprünglich genannte Nebenbedingungen | {original_constraints} |
 
 #### Entscheidungsvariable
 
 | Symbol | Bedeutung |
 |---|---|
-| `q` | Bestellmenge |
+| `q` | Bestellmenge für das einzelne Produkt |
 
 #### Parameter
 
 | Symbol | Bedeutung | Erfasster Wert |
 |---|---|---|
-| `D` | unsichere Nachfrage | {demand_scenarios} |
+| `D` | Unsichere Nachfrage | {demand_scenarios} |
 | `P(D)` | Szenario-Wahrscheinlichkeiten | {scenario_probabilities} |
 | `p` | Verkaufspreis pro Einheit | {selling_price} |
 | `c` | Einkaufskosten pro Einheit | {purchase_cost} |
-| `s` | Restwert pro Einheit | {salvage_value} |
+| `s` | Restwert pro unverkaufter Einheit | {salvage_value} |
 
-#### Abgeleitete Kennzahlen
+#### Szenarioabhängige Hilfsvariablen
 
-| Kennzahl | Formel | Bedeutung |
-|---|---|---|
-| Underage Cost `Cu` | `p − c` | Entgangener Gewinn pro zu wenig bestellter Einheit |
-| Overage Cost `Co` | `c − s` | Verlust pro übrig gebliebener Einheit |
-| Critical Ratio `CR` | `Cu / (Cu + Co)` | Schwellenwert für die optimale Bestellmenge |
+| Symbol | Bedeutung |
+|---|---|
+| `sold_i` | Verkaufte Menge im Szenario `i` |
+| `leftover_i` | Restbestand im Szenario `i` |
 
 #### Zielfunktion
 
 ```text
-maximize  E[ p · min(q, D) + s · max(q − D, 0) − c · q ]
+maximize
+
+sum_i probability_i * (
+    selling_price * sold_i
+    + salvage_value * leftover_i
+)
+- purchase_cost * order_quantity
 ```
 
-#### Nebenbedingungen
+#### Feste Modellbedingungen
 
 ```text
-q ≥ 0
+order_quantity >= 0
+sold_i <= demand_i
+sold_i + leftover_i == order_quantity
+sold_i >= 0
+leftover_i >= 0
 ```
 
 #### Interpretation
 
-Das Modell sucht die Bestellmenge `q`, bei der der erwartete Gewinn maximal wird.
-Dabei wird berücksichtigt, dass die tatsächliche Nachfrage `D` unsicher ist.
+Das Modell bestimmt die optimale Bestellmenge `q` für ein einzelnes Produkt
+und eine einzelne Periode unter unsicherer Nachfrage.
+
+Für jedes Nachfrageszenario wird berechnet, wie viele Einheiten verkauft
+werden und wie viele Einheiten als Restbestand übrig bleiben. Die
+Zielfunktion maximiert den erwarteten Gewinn über alle Szenarien.
 """
 
+def _render_generic_markdown(
+    model_config: dict,
+    requirements: dict,
+) -> str:
+    decision = _value_or_dash(
+        requirements.get("decision")
+    )
+    objective = _value_or_dash(
+        requirements.get("objective")
+    )
+    constraints = _value_or_dash(
+        requirements.get("constraints")
+    )
 
-def _render_linear_programming_markdown(model_config: dict, requirements: dict) -> str:
-    decision = _value_or_dash(requirements.get("decision"))
-    objective = _value_or_dash(requirements.get("objective"))
-    constraints = _value_or_dash(requirements.get("constraints"))
+    family_name = model_config.get(
+        "family_name",
+        "Keine unterstützte Modellfamilie",
+    )
+    variant_name = model_config.get("variant_name")
+    explanation = model_config.get(
+        "explanation",
+        "",
+    )
+
+    title = family_name
+
+    if variant_name:
+        title = f"{family_name} – {variant_name}"
 
     return f"""
-### {model_config.get("model_name", "Lineares Optimierungsmodell")}
+### {title}
 
-{model_config.get("explanation", "")}
+{explanation}
 
 #### Erkannte Problemstruktur
 
@@ -135,95 +228,8 @@ def _render_linear_programming_markdown(model_config: dict, requirements: dict) 
 | Ziel | {objective} |
 | Nebenbedingungen | {constraints} |
 
-#### Entscheidungsvariable
+#### Hinweis
 
-| Symbol | Bedeutung |
-|---|---|
-| `x` | {decision} |
-
-#### Mathematische Struktur
-
-```text
-maximize  cᵀ · x
-
-subject to
-    A · x ≤ b
-    x ≥ 0
-```
-
-#### Interpretation
-
-Das Modell optimiert eine lineare Zielfunktion unter linearen Nebenbedingungen.
-"""
-
-
-def _render_routing_markdown(model_config: dict, requirements: dict) -> str:
-    decision = _value_or_dash(requirements.get("decision"))
-    objective = _value_or_dash(requirements.get("objective"))
-    constraints = _value_or_dash(requirements.get("constraints"))
-
-    return f"""
-### {model_config.get("model_name", "Routing- oder Transportmodell")}
-
-{model_config.get("explanation", "")}
-
-#### Erkannte Problemstruktur
-
-| Element | Erkannter Wert |
-|---|---|
-| Entscheidung | {decision} |
-| Ziel | {objective} |
-| Nebenbedingungen | {constraints} |
-
-#### Mathematische Struktur
-
-```text
-minimize  total_distance_or_cost
-
-subject to
-    routes satisfy all required deliveries
-    capacity and route constraints are respected
-```
-
-#### Interpretation
-
-Das Modell beschreibt ein Routing- oder Transportproblem. Für eine konkrete Lösung
-werden später Standorte, Distanzen, Kapazitäten und Lieferrestriktionen benötigt.
-"""
-
-
-def _render_generic_markdown(model_config: dict, requirements: dict) -> str:
-    decision = _value_or_dash(requirements.get("decision"))
-    objective = _value_or_dash(requirements.get("objective"))
-    constraints = _value_or_dash(requirements.get("constraints"))
-
-    optimization_sense = "maximize" if "gewinn" in objective.lower() else "minimize"
-
-    return f"""
-### {model_config.get("model_name", "Allgemeines Optimierungsmodell")}
-
-{model_config.get("explanation", "")}
-
-#### Erkannte Problemstruktur
-
-| Element | Erkannter Wert |
-|---|---|
-| Entscheidung | {decision} |
-| Ziel | {objective} |
-| Nebenbedingungen | {constraints} |
-
-#### Mathematische Struktur
-
-```text
-{optimization_sense}  f(x)
-
-subject to
-    x ≥ 0
-    {constraints}
-```
-
-#### Interpretation
-
-Das Problem wurde als allgemeines Optimierungsproblem erkannt. Für ein konkreteres
-Modell müssen Entscheidungsvariablen, Parameter und Nebenbedingungen später genauer strukturiert werden.
+Für diese Problemstruktur ist derzeit keine vollständig unterstützte
+Modellvariante registriert.
 """
