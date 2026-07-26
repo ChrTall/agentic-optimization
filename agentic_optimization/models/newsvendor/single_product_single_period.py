@@ -1,5 +1,8 @@
 import math
+from dataclasses import asdict, dataclass
 from typing import Any
+
+import pulp
 
 from agentic_optimization.models.types import (
     ConstraintDefinition,
@@ -264,29 +267,6 @@ def validate_single_product_single_period_inputs(
     return errors
 
 
-def _format_number(value: float) -> str:
-    """
-    Formatiert validierte Zahlen deterministisch für den erzeugten Python-Code.
-    """
-
-    if isinstance(value, bool):
-        raise TypeError("Boolesche Werte sind keine gültigen Zahlen.")
-
-    if isinstance(value, int):
-        return str(value)
-
-    if not isinstance(value, float):
-        raise TypeError(
-            f"Erwartete int oder float, erhalten: {type(value).__name__}"
-        )
-
-    return repr(value)
-
-
-def _format_number_list(values: list[float]) -> str:
-    return "[" + ", ".join(_format_number(value) for value in values) + "]"
-
-
 def validate_single_product_single_period_constraints(
     inputs: dict[str, Any],
     constraints: list[StructuredConstraint],
@@ -355,23 +335,50 @@ def validate_single_product_single_period_constraints(
     return errors
 
 
-def build_single_product_single_period_code(
+@dataclass(frozen=True)
+class SingleProductSinglePeriodSpecification:
+    selling_price: float
+    purchase_cost: float
+    salvage_value: float
+    demand_scenarios: tuple[float, ...]
+    scenario_probabilities: tuple[float, ...]
+
+    minimum_order_quantity: float | None = None
+    maximum_order_quantity: float | None = None
+    budget_limit: float | None = None
+    storage_capacity: float | None = None
+
+
+@dataclass
+class BuiltSingleProductSinglePeriodModel:
+    model: pulp.LpProblem
+    order_quantity: pulp.LpVariable
+    sold: dict[int, pulp.LpVariable]
+    leftover: dict[int, pulp.LpVariable]
+
+@dataclass(frozen=True)
+class ScenarioResult:
+    demand: float
+    probability: float
+    sold: float | None
+    leftover: float | None
+
+@dataclass(frozen=True)
+class SingleProductSinglePeriodResult:
+    solver_status: str
+    order_quantity: float | None
+    expected_profit: float | None
+    scenario_results: tuple[ScenarioResult, ...]
+    model_representation: str
+
+def create_single_product_single_period_specification(
     inputs: dict[str, Any],
     constraints: list[StructuredConstraint],
-) -> str:
+) -> SingleProductSinglePeriodSpecification:
     """
-    Erzeugt deterministisch PuLP-Code für ein Newsvendor-Modell
-    mit einem Produkt und einer Periode.
-
-    Die Funktion erwartet vollständig validierte Inputs und Constraints.
-    Sie verwendet kein LLM und erfindet keine Werte.
+    Erstellt aus bereits validierten Inputs und Constraints eine
+    normalisierte, unveränderliche Modellspezifikation.
     """
-
-    selling_price = inputs["selling_price"]
-    purchase_cost = inputs["purchase_cost"]
-    salvage_value = inputs["salvage_value"]
-    demand_scenarios = inputs["demand_scenarios"]
-    scenario_probabilities = inputs["scenario_probabilities"]
 
     constraints_by_type: dict[str, StructuredConstraint] = {}
 
@@ -380,181 +387,259 @@ def build_single_product_single_period_code(
 
         if constraint_type in constraints_by_type:
             raise ValueError(
-                f"Constraint-Typ '{constraint_type}' wurde mehrfach angegeben."
+                f"Der Constraint-Typ '{constraint_type}' "
+                "wurde mehrfach angegeben."
+            )
+
+        if constraint_type not in SUPPORTED_CONSTRAINTS:
+            raise ValueError(
+                f"Der Constraint-Typ '{constraint_type}' "
+                "wird von dieser Modellvariante nicht unterstützt."
             )
 
         constraints_by_type[constraint_type] = constraint
 
-    unsupported_types = (
-        set(constraints_by_type) - set(SUPPORTED_CONSTRAINTS)
-    )
-
-    if unsupported_types:
-        unsupported = ", ".join(sorted(unsupported_types))
-        raise ValueError(
-            f"Nicht unterstützte Constraint-Typen: {unsupported}"
-        )
-
-    lines = [
-        "import pulp",
-        "",
-        "# Eingabedaten",
-        f"selling_price = {_format_number(selling_price)}",
-        f"purchase_cost = {_format_number(purchase_cost)}",
-        f"salvage_value = {_format_number(salvage_value)}",
-        (
-            "demand_scenarios = "
-            f"{_format_number_list(demand_scenarios)}"
-        ),
-        (
-            "scenario_probabilities = "
-            f"{_format_number_list(scenario_probabilities)}"
-        ),
-        "",
-        "# Modell erstellen",
-        (
-            'model = pulp.LpProblem('
-            '"Newsvendor_Single_Product_Single_Period", '
-            "pulp.LpMaximize"
-            ")"
-        ),
-        "",
-        "# Entscheidungsvariable",
-        (
-            'order_quantity = pulp.LpVariable('
-            '"order_quantity", lowBound=0)'
-        ),
-        "",
-        "# Szenarioabhängige Hilfsvariablen",
-        "sold = {",
-        '    i: pulp.LpVariable(f"sold_{i}", lowBound=0)',
-        "    for i in range(len(demand_scenarios))",
-        "}",
-        "",
-        "leftover = {",
-        '    i: pulp.LpVariable(f"leftover_{i}", lowBound=0)',
-        "    for i in range(len(demand_scenarios))",
-        "}",
-        "",
-        "# Feste Modellbedingungen",
-        "for i, demand in enumerate(demand_scenarios):",
-        (
-            "    model += sold[i] <= demand, "
-            'f"demand_limit_{i}"'
-        ),
-        "    model += (",
-        "        sold[i] + leftover[i] == order_quantity,",
-        '        f"inventory_balance_{i}",',
-        "    )",
-        "",
-    ]
-
-    for constraint_type in SUPPORTED_CONSTRAINTS:
+    def get_optional_parameter(
+        constraint_type: str,
+        parameter_name: str,
+    ) -> float | None:
         constraint = constraints_by_type.get(constraint_type)
 
         if constraint is None:
-            continue
+            return None
 
         parameters = constraint["parameters"]
 
-        if constraint_type == "minimum_order_quantity":
-            quantity = _format_number(parameters["quantity"])
-
-            lines.extend(
-                [
-                    "# Optionale Mindestbestellmenge",
-                    (
-                        f"model += order_quantity >= {quantity}, "
-                        '"minimum_order_quantity"'
-                    ),
-                    "",
-                ]
-            )
-
-        elif constraint_type == "maximum_order_quantity":
-            quantity = _format_number(parameters["quantity"])
-
-            lines.extend(
-                [
-                    "# Optionale Höchstbestellmenge",
-                    (
-                        f"model += order_quantity <= {quantity}, "
-                        '"maximum_order_quantity"'
-                    ),
-                    "",
-                ]
-            )
-
-        elif constraint_type == "budget_limit":
-            budget = _format_number(parameters["budget"])
-
-            lines.extend(
-                [
-                    "# Optionale Budgetgrenze",
-                    "model += (",
-                    (
-                        "    purchase_cost * order_quantity "
-                        f"<= {budget},"
-                    ),
-                    '    "budget_limit",',
-                    ")",
-                    "",
-                ]
-            )
-
-        elif constraint_type == "storage_capacity":
-            capacity = _format_number(parameters["capacity"])
-
-            lines.extend(
-                [
-                    "# Optionale Lagerkapazität in Produkteinheiten",
-                    (
-                        f"model += order_quantity <= {capacity}, "
-                        '"storage_capacity"'
-                    ),
-                    "",
-                ]
-            )
-
-        else:
+        if parameter_name not in parameters:
             raise ValueError(
-                f"Nicht unterstützter Constraint-Typ: {constraint_type}"
+                f"Für den Constraint '{constraint_type}' fehlt "
+                f"der Parameter '{parameter_name}'."
             )
 
-    lines.extend(
-        [
-            "# Erwartete Erlöse",
-            "expected_revenue = pulp.lpSum(",
-            "    scenario_probabilities[i]",
-            "    * (",
-            "        selling_price * sold[i]",
-            "        + salvage_value * leftover[i]",
-            "    )",
-            "    for i in range(len(demand_scenarios))",
-            ")",
-            "",
-            "# Zielfunktion: Erwarteter Gewinn",
-            (
-                "model += expected_revenue "
-                "- purchase_cost * order_quantity"
-            ),
-            "",
-            "# Modell lösen",
-            "model.solve()",
-            "",
-            'print("Status:", pulp.LpStatus[model.status])',
-            (
-                'print("Optimale Bestellmenge:", '
-                "order_quantity.value())"
-            ),
-            (
-                'print("Erwarteter Gewinn:", '
-                "pulp.value(model.objective))"
-            ),
-        ]
+        value = parameters[parameter_name]
+
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+        ):
+            raise TypeError(
+                f"Der Parameter '{parameter_name}' des Constraints "
+                f"'{constraint_type}' muss eine Zahl sein."
+            )
+
+        return float(value)
+
+    return SingleProductSinglePeriodSpecification(
+        selling_price=float(inputs["selling_price"]),
+        purchase_cost=float(inputs["purchase_cost"]),
+        salvage_value=float(inputs["salvage_value"]),
+        demand_scenarios=tuple(
+            float(value)
+            for value in inputs["demand_scenarios"]
+        ),
+        scenario_probabilities=tuple(
+            float(value)
+            for value in inputs["scenario_probabilities"]
+        ),
+        minimum_order_quantity=get_optional_parameter(
+            "minimum_order_quantity",
+            "quantity",
+        ),
+        maximum_order_quantity=get_optional_parameter(
+            "maximum_order_quantity",
+            "quantity",
+        ),
+        budget_limit=get_optional_parameter(
+            "budget_limit",
+            "budget",
+        ),
+        storage_capacity=get_optional_parameter(
+            "storage_capacity",
+            "capacity",
+        ),
     )
 
-    return "\n".join(lines) + "\n"
+
+def build_single_product_single_period_model(
+    specification: SingleProductSinglePeriodSpecification,
+) -> BuiltSingleProductSinglePeriodModel:
+    """
+    Baut das tatsächlich zu lösende PuLP-Modell.
+    """
+
+    model = pulp.LpProblem(
+        "Newsvendor_Single_Product_Single_Period",
+        pulp.LpMaximize,
+    )
+
+    order_quantity = pulp.LpVariable(
+        "order_quantity",
+        lowBound=0,
+    )
+
+    scenario_indices = range(
+        len(specification.demand_scenarios)
+    )
+
+    sold = {
+        index: pulp.LpVariable(
+            f"sold_{index}",
+            lowBound=0,
+        )
+        for index in scenario_indices
+    }
+
+    leftover = {
+        index: pulp.LpVariable(
+            f"leftover_{index}",
+            lowBound=0,
+        )
+        for index in scenario_indices
+    }
+
+    for index, demand in enumerate(
+        specification.demand_scenarios
+    ):
+        model += (
+            sold[index] <= demand,
+            f"demand_limit_{index}",
+        )
+
+        model += (
+            sold[index] + leftover[index]
+            == order_quantity,
+            f"inventory_balance_{index}",
+        )
+
+    expected_revenue = pulp.lpSum(
+        specification.scenario_probabilities[index]
+        * (
+            specification.selling_price * sold[index]
+            + specification.salvage_value * leftover[index]
+        )
+        for index in scenario_indices
+    )
+
+    model += (
+        expected_revenue
+        - specification.purchase_cost * order_quantity,
+        "expected_profit",
+    )
+
+    if specification.minimum_order_quantity is not None:
+        model += (
+            order_quantity
+            >= specification.minimum_order_quantity,
+            "minimum_order_quantity",
+        )
+
+    if specification.maximum_order_quantity is not None:
+        model += (
+            order_quantity
+            <= specification.maximum_order_quantity,
+            "maximum_order_quantity",
+        )
+
+    if specification.budget_limit is not None:
+        model += (
+            specification.purchase_cost * order_quantity
+            <= specification.budget_limit,
+            "budget_limit",
+        )
+
+    if specification.storage_capacity is not None:
+        model += (
+            order_quantity
+            <= specification.storage_capacity,
+            "storage_capacity",
+        )
+
+    return BuiltSingleProductSinglePeriodModel(
+        model=model,
+        order_quantity=order_quantity,
+        sold=sold,
+        leftover=leftover,
+    )
+
+
+def solve_single_product_single_period(
+    specification: SingleProductSinglePeriodSpecification,
+) -> SingleProductSinglePeriodResult:
+    """
+    Baut und löst das Modell und gibt ausschließlich serialisierbare
+    fachliche Ergebniswerte zurück.
+    """
+
+    built_model = build_single_product_single_period_model(
+        specification
+    )
+
+    model_representation = str(built_model.model)
+
+    built_model.model.solve(
+        pulp.PULP_CBC_CMD(msg=False)
+    )
+
+    solver_status = pulp.LpStatus[
+        built_model.model.status
+    ]
+
+    if solver_status != "Optimal":
+        return SingleProductSinglePeriodResult(
+            solver_status=solver_status,
+            order_quantity=None,
+            expected_profit=None,
+            scenario_results=(),
+            model_representation=model_representation,
+        )
+
+    order_quantity_value = (
+        built_model.order_quantity.value()
+    )
+
+    objective_value = pulp.value(
+        built_model.model.objective
+    )
+
+    scenario_results = tuple(
+        ScenarioResult(
+            demand=specification.demand_scenarios[index],
+            probability=(
+                specification.scenario_probabilities[index]
+            ),
+            sold=built_model.sold[index].value(),
+            leftover=built_model.leftover[index].value(),
+        )
+        for index in range(
+            len(specification.demand_scenarios)
+        )
+    )
+
+    return SingleProductSinglePeriodResult(
+        solver_status=solver_status,
+        order_quantity=order_quantity_value,
+        expected_profit=objective_value,
+        scenario_results=scenario_results,
+        model_representation=model_representation,
+    )
+
+
+def optimize_single_product_single_period(
+    inputs: dict[str, Any],
+    constraints: list[StructuredConstraint],
+) -> dict[str, Any]:
+    specification = (
+        create_single_product_single_period_specification(
+            inputs,
+            constraints,
+        )
+    )
+
+    result = solve_single_product_single_period(
+        specification
+    )
+
+    return asdict(result)
 
 
 VARIANT_DEFINITION: ModelVariantDefinition = {
@@ -567,5 +652,5 @@ VARIANT_DEFINITION: ModelVariantDefinition = {
     "constraint_validator": (
         validate_single_product_single_period_constraints
     ),
-    "code_builder": build_single_product_single_period_code,
+    "optimizer": optimize_single_product_single_period,
 }

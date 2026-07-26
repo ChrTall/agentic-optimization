@@ -2,7 +2,7 @@ from langchain_core.language_models import BaseChatModel
 from langgraph.graph import END, START, StateGraph
 
 from agentic_optimization.agents.clarification import clarification_node
-from agentic_optimization.agents.code_agent import generate_pulp_code
+from agentic_optimization.agents.code_agent import optimize_model
 from agentic_optimization.agents.constraint_mapping_agent import (
     create_constraint_mapping_agent,
 )
@@ -19,15 +19,16 @@ from agentic_optimization.state import (
     EVENT_GENERAL_CLARIFICATION_SUBMITTED,
     EVENT_MODEL_INPUTS_SUBMITTED,
     EVENT_NEW_PROBLEM,
-    WORKFLOW_CODE_GENERATED,
-    WORKFLOW_CODE_GENERATION_FAILED,
+    EVENT_OPTIMIZATION_REQUESTED,
     WORKFLOW_GENERAL_INPUTS_VALID,
     WORKFLOW_MODEL_INPUTS_INVALID,
     WORKFLOW_MODEL_INPUTS_VALID,
     WORKFLOW_MODEL_SPECIFIC_INPUTS_COMPLETE,
     WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
     WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS,
-    WORKFLOW_READY_FOR_GENERATION,
+    WORKFLOW_OPTIMIZATION_COMPLETED,
+    WORKFLOW_OPTIMIZATION_FAILED,
+    WORKFLOW_READY_FOR_REVIEW,
     GraphState,
     get_event,
     get_workflow_status,
@@ -47,6 +48,9 @@ def route_workflow(state: GraphState) -> str:
 
     if event == EVENT_MODEL_INPUTS_SUBMITTED:
         return "validate_model_specific_inputs"
+    
+    if event == EVENT_OPTIMIZATION_REQUESTED:
+        return "optimize_model"
 
     raise ValueError(f"Unexpected workflow event: {event}")
 
@@ -96,32 +100,39 @@ def route_after_model_input_validation(state: GraphState) -> str:
     raise ValueError(f"Unexpected workflow_status after model input validation: {status}")
 
 
-def route_after_constraint_validation(state: GraphState) -> str:
+def route_after_constraint_validation(
+    state: GraphState,
+) -> str:
     status = get_workflow_status(state)
 
     if status == WORKFLOW_MODEL_INPUTS_INVALID:
         return "constraints_invalid"
 
-    if status == WORKFLOW_READY_FOR_GENERATION:
-        return "generate_code"
+    if status == WORKFLOW_READY_FOR_REVIEW:
+        return "review_ready"
 
     raise ValueError(
-        f"Unexpected workflow_status after constraint validation: {status}"
+        "Unexpected workflow_status after constraint validation: "
+        f"{status}"
     )
 
 
-def route_after_code_generation(state: GraphState) -> str:
+def route_after_optimization(
+    state: GraphState,
+) -> str:
     status = get_workflow_status(state)
 
-    if status == WORKFLOW_CODE_GENERATED:
+    if status == WORKFLOW_OPTIMIZATION_COMPLETED:
         return "prepare_result"
 
-    if status == WORKFLOW_CODE_GENERATION_FAILED:
-        return "generation_failed"
+    if status == WORKFLOW_OPTIMIZATION_FAILED:
+        return "prepare_result"
 
     raise ValueError(
-        f"Unexpected workflow_status after code generation: {status}"
+        "Unexpected workflow_status after optimization: "
+        f"{status}"
     )
+
 
 def route_after_constraint_mapping(
     state: GraphState,
@@ -171,7 +182,7 @@ def build_graph(llm: BaseChatModel):
     
     # Bereitet das finale Ergebnis für die UI auf.
     graph.add_node("result_node", result_node)
-    graph.add_node("generate_pulp_code", generate_pulp_code)
+    graph.add_node("optimize_model", optimize_model)
 
     # Einstiegspunkt: abhängig vom Event an der richtigen Stelle starten.
     graph.add_conditional_edges(
@@ -179,8 +190,11 @@ def build_graph(llm: BaseChatModel):
         route_workflow,
         {
             "requirement_agent": "requirement_agent",
-            "validate_model_specific_inputs": "validate_model_specific_inputs",
-        },
+            "validate_model_specific_inputs": (
+                "validate_model_specific_inputs"
+            ),
+            "optimize_model": "optimize_model",
+        }
     )
 
     # Nach der Requirement-Extraktion immer allgemein validieren.
@@ -240,17 +254,19 @@ def build_graph(llm: BaseChatModel):
         route_after_constraint_validation,
         {
             "constraints_invalid": END,
-            "generate_code": "generate_pulp_code",
-        },
+            "review_ready": END,
+        }
     )
+
+
     graph.add_conditional_edges(
-        "generate_pulp_code",
-        route_after_code_generation,
+        "optimize_model",
+        route_after_optimization,
         {
             "prepare_result": "result_node",
-            "generation_failed": END,
         },
     )
+
 
     # Bereitet die Modellvorschau für Formular 4 auf.
     graph.add_edge("result_node", END)

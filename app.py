@@ -7,10 +7,12 @@ from agentic_optimization.state import (
     EVENT_GENERAL_CLARIFICATION_SUBMITTED,
     EVENT_MODEL_INPUTS_SUBMITTED,
     EVENT_NEW_PROBLEM,
+    EVENT_OPTIMIZATION_REQUESTED,
     WORKFLOW_MODEL_INPUTS_INVALID,
     WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
     WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS,
     WORKFLOW_READY_FOR_RESULT,
+    WORKFLOW_READY_FOR_REVIEW,
     get_workflow_status,
 )
 
@@ -33,8 +35,8 @@ if "graph_state" not in st.session_state:
 
 # ── Fortschrittsanzeige ───────────────────────────────────────────────────────
 
-STEPS = ["form", "freitext", "model_input_form", "result"]
-STEP_LABELS = ["① Formular", "② Beschreibung", "③ Modellinput", "④ Ergebnis"]
+STEPS = ["form", "freitext", "model_input_form", "review", "result"]
+STEP_LABELS = ["① Formular", "② Beschreibung", "③ Modellinput", "④ Überprüfung", "⑤ Ergebnis"]
 
 step_for_progress = "freitext" if st.session_state.step == "clarify" else st.session_state.step
 step_index = STEPS.index(step_for_progress) if step_for_progress in STEPS else 1
@@ -82,6 +84,9 @@ def route_ui_from_graph_state(graph_state: dict) -> str:
 
     if status == WORKFLOW_READY_FOR_RESULT:
         return "result"
+
+    if status == WORKFLOW_READY_FOR_REVIEW:
+        return "review"
 
     return "freitext"
 
@@ -535,6 +540,161 @@ elif st.session_state.step == "model_input_form":
         st.rerun()
 
 
+elif st.session_state.step == "review":
+    st.subheader("Angaben prüfen")
+
+    graph_state = st.session_state.graph_state or {}
+
+    model_config = graph_state.get("model_config", {})
+    family = graph_state.get("selected_model_family")
+    variant = graph_state.get("selected_model_variant")
+
+    inputs = (
+        graph_state.get("model_specific_inputs", {})
+        .get(family, {})
+        .get(variant, {})
+        if family and variant
+        else {}
+    )
+
+    constraints = graph_state.get(
+        "structured_constraints",
+        [],
+    )
+
+    st.markdown("### Erkannte Aufgabe")
+    st.write(
+        "Es soll die optimale Bestellmenge für ein Produkt "
+        "und eine Verkaufsperiode bei unsicherer Nachfrage "
+        "bestimmt werden."
+    )
+
+    st.markdown("### Verwendetes Verfahren")
+    st.write(
+        model_config.get(
+            "variant_name",
+            variant or "–",
+        )
+    )
+
+    st.markdown("### Ihre Modellangaben")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric(
+            "Verkaufspreis",
+            inputs.get("selling_price", "–"),
+        )
+
+    with col2:
+        st.metric(
+            "Einkaufskosten",
+            inputs.get("purchase_cost", "–"),
+        )
+
+    with col3:
+        st.metric(
+            "Restwert",
+            inputs.get("salvage_value", "–"),
+        )
+
+    st.write(
+        "Nachfrageszenarien:",
+        inputs.get("demand_scenarios", []),
+    )
+
+    st.write(
+        "Wahrscheinlichkeiten:",
+        inputs.get("scenario_probabilities", []),
+    )
+
+    st.markdown("### Grenzen und Vorgaben")
+
+    if constraints:
+        for constraint in constraints:
+            st.write(
+                constraint.get("type"),
+                constraint.get("parameters", {}),
+            )
+
+        constraints_confirmed = st.checkbox(
+            "Die erkannten Grenzen und Vorgaben sind korrekt."
+        )
+    else:
+        st.info(
+            "Es wurden keine zusätzlichen Grenzen oder "
+            "Vorgaben angegeben."
+        )
+
+        constraints_confirmed = st.checkbox(
+            "Das ist korrekt – es gibt keine weiteren "
+            "Einschränkungen."
+        )
+
+    st.markdown("### Modellannahmen")
+
+    with st.expander("Modellannahmen anzeigen"):
+        st.markdown(
+            """
+            - Es wird ein Produkt betrachtet.
+            - Es wird eine Verkaufsperiode betrachtet.
+            - Die Bestellung erfolgt vor Bekanntwerden der Nachfrage.
+            - Die Nachfrage wird durch Szenarien und Wahrscheinlichkeiten beschrieben.
+            - Nicht verkaufte Einheiten besitzen den angegebenen Restwert.
+            - Ziel ist die Maximierung des erwarteten Gewinns.
+            """
+        )
+
+    col_back, col_start = st.columns(2)
+
+    with col_back:
+        if st.button(
+            "Angaben bearbeiten",
+            use_container_width=True,
+        ):
+            st.session_state.step = "model_input_form"
+            st.rerun()
+
+    with col_start:
+        start_optimization = st.button(
+            "Optimierung starten",
+            type="primary",
+            use_container_width=True,
+            disabled=not constraints_confirmed,
+        )
+
+    if start_optimization:
+        llm = st.session_state.get("llm")
+
+        if llm is None:
+            st.error(
+                "Das Sprachmodell ist nicht initialisiert."
+            )
+            st.stop()
+
+        next_state = {
+            **graph_state,
+            "control": {
+                **graph_state.get("control", {}),
+                "event": EVENT_OPTIMIZATION_REQUESTED,
+            },
+            "review_confirmed": True,
+        }
+
+        app = build_graph(llm)
+
+        st.session_state.graph_state = app.invoke(
+            next_state
+        )
+
+        st.session_state.step = route_ui_from_graph_state(
+            st.session_state.graph_state
+        )
+
+        st.rerun()
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # SCHRITT 4: Ergebnis
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -542,6 +702,8 @@ elif st.session_state.step == "model_input_form":
 elif st.session_state.step == "result":
     gs = st.session_state.graph_state or {}
     result = gs.get("result", {})
+    optimization_result = result.get("optimization_result")
+    optimization_errors = result.get("optimization_errors",[],)
     reqs = result.get("requirements", {})
     selected_model = result.get("selected_model", {})
 
@@ -555,6 +717,61 @@ elif st.session_state.step == "result":
         "selected_model_inputs",
         {},
     )
+
+    if optimization_errors:
+        st.error(
+            "Die Optimierung konnte nicht abgeschlossen werden."
+        )
+
+        for error in optimization_errors:
+            st.error(error)
+
+    if optimization_result:
+        solver_status = optimization_result.get(
+            "solver_status"
+        )
+
+        st.subheader("Optimierungsergebnis")
+
+        if solver_status == "Optimal":
+            order_quantity = optimization_result.get(
+                "order_quantity"
+            )
+
+            expected_profit = optimization_result.get(
+                "expected_profit"
+            )
+
+            st.success(
+                "Eine optimale Bestellmenge wurde gefunden."
+            )
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.metric(
+                    "Empfohlene Bestellmenge",
+                    (
+                        f"{order_quantity:g} Einheiten"
+                        if order_quantity is not None
+                        else "–"
+                    ),
+                )
+
+            with col2:
+                st.metric(
+                    "Erwarteter Gewinn",
+                    (
+                        f"{expected_profit:,.2f}"
+                        if expected_profit is not None
+                        else "–"
+                    ),
+                )
+        else:
+            st.warning(
+                "Es wurde keine optimale Lösung gefunden. "
+                f"Solverstatus: {solver_status}"
+            )
 
     st.subheader("Ergebnis")
     st.success(result.get("summary", ""))
@@ -691,18 +908,24 @@ elif st.session_state.step == "result":
 
     st.divider()
 
-    # ── Generierter PuLP-Code ─────────────────────────────────────────────────
-    generated_code = result.get("generated_code")
-    generation_errors = result.get("generation_errors", [])
+    if optimization_result:
+        model_representation = optimization_result.get(
+            "model_representation",
+            "",
+        )
 
-    with st.expander("Technische Details: generierter PuLP-Code"):
-        if generated_code:
-            st.code(generated_code, language="python")
-        elif generation_errors:
-            for error in generation_errors:
-                st.error(error)
-        else:
-            st.info("Es wurde noch kein PuLP-Code erzeugt.")
+        with st.expander(
+            "Technische Modellform"
+        ):
+            st.caption(
+                "Diese Darstellung entspricht exakt dem "
+                "Optimierungsmodell, das berechnet wurde."
+            )
+
+            st.code(
+                model_representation,
+                language="text",
+            )
     # ── Nächste Schritte ──────────────────────────────────────────────────────
     st.markdown("### 🔜 Nächste Schritte")
     for step in result.get("next_steps", []):

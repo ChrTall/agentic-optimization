@@ -1,5 +1,9 @@
 from typing import Any, Final, Literal, TypedDict
 
+from agentic_optimization.models.types import (
+    StructuredConstraint,
+)
+
 # ---------------------------------------------------------------------------
 # Workflow-Status
 # ---------------------------------------------------------------------------
@@ -18,9 +22,11 @@ WORKFLOW_MODEL_SPECIFIC_INPUTS_COMPLETE: Final = "model_specific_inputs_complete
 WORKFLOW_MODEL_INPUTS_VALID: Final = "model_inputs_valid"
 WORKFLOW_MODEL_INPUTS_INVALID: Final = "model_inputs_invalid"
 WORKFLOW_READY_FOR_RESULT: Final = "ready_for_result"
-WORKFLOW_READY_FOR_GENERATION: Final = "ready_for_generation"
-WORKFLOW_CODE_GENERATED: Final = "code_generated"
-WORKFLOW_CODE_GENERATION_FAILED: Final = "code_generation_failed"
+WORKFLOW_READY_FOR_OPTIMIZATION: Final = "ready_for_optimization"
+WORKFLOW_OPTIMIZATION_COMPLETED: Final = "optimization_completed"
+WORKFLOW_OPTIMIZATION_FAILED: Final = "optimization_failed"
+WORKFLOW_READY_FOR_REVIEW: Final = "ready_for_review"
+
 
 # ---------------------------------------------------------------------------
 # Workflow-Events
@@ -34,6 +40,8 @@ WORKFLOW_CODE_GENERATION_FAILED: Final = "code_generation_failed"
 EVENT_NEW_PROBLEM: Final = "new_problem"
 EVENT_GENERAL_CLARIFICATION_SUBMITTED: Final = "general_clarification_submitted"
 EVENT_MODEL_INPUTS_SUBMITTED: Final = "model_inputs_submitted"
+EVENT_OPTIMIZATION_REQUESTED: Final = "optimization_requested"
+
 
 # Interner Platzhalter für with_control().
 # Damit können wir unterscheiden zwischen:
@@ -54,15 +62,17 @@ WorkflowStatus = Literal[
     "model_inputs_valid",
     "model_inputs_invalid",
     "ready_for_result",
-    "ready_for_generation",
-    "code_generated",
-    "code_generation_failed",
+    "ready_for_optimization",
+    "optimization_completed",
+    "optimization_failed",
+    "ready_for_review",
 ]
 
 WorkflowEvent = Literal[
     "new_problem",
     "general_clarification_submitted",
     "model_inputs_submitted",
+    "optimization_requested",
 ]
 
 
@@ -81,12 +91,6 @@ class ControlState(TypedDict, total=False):
     workflow_status: WorkflowStatus
 
 
-class StructuredConstraint(TypedDict):
-    type: str
-    parameters: dict[str, int | float]
-    source_text: str | None
-
-
 class ModelConfig(TypedDict, total=False):
     family_id: str
     family_name: str
@@ -95,7 +99,6 @@ class ModelConfig(TypedDict, total=False):
     explanation: str
     objective: Any
     decision: Any
-
 
 
 class GraphState(TypedDict, total=False):
@@ -145,9 +148,13 @@ class GraphState(TypedDict, total=False):
     required_constraint_inputs: list[dict[str, Any]]
 
     # Codegenerierung
-    ready_for_generation: bool
-    generation_errors: list[str]
-    pulp_code: str | None
+    ready_for_optimization: bool
+
+    # Optimierungsergebnis
+    optimization_result: dict[str, Any] | None
+    optimization_errors: list[str]
+
+    review_confirmed: bool
 
     # Ergebnis
     result: dict[str, Any]

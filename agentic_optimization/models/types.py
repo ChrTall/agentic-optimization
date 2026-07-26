@@ -53,12 +53,12 @@ ConstraintValidator = Callable[
 ]
 
 
-CodeBuilder = Callable[
+ModelOptimizer = Callable[
     [
         dict[str, Any],
         list[StructuredConstraint],
     ],
-    str,
+    dict[str, Any],
 ]
 
 
@@ -72,7 +72,7 @@ class ModelVariantDefinition(TypedDict):
     supported_constraints: dict[str, ConstraintDefinition]
     input_validator: InputValidator
     constraint_validator: ConstraintValidator
-    code_builder: CodeBuilder
+    optimizer: ModelOptimizer
 
 
 class ModelFamilyDefinition(TypedDict):
@@ -81,3 +81,4 @@ class ModelFamilyDefinition(TypedDict):
     family_id: str
     family_name: str
     variants: dict[str, ModelVariantDefinition]
+

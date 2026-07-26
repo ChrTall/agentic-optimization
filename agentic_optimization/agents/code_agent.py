@@ -1,28 +1,47 @@
-from agentic_optimization.models.registry import get_model_variant_definition
+import pulp
+
+from agentic_optimization.models.registry import (
+    get_model_variant_definition,
+)
 from agentic_optimization.state import (
-    WORKFLOW_CODE_GENERATED,
-    WORKFLOW_CODE_GENERATION_FAILED,
+    WORKFLOW_OPTIMIZATION_COMPLETED,
+    WORKFLOW_OPTIMIZATION_FAILED,
     GraphState,
     with_control,
 )
 
 
-def generate_pulp_code(state: GraphState) -> GraphState:
+def optimize_model(
+    state: GraphState,
+) -> GraphState:
     """
-    Erzeugt PuLP-Code ausschließlich nach erfolgreicher Validierung.
+    Baut und löst eine vollständig validierte Modellvariante.
     """
 
-    if not state.get("ready_for_generation"):
+    if not state.get("ready_for_optimization"):
         return with_control(
             {
                 **state,
-                "pulp_code": None,
-                "generation_errors": [
-                    "Die Codegenerierung ist erst nach erfolgreicher Validierung aller Eingaben und Constraints möglich."
+                "optimization_result": None,
+                "optimization_errors": [
+                    "Die Optimierung ist erst nach erfolgreicher Validierung aller Eingaben und Constraints möglich."
                 ],
             },
             event=None,
-            workflow_status=WORKFLOW_CODE_GENERATION_FAILED,
+            workflow_status=WORKFLOW_OPTIMIZATION_FAILED,
+        )
+
+    if not state.get("review_confirmed"):
+        return with_control(
+            {
+                **state,
+                "optimization_result": None,
+                "optimization_errors": [
+                    "Die Optimierung wurde noch nicht durch den Nutzer bestätigt."
+                ],
+            },
+            event=None,
+            workflow_status=WORKFLOW_OPTIMIZATION_FAILED,
         )
 
     family = state.get("selected_model_family")
@@ -32,13 +51,13 @@ def generate_pulp_code(state: GraphState) -> GraphState:
         return with_control(
             {
                 **state,
-                "pulp_code": None,
-                "generation_errors": [
-                    "Für die Codegenerierung fehlen Modellfamilie oder Modellvariante."
+                "optimization_result": None,
+                "optimization_errors": [
+                    "Für die Optimierung fehlen Modellfamilie oder Modellvariante."
                 ],
             },
             event=None,
-            workflow_status=WORKFLOW_CODE_GENERATION_FAILED,
+            workflow_status=WORKFLOW_OPTIMIZATION_FAILED,
         )
 
     model_definition = get_model_variant_definition(
@@ -50,13 +69,13 @@ def generate_pulp_code(state: GraphState) -> GraphState:
         return with_control(
             {
                 **state,
-                "pulp_code": None,
-                "generation_errors": [
+                "optimization_result": None,
+                "optimization_errors": [
                     f"Die Modellvariante '{family}/{variant}' ist nicht registriert."
                 ],
             },
             event=None,
-            workflow_status=WORKFLOW_CODE_GENERATION_FAILED,
+            workflow_status=WORKFLOW_OPTIMIZATION_FAILED,
         )
 
     inputs = (
@@ -65,31 +84,40 @@ def generate_pulp_code(state: GraphState) -> GraphState:
         .get(variant, {})
     )
 
-    constraints = state.get("structured_constraints", [])
-    code_builder = model_definition["code_builder"]
+    constraints = state.get(
+        "structured_constraints",
+        [],
+    )
+
+    optimizer = model_definition["optimizer"]
 
     try:
-        pulp_code = code_builder(
+        optimization_result = optimizer(
             inputs,
             constraints,
         )
-    except (KeyError, TypeError, ValueError) as error:
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        pulp.PulpError,
+    ) as error:
         return with_control(
             {
                 **state,
-                "pulp_code": None,
-                "generation_errors": [str(error)],
+                "optimization_result": None,
+                "optimization_errors": [str(error)],
             },
             event=None,
-            workflow_status=WORKFLOW_CODE_GENERATION_FAILED,
+            workflow_status=WORKFLOW_OPTIMIZATION_FAILED,
         )
 
     return with_control(
         {
             **state,
-            "pulp_code": pulp_code,
-            "generation_errors": [],
+            "optimization_result": optimization_result,
+            "optimization_errors": [],
         },
         event=None,
-        workflow_status=WORKFLOW_CODE_GENERATED,
+        workflow_status=WORKFLOW_OPTIMIZATION_COMPLETED,
     )

@@ -36,6 +36,15 @@ def result_node(state: GraphState) -> GraphState:
         selected_model_inputs=selected_model_inputs,
     )
 
+    optimization_result = state.get(
+        "optimization_result"
+    )
+
+    optimization_errors = state.get(
+        "optimization_errors",
+        [],
+    )
+
     result = {
         "summary": _build_summary(
             requirements=requirements,
@@ -69,20 +78,16 @@ def result_node(state: GraphState) -> GraphState:
             "constraint_validation_errors",
             [],
         ),
+        "optimization_result": optimization_result,
+        "optimization_errors": optimization_errors,
         "model_markdown": render_model_markdown(
             model_config,
             requirements_with_model_inputs,
         ),
-        "generated_code": state.get("pulp_code"),
-        "generation_errors": state.get(
-            "generation_errors",
-            [],
-        ),
         "next_steps": [
-            "Modellvorschau fachlich prüfen.",
-            "Optimierungsmodell lösen.",
-            "Solver-Ergebnis auswerten.",
-            "Fachliche Empfehlung erstellen.",
+            "Optimierungsergebnis fachlich prüfen.",
+            "Modellannahmen bei Bedarf anpassen.",
+            "Bestellentscheidung dokumentieren.",
         ],
     }
 

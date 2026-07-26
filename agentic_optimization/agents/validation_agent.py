@@ -11,7 +11,7 @@ from agentic_optimization.state import (
     WORKFLOW_MODEL_SPECIFIC_INPUTS_COMPLETE,
     WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
     WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS,
-    WORKFLOW_READY_FOR_GENERATION,
+    WORKFLOW_READY_FOR_REVIEW,
     GraphState,
     with_control,
 )
@@ -78,7 +78,7 @@ def detect_model_specific_inputs(
                 "model_input_validation_errors": [
                     "Es konnte keine vollständig unterstützte Modellfamilie und Modellvariante ausgewählt werden."
                 ],
-                "ready_for_generation": False,
+                "ready_for_optimization": False,
             },
             event=None,
             workflow_status=WORKFLOW_MODEL_INPUTS_INVALID,
@@ -98,7 +98,7 @@ def detect_model_specific_inputs(
                 "model_input_validation_errors": [
                     f"Die Modellvariante '{family}/{variant}' ist nicht registriert."
                 ],
-                "ready_for_generation": False,
+                "ready_for_optimization": False,
             },
             event=None,
             workflow_status=WORKFLOW_MODEL_INPUTS_INVALID,
@@ -132,7 +132,7 @@ def detect_model_specific_inputs(
             "required_model_inputs": required_model_inputs,
             "missing_model_input_fields": missing_fields,
             "model_input_validation_errors": [],
-            "ready_for_generation": False,
+            "ready_for_optimization": False,
         },
         event=None,
         workflow_status=(
@@ -209,7 +209,7 @@ def validate_model_specific_inputs(
             "missing_model_input_fields": missing_fields,
             "required_model_inputs": required_model_inputs,
             "model_input_validation_errors": errors,
-            "ready_for_generation": False,
+            "ready_for_optimization": False,
         },
         event=None,
         workflow_status=(
@@ -466,12 +466,13 @@ def validate_structured_constraints(
             "required_constraint_inputs": (
                 required_constraint_inputs
             ),
-            "ready_for_generation": not validation_failed,
+            "ready_for_optimization": not validation_failed,
+            "review_confirmed": False,
         },
         event=None,
         workflow_status=(
             WORKFLOW_MODEL_INPUTS_INVALID
             if validation_failed
-            else WORKFLOW_READY_FOR_GENERATION
+            else WORKFLOW_READY_FOR_REVIEW
         ),
     )
