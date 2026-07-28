@@ -1,3 +1,5 @@
+from typing import Any
+
 from agentic_optimization.models.newsvendor.single_product_single_period import (
     VARIANT_DEFINITION as SINGLE_PRODUCT_SINGLE_PERIOD,
 )
@@ -17,6 +19,67 @@ MODEL_REGISTRY: dict[str, ModelFamilyDefinition] = {
         },
     },
 }
+
+def find_matching_model_variant(
+    requirements: dict[str, Any],
+) -> tuple[
+    ModelFamilyDefinition,
+    ModelVariantDefinition,
+] | None:
+    """
+    Sucht deterministisch nach einer Modellvariante, deren
+    Auswahlkriterien vollständig zu den Requirements passen.
+    """
+
+    matches: list[
+        tuple[
+            ModelFamilyDefinition,
+            ModelVariantDefinition,
+        ]
+    ] = []
+
+    for family_definition in MODEL_REGISTRY.values():
+        for variant_definition in family_definition[
+            "variants"
+        ].values():
+            criteria = variant_definition[
+                "selection_criteria"
+            ]
+
+            matches_variant = all(
+                requirements.get(field_name)
+                == expected_value
+                for field_name, expected_value
+                in criteria.items()
+            )
+
+            if matches_variant:
+                matches.append(
+                    (
+                        family_definition,
+                        variant_definition,
+                    )
+                )
+
+    if len(matches) > 1:
+        matching_variants = ", ".join(
+            (
+                f"{family['family_id']}/"
+                f"{variant['variant_id']}"
+            )
+            for family, variant in matches
+        )
+
+        raise ValueError(
+            "Die Modell-Registry enthält mehrere Varianten "
+            "mit identischen Auswahlkriterien: "
+            f"{matching_variants}."
+        )
+
+    if not matches:
+        return None
+
+    return matches[0]
 
 
 def get_model_family_definition(

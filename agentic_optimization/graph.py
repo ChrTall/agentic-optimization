@@ -23,7 +23,9 @@ from agentic_optimization.state import (
     WORKFLOW_GENERAL_INPUTS_VALID,
     WORKFLOW_MODEL_INPUTS_INVALID,
     WORKFLOW_MODEL_INPUTS_VALID,
+    WORKFLOW_MODEL_SELECTED,
     WORKFLOW_MODEL_SPECIFIC_INPUTS_COMPLETE,
+    WORKFLOW_MODEL_UNSUPPORTED,
     WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
     WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS,
     WORKFLOW_OPTIMIZATION_COMPLETED,
@@ -67,6 +69,25 @@ def route_after_general_validation(state: GraphState) -> str:
         return "select_model"
 
     raise ValueError(f"Unexpected workflow_status after general validation: {status}")
+
+
+def route_after_modeling(
+    state: GraphState,
+) -> str:
+    """Routet nach der deterministischen Modellauswahl."""
+
+    status = get_workflow_status(state)
+
+    if status == WORKFLOW_MODEL_SELECTED:
+        return "model_selected"
+
+    if status == WORKFLOW_MODEL_UNSUPPORTED:
+        return "model_unsupported"
+
+    raise ValueError(
+        "Unexpected workflow_status after model selection: "
+        f"{status}"
+    )
 
 
 def route_after_model_selection(state: GraphState) -> str:
@@ -213,9 +234,13 @@ def build_graph(llm: BaseChatModel):
     # Bei Rückfragen endet der Graph, die UI wartet auf Nutzereingabe.
     graph.add_edge("clarification", END)
 
-    graph.add_edge(
+    graph.add_conditional_edges(
         "modeling_agent",
-        "constraint_mapping_agent",
+        route_after_modeling,
+        {
+            "model_selected": "constraint_mapping_agent",
+            "model_unsupported": END,
+        },
     )
 
     graph.add_conditional_edges(

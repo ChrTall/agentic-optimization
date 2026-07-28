@@ -26,35 +26,67 @@ INPUT_FIELDS: list[ModelInputField] = [
         "label": "Verkaufspreis pro Einheit",
         "type": "number",
         "required": True,
-        "help": None,
+        "help": (
+            "Preis, zu dem eine Einheit verkauft wird."
+        ),
+        "placeholder": None,
+        "min_value": 0.0,
+        "step": 0.5,
+        "unit": "€ pro Einheit",
     },
     {
         "name": "purchase_cost",
         "label": "Einkaufskosten pro Einheit",
         "type": "number",
         "required": True,
-        "help": None,
+        "help": (
+            "Kosten für die Beschaffung einer Einheit."
+        ),
+        "placeholder": None,
+        "min_value": 0.0,
+        "step": 0.5,
+        "unit": "€ pro Einheit",
     },
     {
         "name": "salvage_value",
         "label": "Restwert pro unverkaufter Einheit",
         "type": "number",
         "required": True,
-        "help": None,
+        "help": (
+            "Wert einer Einheit, die nach der Periode "
+            "nicht verkauft wurde."
+        ),
+        "placeholder": None,
+        "min_value": 0.0,
+        "step": 0.5,
+        "unit": "€ pro Einheit",
     },
     {
         "name": "demand_scenarios",
-        "label": "Nachfrageszenarien",
+        "label": "Mögliche Nachfragewerte",
         "type": "number_list",
         "required": True,
-        "help": "Kommagetrennt, z. B. 80, 100, 120",
+        "help": (
+            "Gib die möglichen Nachfragewerte durch Kommas "
+            "getrennt ein."
+        ),
+        "placeholder": "z. B. 80, 100, 120, 140",
+        "min_value": 0.0,
+        "unit": "Einheiten",
     },
     {
         "name": "scenario_probabilities",
-        "label": "Wahrscheinlichkeiten der Szenarien",
+        "label": "Wahrscheinlichkeiten der Nachfragewerte",
         "type": "number_list",
         "required": True,
-        "help": "Kommagetrennt, z. B. 0.2, 0.5, 0.3",
+        "help": (
+            "Gib zu jedem Nachfragewert eine Wahrscheinlichkeit "
+            "zwischen 0 und 1 an. Die Summe muss 1 ergeben."
+        ),
+        "placeholder": "z. B. 0.2, 0.5, 0.2, 0.1",
+        "min_value": 0.0,
+        "max_value": 1.0,
+        "unit": None,
     },
 ]
 
@@ -70,6 +102,10 @@ SUPPORTED_CONSTRAINTS: dict[str, ConstraintDefinition] = {
                 "type": "number",
                 "required": True,
                 "help": "Die mindestens zu bestellende Menge.",
+                "placeholder": None,
+                "min_value": 0.0,
+                "step": 1.0,
+                "unit": "Einheiten",
             }
         ],
     },
@@ -83,6 +119,10 @@ SUPPORTED_CONSTRAINTS: dict[str, ConstraintDefinition] = {
                 "type": "number",
                 "required": True,
                 "help": "Die maximal zulässige Bestellmenge.",
+                "placeholder": None,
+                "min_value": 0.0,
+                "step": 1.0,
+                "unit": "Einheiten",
             }
         ],
     },
@@ -96,6 +136,10 @@ SUPPORTED_CONSTRAINTS: dict[str, ConstraintDefinition] = {
                 "type": "number",
                 "required": True,
                 "help": "Maximales Budget für die Bestellung.",
+                "placeholder": None,
+                "min_value": 0.0,
+                "step": 100.0,
+                "unit": "€",
             }
         ],
     },
@@ -108,10 +152,11 @@ SUPPORTED_CONSTRAINTS: dict[str, ConstraintDefinition] = {
                 "label": "Lagerkapazität",
                 "type": "number",
                 "required": True,
-                "help": (
-                    "Maximale Anzahl von Produkteinheiten, "
-                    "die gelagert werden können."
-                ),
+                "help": "Maximale Anzahl von Produkteinheiten, die gelagert werden können.",
+                "placeholder": None,
+                "min_value": 0.0,
+                "step": 1.0,
+                "unit": "Einheiten",
             }
         ],
     },
@@ -645,6 +690,13 @@ def optimize_single_product_single_period(
 VARIANT_DEFINITION: ModelVariantDefinition = {
     "variant_id": "single_product_single_period",
     "variant_name": "Single Product, Single Period",
+    "selection_criteria": {
+        "decision": "order_quantity",
+        "objective": "maximize_profit",
+        "demand_type": "uncertain",
+        "product_scope": "single_product",
+        "planning_horizon": "single_period",
+    },
     "required_fields": REQUIRED_FIELDS,
     "input_fields": INPUT_FIELDS,
     "supported_constraints": SUPPORTED_CONSTRAINTS,

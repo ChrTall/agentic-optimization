@@ -27,8 +27,10 @@ Regeln:
 4. Übernimm einen Parameterwert nur, wenn er im Nutzertext eindeutig angegeben ist.
 5. Wenn ein erlaubter Typ erkennbar ist, aber ein Pflichtparameter fehlt,
    gib den Constraint mit einem unvollständigen parameters-Objekt zurück.
-6. Wenn keine eindeutige Zuordnung möglich ist, füge die source_id zu
-   "unsupported_constraints" hinzu.
+6. Wenn eine echte Nebenbedingung keinem erlaubten Constraint-Typ zugeordnet
+   werden kann, füge ein Objekt mit ihrer source_id zu
+   "unsupported_constraints" hinzu:
+   {"source_id": "constraint_0"}
 7. Jede übergebene source_id muss verarbeitet werden.
 8. Eine source_id muss entweder mindestens einem strukturierten Constraint
    oder einem unsupported_constraints-Eintrag zugeordnet werden.
@@ -51,7 +53,11 @@ Erwartetes Format:
       "source_ids": ["constraint_0"]
     }
   ],
-  "unsupported_constraints": []
+  "unsupported_constraints": [
+    {
+      "source_id": "constraint_1"
+    }
+  ]
 }
 """.strip()
 
@@ -292,13 +298,17 @@ def _sanitize_mapping_result(
         )
 
     for unsupported in raw_unsupported_constraints:
-        if not isinstance(unsupported, dict):
-            raise TypeError(
-                "Ein unsupported-Constraint muss "
-                "ein JSON-Objekt sein."
-            )
+        if isinstance(unsupported, str):
+            source_id = unsupported
 
-        source_id = unsupported.get("source_id")
+        elif isinstance(unsupported, dict):
+            source_id = unsupported.get("source_id")
+
+        else:
+            raise TypeError(
+                "Ein unsupported-Constraint muss eine "
+                "source_id oder ein JSON-Objekt enthalten."
+            )
 
         if (
             not isinstance(source_id, str)
@@ -367,6 +377,7 @@ def create_constraint_mapping_agent(
             return with_control(
                 {
                     **state,
+                    "constraint_candidates": [],
                     "structured_constraints": [],
                     "unsupported_constraints": [],
                     "constraint_mapping_errors": [
@@ -386,6 +397,7 @@ def create_constraint_mapping_agent(
             return with_control(
                 {
                     **state,
+                    "constraint_candidates": [],
                     "structured_constraints": [],
                     "unsupported_constraints": [],
                     "constraint_mapping_errors": [
@@ -408,6 +420,7 @@ def create_constraint_mapping_agent(
         if not raw_constraints:
             return {
                 **state,
+                "constraint_candidates": [],
                 "structured_constraints": [],
                 "unsupported_constraints": [],
                 "constraint_mapping_errors": [],
@@ -427,6 +440,7 @@ def create_constraint_mapping_agent(
             return with_control(
                 {
                     **state,
+                    "constraint_candidates": [],
                     "structured_constraints": [],
                     "unsupported_constraints": [],
                     "constraint_mapping_errors": [
@@ -461,6 +475,7 @@ def create_constraint_mapping_agent(
             return with_control(
                 {
                     **state,
+                    "constraint_candidates": [],
                     "structured_constraints": [],
                     "unsupported_constraints": [],
                     "constraint_mapping_errors": [
@@ -484,6 +499,7 @@ def create_constraint_mapping_agent(
             return with_control(
                 {
                     **state,
+                    "constraint_candidates": [],
                     "structured_constraints": [],
                     "unsupported_constraints": [],
                     "constraint_mapping_errors": [
@@ -494,7 +510,7 @@ def create_constraint_mapping_agent(
                 workflow_status=WORKFLOW_MODEL_INPUTS_INVALID,
             )
 
-        structured_constraints = sanitized_result[
+        constraint_candidates = sanitized_result[
             "structured_constraints"
         ]
         unsupported_constraints = sanitized_result[
@@ -503,7 +519,8 @@ def create_constraint_mapping_agent(
 
         return {
             **state,
-            "structured_constraints": structured_constraints,
+            "constraint_candidates": constraint_candidates,
+            "structured_constraints": [],
             "unsupported_constraints": unsupported_constraints,
             "constraint_mapping_errors": [],
         }

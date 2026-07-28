@@ -3,18 +3,74 @@ import streamlit as st
 from agentic_optimization.configuration.llm_config import load_llm_configuration
 from agentic_optimization.graph import build_graph
 from agentic_optimization.llm.factory import create_chat_model
+from agentic_optimization.models.registry import (
+    get_model_variant_definition,
+)
 from agentic_optimization.state import (
     EVENT_GENERAL_CLARIFICATION_SUBMITTED,
     EVENT_MODEL_INPUTS_SUBMITTED,
     EVENT_NEW_PROBLEM,
     EVENT_OPTIMIZATION_REQUESTED,
     WORKFLOW_MODEL_INPUTS_INVALID,
+    WORKFLOW_MODEL_UNSUPPORTED,
     WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
     WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS,
     WORKFLOW_READY_FOR_RESULT,
     WORKFLOW_READY_FOR_REVIEW,
     get_workflow_status,
+    invalidate_optimization_state,
 )
+from agentic_optimization.ui.field_renderer import (
+    parse_input_value,
+    render_input_field,
+)
+from agentic_optimization.ui.result_builder import (
+    build_result_data,
+)
+from agentic_optimization.ui.review_builder import (
+    build_review_data,
+)
+
+DECISION_LABELS = {
+    "order_quantity": "Bestellmenge",
+    "production_quantity": "Produktionsmenge",
+    "inventory_level": "Lagerbestand",
+}
+
+OBJECTIVE_LABELS = {
+    "maximize_profit": "Gewinn maximieren",
+    "minimize_cost": "Kosten minimieren",
+    "reach_service_level": "Servicelevel erreichen",
+}
+
+DEMAND_TYPE_LABELS = {
+    "known": "Sicher / bekannt",
+    "uncertain": "Unsicher / saisonal",
+    "historical_estimate": "Historisch geschätzt",
+}
+
+PRODUCT_SCOPE_LABELS = {
+    "single_product": "Für ein Produkt",
+    "multiple_products": "Für mehrere Produkte",
+}
+
+PLANNING_HORIZON_LABELS = {
+    "single_period": "Für eine einmalige Entscheidung",
+    "multiple_periods": (
+        "Für mehrere aufeinanderfolgende Zeiträume"
+    ),
+}
+
+
+def format_selectbox_value(
+    value: str | None,
+    labels: dict[str, str],
+) -> str:
+    if value is None:
+        return ""
+
+    return labels.get(value, value)
+
 
 # ── Seitenkonfiguration ───────────────────────────────────────────────────────
 
@@ -38,7 +94,15 @@ if "graph_state" not in st.session_state:
 STEPS = ["form", "freitext", "model_input_form", "review", "result"]
 STEP_LABELS = ["① Formular", "② Beschreibung", "③ Modellinput", "④ Überprüfung", "⑤ Ergebnis"]
 
-step_for_progress = "freitext" if st.session_state.step == "clarify" else st.session_state.step
+step_for_progress = (
+    "form"
+    if st.session_state.step == "model_unsupported"
+    else (
+        "freitext"
+        if st.session_state.step == "clarify"
+        else st.session_state.step
+    )
+)
 step_index = STEPS.index(step_for_progress) if step_for_progress in STEPS else 1
 cols = st.columns(len(STEP_LABELS))
 for i, (col, label) in enumerate(zip(cols, STEP_LABELS)):
@@ -88,6 +152,9 @@ def route_ui_from_graph_state(graph_state: dict) -> str:
     if status == WORKFLOW_READY_FOR_REVIEW:
         return "review"
 
+    if status == WORKFLOW_MODEL_UNSUPPORTED:
+        return "model_unsupported"
+
     return "freitext"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -96,41 +163,83 @@ def route_ui_from_graph_state(graph_state: dict) -> str:
 
 if st.session_state.step == "form":
     st.subheader("Strukturierte Eingabe")
-    st.caption("Beantworte die Fragen so gut du kannst — fehlende Angaben kannst du im nächsten Schritt ergänzen.")
+    st.caption(
+        "Beantworte die Fragen so gut du kannst. "
+        "Fehlende Angaben können anschließend ergänzt werden."
+    )
 
-    with st.form("input_form"):
-        decision = st.selectbox(
-            "Welche Entscheidung soll optimiert werden?",
-            ["", "Bestellmenge", "Produktionsmenge", "Lagerbestand", "Andere"],
-        )
-        objective = st.selectbox(
-            "Was ist das Ziel der Optimierung?",
-            ["", "Gewinn maximieren", "Kosten minimieren", "Servicelevel erreichen", "Andere"],
-        )
-        demand_type = st.selectbox(
-            "Wie verhält sich die Nachfrage?",
-            ["", "Sicher / bekannt", "Unsicher / saisonal", "Historisch geschätzt", "Andere"],
-        )
-        constraints = st.text_area(
-            "Welche Nebenbedingungen gibt es? (optional)",
-            placeholder=(
-                "Eine Nebenbedingung pro Zeile, z.B.\n"
-                "Budget 10.000 €\n"
-                "Lagerkapazität 500 Einheiten"
-            ),
-            height=120,
-        )
-        submitted = st.form_submit_button("Weiter →", use_container_width=True, type="primary")
+    decision = st.selectbox(
+        "Welche Entscheidung soll optimiert werden?",
+        options=[None, *DECISION_LABELS],
+        format_func=lambda value: format_selectbox_value(
+            value,
+            DECISION_LABELS,
+        ),
+        key="form_decision",
+    )
+
+    objective = st.selectbox(
+        "Was ist das Ziel der Optimierung?",
+        options=[None, *OBJECTIVE_LABELS],
+        format_func=lambda value: format_selectbox_value(
+            value,
+            OBJECTIVE_LABELS,
+        ),
+        key="form_objective",
+    )
+
+    demand_type = st.selectbox(
+        "Wie verhält sich die Nachfrage?",
+        options=[None, *DEMAND_TYPE_LABELS],
+        format_func=lambda value: format_selectbox_value(
+            value,
+            DEMAND_TYPE_LABELS,
+        ),
+        key="form_demand_type",
+    )
+
+    product_scope = st.selectbox(
+        (
+            "Für wie viele Produkte soll eine Entscheidung "
+            "getroffen werden?"
+        ),
+        options=[None, *PRODUCT_SCOPE_LABELS],
+        format_func=lambda value: format_selectbox_value(
+            value,
+            PRODUCT_SCOPE_LABELS,
+        ),
+        key="form_product_scope",
+    )
+
+    planning_horizon = st.selectbox(
+        "Für welchen Zeitraum soll geplant werden?",
+        options=[None, *PLANNING_HORIZON_LABELS],
+        format_func=lambda value: format_selectbox_value(
+            value,
+            PLANNING_HORIZON_LABELS,
+        ),
+        key="form_planning_horizon",
+    )
+
+    submitted = st.button(
+        "Weiter →",
+        use_container_width=True,
+        type="primary",
+        key="submit_general_form",
+    )
 
     if submitted:
         st.session_state.form_data = {
-            "decision": decision or None,
-            "objective": objective or None,
-            "demand_type": demand_type or None,
-            "constraints": parse_constraints(constraints) if constraints else [],
+            "decision": decision,
+            "objective": objective,
+            "demand_type": demand_type,
+            "product_scope": product_scope,
+            "planning_horizon": planning_horizon,
         }
+
         st.session_state.step = "freitext"
         st.rerun()
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SCHRITT 2: Freitext + Graph ausführen
@@ -243,31 +352,77 @@ elif st.session_state.step == "clarify":
         )
         st.rerun()
 
+
+elif st.session_state.step == "model_unsupported":
+    st.subheader("Berechnungsmethode nicht verfügbar")
+
+    graph_state = st.session_state.graph_state or {}
+
+    model_selection_error = graph_state.get(
+        "model_selection_error"
+    )
+
+    st.warning(
+        model_selection_error
+        or (
+            "Für diese Problemstruktur ist derzeit noch "
+            "keine Berechnungsmethode verfügbar."
+        )
+    )
+
+    model_config = graph_state.get("model_config", {})
+    explanation = model_config.get("explanation")
+
+    if explanation:
+        st.info(explanation)
+
+    if st.button(
+        "← Angaben ändern",
+        use_container_width=True,
+    ):
+        st.session_state.step = "form"
+        st.rerun()
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # SCHRITT 3: Modellspezifische Eingaben
 # ═══════════════════════════════════════════════════════════════════════════════
 
 elif st.session_state.step == "model_input_form":
-    st.subheader("Modellspezifische Eingaben")
+    st.subheader("Angaben für die Berechnung")
 
     graph_state = st.session_state.graph_state or {}
-    selected_family = graph_state.get("selected_model_family")
-    selected_variant = graph_state.get("selected_model_variant")
 
-    required_constraint_inputs = graph_state.get(
-        "required_constraint_inputs",
-        [],
+    selected_family = graph_state.get(
+        "selected_model_family"
+    )
+    selected_variant = graph_state.get(
+        "selected_model_variant"
     )
 
-    constraint_validation_errors = graph_state.get(
-        "constraint_validation_errors",
-        [],
+    if not selected_family or not selected_variant:
+        st.error(
+            "Es wurde keine vollständige Modellvariante "
+            "ausgewählt."
+        )
+        st.stop()
+
+    variant_definition = get_model_variant_definition(
+        selected_family,
+        selected_variant,
     )
 
-    for error in constraint_validation_errors:
-        st.error(error)
+    if variant_definition is None:
+        st.error(
+            "Die ausgewählte Modellvariante ist nicht "
+            "registriert."
+        )
+        st.stop()
 
-    # Technische Fehler beim Freitext-Mapping
+    # ---------------------------------------------------------
+    # Vorherige Fehler anzeigen
+    # ---------------------------------------------------------
+
     mapping_errors = graph_state.get(
         "constraint_mapping_errors",
         [],
@@ -278,8 +433,9 @@ elif st.session_state.step == "model_input_form":
             st.error(error)
 
         st.warning(
-            "Die genannten Nebenbedingungen konnten technisch nicht "
-            "verarbeitet werden. Bitte gehe zurück und versuche es erneut."
+            "Die beschriebenen Vorgaben konnten technisch "
+            "nicht verarbeitet werden. Bitte bearbeite die "
+            "Problembeschreibung."
         )
 
         if st.button(
@@ -291,231 +447,469 @@ elif st.session_state.step == "model_input_form":
 
         st.stop()
 
-    # Fehler der modellspezifischen Eingaben
-    validation_errors = graph_state.get(
+    model_input_errors = graph_state.get(
         "model_input_validation_errors",
         [],
     )
 
-    for error in validation_errors:
+    for error in model_input_errors:
         st.error(error)
 
-    if (
-        selected_family != "newsvendor"
-        or selected_variant != "single_product_single_period"
-    ):
-        st.warning(
-            "Für die ausgewählte Modellfamilie und Variante "
-            "gibt es noch kein spezifisches Eingabeformular."
-        )
-        st.stop()
+    constraint_validation_errors = graph_state.get(
+        "constraint_validation_errors",
+        [],
+    )
 
-    if required_constraint_inputs:
-        st.info(
-            "Die Modellparameter sind vollständig. "
-            "Bitte ergänze noch die fehlenden Werte der Nebenbedingungen."
-        )
-    else:
-        st.info(
-            "Es wurde ein Newsvendor-Modell erkannt. "
-            "Bitte ergänze die modellspezifischen Eingaben."
-        )
+    for error in constraint_validation_errors:
+        st.error(error)
 
-    existing_newsvendor_inputs = (
+    # ---------------------------------------------------------
+    # Variantendaten laden
+    # ---------------------------------------------------------
+
+    model_config = graph_state.get("model_config", {})
+
+    variant_name = model_config.get(
+        "variant_name",
+        selected_variant,
+    )
+
+    st.info(
+        f"Es wurde die Modellvariante '{variant_name}' "
+        "ausgewählt."
+    )
+
+    input_fields = variant_definition["input_fields"]
+
+    supported_constraints = variant_definition[
+        "supported_constraints"
+    ]
+
+    existing_model_inputs = (
         graph_state.get("model_specific_inputs", {})
-        .get("newsvendor", {})
-        .get("single_product_single_period", {})
+        .get(selected_family, {})
+        .get(selected_variant, {})
     )
 
-    existing_demand_scenarios = existing_newsvendor_inputs.get(
-        "demand_scenarios",
+    constraint_candidates = graph_state.get(
+        "constraint_candidates",
         [],
     )
 
-    existing_scenario_probabilities = existing_newsvendor_inputs.get(
-        "scenario_probabilities",
+    existing_active_constraints = graph_state.get(
+        "structured_constraints",
         [],
     )
 
-    constraint_input_values: dict[
-        tuple[int, str],
-        float | None,
-    ] = {}
+    unsupported_constraints = graph_state.get(
+        "unsupported_constraints",
+        [],
+    )
 
-    with st.form("newsvendor_form"):
-        selling_price = st.number_input(
-            "Verkaufspreis pro Einheit",
-            min_value=0.0,
-            step=0.5,
-            value=float(
-                existing_newsvendor_inputs.get("selling_price", 0.0)
-            ),
-        )
+    # ---------------------------------------------------------
+    # Kandidaten und bestehende aktive Constraints indizieren
+    # ---------------------------------------------------------
 
-        purchase_cost = st.number_input(
-            "Einkaufskosten pro Einheit",
-            min_value=0.0,
-            step=0.5,
-            value=float(
-                existing_newsvendor_inputs.get("purchase_cost", 0.0)
-            ),
-        )
+    candidate_by_type: dict[str, dict] = {}
 
-        salvage_value = st.number_input(
-            "Restwert pro unverkaufter Einheit",
-            min_value=0.0,
-            step=0.5,
-            value=float(
-                existing_newsvendor_inputs.get("salvage_value", 0.0)
-            ),
-        )
+    for candidate in constraint_candidates:
+        candidate_type = candidate.get("type")
 
-        demand_scenarios = st.text_input(
-            "Nachfrageszenarien",
-            value=", ".join(
-                str(value)
-                for value in existing_demand_scenarios
-            ),
-            placeholder="z.B. 80, 100, 120, 140",
-        )
-
-        scenario_probabilities = st.text_input(
-            "Wahrscheinlichkeiten der Szenarien",
-            value=", ".join(
-                str(value)
-                for value in existing_scenario_probabilities
-            ),
-            placeholder="z.B. 0.25, 0.25, 0.25, 0.25",
-        )
-
-        if required_constraint_inputs:
-            st.divider()
-            st.markdown("#### Fehlende Werte für Nebenbedingungen")
-
-            for required_input in required_constraint_inputs:
-                constraint_index = required_input["constraint_index"]
-                constraint_type = required_input["constraint_type"]
-                source_text = required_input.get("source_text")
-
-                if source_text:
-                    st.caption(source_text)
-
-                for field in required_input.get("fields", []):
-                    field_name = field["name"]
-                    field_type = field["type"]
-
-                    widget_key = (
-                        f"constraint_{constraint_index}_{field_name}"
-                    )
-
-                    if field_type == "number":
-                        constraint_input_values[
-                            (constraint_index, field_name)
-                        ] = st.number_input(
-                            field["label"],
-                            value=None,
-                            step=1.0,
-                            help=field.get("help"),
-                            key=widget_key,
-                        )
-                    else:
-                        st.error(
-                            f"Der Constraint-Feldtyp '{field_type}' "
-                            f"für '{constraint_type}' wird noch nicht unterstützt."
-                        )
-
-        submitted = st.form_submit_button(
-            "Eingaben prüfen →",
-            use_container_width=True,
-            type="primary",
-        )
-
-    def parse_number_list(value: str) -> list[float]:
-        return [
-            float(item.strip())
-            for item in value.split(",")
-            if item.strip()
-        ]
-
-    if submitted:
-        try:
-            parsed_demand_scenarios = parse_number_list(
-                demand_scenarios
-            )
-            parsed_scenario_probabilities = parse_number_list(
-                scenario_probabilities
-            )
-        except ValueError:
+        if not isinstance(candidate_type, str):
             st.error(
-                "Bitte gib Nachfrageszenarien und Wahrscheinlichkeiten als "
-                "kommagetrennte Zahlen ein, z.B. 80, 100, 120 und "
-                "0.2, 0.5, 0.3."
+                "Ein erkannter Constraint besitzt keinen "
+                "gültigen Typ."
             )
             st.stop()
 
-        newsvendor_inputs = {
-            "selling_price": selling_price,
-            "purchase_cost": purchase_cost,
-            "salvage_value": salvage_value,
-            "demand_scenarios": parsed_demand_scenarios,
-            "scenario_probabilities": parsed_scenario_probabilities,
-        }
+        if candidate_type in candidate_by_type:
+            st.error(
+                "Eine mögliche Vorgabe wurde mehrfach erkannt: "
+                f"{candidate_type}."
+            )
+            st.stop()
 
-        prev_state = st.session_state.graph_state or {}
+        candidate_by_type[candidate_type] = candidate
 
-        existing_constraints = prev_state.get(
-            "structured_constraints",
-            [],
+    active_constraint_by_type: dict[str, dict] = {}
+
+    for constraint in existing_active_constraints:
+        constraint_type = constraint.get("type")
+
+        if not isinstance(constraint_type, str):
+            continue
+
+        active_constraint_by_type[
+            constraint_type
+        ] = constraint
+
+    # Bereits bestätigte Constraints haben Vorrang vor Kandidaten.
+    initial_constraint_by_type = {
+        **candidate_by_type,
+        **active_constraint_by_type,
+    }
+
+    # ---------------------------------------------------------
+    # Abschnitt 1: Modellparameter
+    # ---------------------------------------------------------
+
+    st.markdown("### 1. Angaben für die Berechnung")
+
+    raw_model_input_values: dict[str, object] = {}
+
+    for field_definition in input_fields:
+        field_name = field_definition["name"]
+
+        raw_model_input_values[field_name] = (
+            render_input_field(
+                field_definition,
+                existing_model_inputs.get(field_name),
+                key_prefix=(
+                    f"model_input_"
+                    f"{selected_family}_"
+                    f"{selected_variant}"
+                ),
+            )
         )
 
-        updated_constraints = [
-            {
-                **constraint,
-                "parameters": dict(
-                    constraint.get("parameters", {})
+    # ---------------------------------------------------------
+    # Abschnitt 2: Constraints
+    # ---------------------------------------------------------
+
+    st.divider()
+    st.markdown("### 2. Vorgaben und Grenzen")
+
+    if constraint_candidates:
+        st.info(
+            "In deiner Beschreibung wurden mögliche Vorgaben "
+            "erkannt. Bitte prüfe die vorausgewählten Angaben "
+            "und passe sie bei Bedarf an."
+        )
+    else:
+        st.caption(
+            "Es wurden in der Beschreibung keine konkreten "
+            "Vorgaben erkannt. Du kannst trotzdem passende "
+            "Vorgaben auswählen."
+        )
+
+    if unsupported_constraints:
+        st.warning(
+            "Einige beschriebene Vorgaben werden von der "
+            "ausgewählten Berechnungsmethode nicht unterstützt:"
+        )
+
+        for unsupported in unsupported_constraints:
+            st.markdown(f"- {unsupported}")
+
+    constraint_mode_key = (
+        f"constraint_mode_"
+        f"{selected_family}_"
+        f"{selected_variant}"
+    )
+
+    if constraint_mode_key not in st.session_state:
+        st.session_state[constraint_mode_key] = (
+            "yes"
+            if (
+                constraint_candidates
+                or existing_active_constraints
+            )
+            else "no"
+        )
+
+    constraint_mode = st.radio(
+        (
+            "Sollen zusätzliche Vorgaben oder Grenzen "
+            "berücksichtigt werden?"
+        ),
+        options=["no", "yes"],
+        format_func=lambda value: {
+            "no": "Nein",
+            "yes": "Ja",
+        }[value],
+        horizontal=True,
+        key=constraint_mode_key,
+    )
+
+    constraints_enabled = constraint_mode == "yes"
+
+    if not constraints_enabled:
+        st.info(
+            "Es werden keine zusätzlichen Vorgaben "
+            "berücksichtigt. Die verfügbaren Möglichkeiten "
+            "bleiben zur Information sichtbar."
+        )
+
+    selected_constraint_types: list[str] = []
+
+    raw_constraint_parameter_values: dict[
+        tuple[str, str],
+        object,
+    ] = {}
+
+    for (
+        constraint_type,
+        constraint_definition,
+    ) in supported_constraints.items():
+        existing_constraint = (
+            initial_constraint_by_type.get(
+                constraint_type
+            )
+        )
+
+        candidate_detected = (
+            constraint_type in candidate_by_type
+        )
+
+        checkbox_key = (
+            f"constraint_include_"
+            f"{selected_family}_"
+            f"{selected_variant}_"
+            f"{constraint_type}"
+        )
+
+        if checkbox_key not in st.session_state:
+            st.session_state[checkbox_key] = (
+                existing_constraint is not None
+            )
+
+        constraint_name = constraint_definition["name"]
+
+        if candidate_detected:
+            checkbox_label = (
+                f"{constraint_name} – in der "
+                "Beschreibung erkannt"
+            )
+        else:
+            checkbox_label = constraint_name
+
+        include_constraint = st.checkbox(
+            checkbox_label,
+            key=checkbox_key,
+            disabled=not constraints_enabled,
+        )
+
+        if include_constraint and constraints_enabled:
+            selected_constraint_types.append(
+                constraint_type
+            )
+
+        existing_parameters = (
+            existing_constraint.get(
+                "parameters",
+                {},
+            )
+            if existing_constraint
+            else {}
+        )
+
+        for parameter_definition in (
+            constraint_definition["parameters"]
+        ):
+            parameter_name = parameter_definition["name"]
+
+            raw_constraint_parameter_values[
+                (
+                    constraint_type,
+                    parameter_name,
+                )
+            ] = render_input_field(
+                parameter_definition,
+                existing_parameters.get(
+                    parameter_name
                 ),
-            }
-            for constraint in existing_constraints
-        ]
+                key_prefix=(
+                    f"constraint_parameter_"
+                    f"{selected_family}_"
+                    f"{selected_variant}_"
+                    f"{constraint_type}"
+                ),
+                disabled=(
+                    not constraints_enabled
+                    or not include_constraint
+                ),
+            )
 
-        for (
-            constraint_index,
-            parameter_name,
-        ), parameter_value in constraint_input_values.items():
-            if parameter_value is None:
-                continue
+        source_text = (
+            existing_constraint.get("source_text")
+            if existing_constraint
+            else None
+        )
 
-            if not 0 <= constraint_index < len(updated_constraints):
+        if source_text:
+            st.caption(
+                f"Erkannt aus: {source_text}"
+            )
+
+        st.markdown("---")
+
+    submitted = st.button(
+        "Eingaben prüfen →",
+        use_container_width=True,
+        type="primary",
+        key=(
+            f"submit_model_inputs_"
+            f"{selected_family}_"
+            f"{selected_variant}"
+        ),
+    )
+
+    # ---------------------------------------------------------
+    # Absenden und normalisieren
+    # ---------------------------------------------------------
+
+    if submitted:
+        parsed_model_inputs: dict[str, object] = {}
+
+        try:
+            for field_definition in input_fields:
+                field_name = field_definition["name"]
+
+                parsed_model_inputs[field_name] = (
+                    parse_input_value(
+                        field_definition,
+                        raw_model_input_values.get(
+                            field_name
+                        ),
+                    )
+                )
+        except (TypeError, ValueError) as error:
+            st.error(str(error))
+            st.stop()
+
+        final_structured_constraints: list[dict] = []
+
+        if constraints_enabled:
+            if unsupported_constraints:
                 st.error(
-                    "Ein Constraint konnte nicht eindeutig aktualisiert werden."
+                    "Mindestens eine beschriebene Vorgabe wird "
+                    "nicht unterstützt. Bitte wähle „Nein“, "
+                    "wenn keine Vorgaben berücksichtigt werden "
+                    "sollen, oder bearbeite die "
+                    "Problembeschreibung."
                 )
                 st.stop()
 
-            updated_constraints[
-                constraint_index
-            ]["parameters"][parameter_name] = parameter_value
+            try:
+                for constraint_type in (
+                    selected_constraint_types
+                ):
+                    constraint_definition = (
+                        supported_constraints[
+                            constraint_type
+                        ]
+                    )
 
-        existing_model_inputs = prev_state.get(
+                    parsed_parameters: dict[
+                        str,
+                        int | float,
+                    ] = {}
+
+                    for parameter_definition in (
+                        constraint_definition[
+                            "parameters"
+                        ]
+                    ):
+                        parameter_name = (
+                            parameter_definition["name"]
+                        )
+
+                        parsed_value = parse_input_value(
+                            parameter_definition,
+                            raw_constraint_parameter_values[
+                                (
+                                    constraint_type,
+                                    parameter_name,
+                                )
+                            ],
+                        )
+
+                        if parsed_value is not None:
+                            if isinstance(parsed_value, list):
+                                raise TypeError(
+                                    "Constraintparameter dürfen "
+                                    "keine Zahlenlisten sein."
+                                )
+
+                            parsed_parameters[
+                                parameter_name
+                            ] = parsed_value
+
+                    initial_constraint = (
+                        initial_constraint_by_type.get(
+                            constraint_type
+                        )
+                    )
+
+                    final_structured_constraints.append(
+                        {
+                            "type": constraint_type,
+                            "parameters": parsed_parameters,
+                            "source_text": (
+                                initial_constraint.get(
+                                    "source_text"
+                                )
+                                if initial_constraint
+                                else None
+                            ),
+                        }
+                    )
+
+            except (TypeError, ValueError) as error:
+                st.error(str(error))
+                st.stop()
+
+        # Bei "Nein" werden Kandidaten und unsupported Angaben
+        # bewusst nicht als aktive Constraints übernommen.
+        final_unsupported_constraints = (
+            unsupported_constraints
+            if constraints_enabled
+            else []
+        )
+
+        previous_state = (
+            st.session_state.graph_state or {}
+        )
+
+        all_model_inputs = previous_state.get(
             "model_specific_inputs",
             {},
         )
 
         next_state = {
-            **prev_state,
+            **previous_state,
             "control": {
-                **prev_state.get("control", {}),
+                **previous_state.get("control", {}),
                 "event": EVENT_MODEL_INPUTS_SUBMITTED,
             },
             "model_specific_inputs": {
-                **existing_model_inputs,
-                "newsvendor": {
-                    **existing_model_inputs.get("newsvendor", {}),
-                    "single_product_single_period": newsvendor_inputs,
+                **all_model_inputs,
+                selected_family: {
+                    **all_model_inputs.get(
+                        selected_family,
+                        {},
+                    ),
+                    selected_variant: (
+                        parsed_model_inputs
+                    ),
                 },
             },
-            "structured_constraints": updated_constraints,
+            "structured_constraints": (
+                final_structured_constraints
+            ),
+            "unsupported_constraints": (
+                final_unsupported_constraints
+            ),
             "constraint_validation_errors": [],
             "required_constraint_inputs": [],
+        }
+
+        next_state = invalidate_optimization_state(next_state)
+
+        st.session_state.review_sections = {
+            "problem": False,
+            "parameters": False,
+            "constraints": False,
         }
 
         llm = st.session_state.get("llm")
@@ -531,138 +925,282 @@ elif st.session_state.step == "model_input_form":
             st.session_state.llm = llm
 
         app = build_graph(llm)
-        st.session_state.graph_state = app.invoke(next_state)
 
-        st.session_state.step = route_ui_from_graph_state(
-            st.session_state.graph_state
+        st.session_state.graph_state = app.invoke(
+            next_state
+        )
+
+        st.session_state.step = (
+            route_ui_from_graph_state(
+                st.session_state.graph_state
+            )
         )
 
         st.rerun()
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# SCHRITT 4: Überprüfung der Angaben
+# ═══════════════════════════════════════════════════════════════════════════════
+
 elif st.session_state.step == "review":
     st.subheader("Angaben prüfen")
 
+    st.write(
+        "Bitte prüfe die drei Bereiche. Die Berechnung kann "
+        "gestartet werden, sobald alle Angaben bestätigt sind."
+    )
+
     graph_state = st.session_state.graph_state or {}
 
-    model_config = graph_state.get("model_config", {})
-    family = graph_state.get("selected_model_family")
-    variant = graph_state.get("selected_model_variant")
-
-    inputs = (
-        graph_state.get("model_specific_inputs", {})
-        .get(family, {})
-        .get(variant, {})
-        if family and variant
-        else {}
+    selected_family = graph_state.get(
+        "selected_model_family"
+    )
+    selected_variant = graph_state.get(
+        "selected_model_variant"
     )
 
-    constraints = graph_state.get(
-        "structured_constraints",
-        [],
-    )
-
-    st.markdown("### Erkannte Aufgabe")
-    st.write(
-        "Es soll die optimale Bestellmenge für ein Produkt "
-        "und eine Verkaufsperiode bei unsicherer Nachfrage "
-        "bestimmt werden."
-    )
-
-    st.markdown("### Verwendetes Verfahren")
-    st.write(
-        model_config.get(
-            "variant_name",
-            variant or "–",
+    if not selected_family or not selected_variant:
+        st.error(
+            "Für die Überprüfung fehlen Modellfamilie oder "
+            "Modellvariante."
         )
+        st.stop()
+
+    variant_definition = get_model_variant_definition(
+        selected_family,
+        selected_variant,
     )
 
-    st.markdown("### Ihre Modellangaben")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric(
-            "Verkaufspreis",
-            inputs.get("selling_price", "–"),
+    if variant_definition is None:
+        st.error(
+            "Die ausgewählte Modellvariante ist nicht "
+            "registriert."
         )
+        st.stop()
 
-    with col2:
-        st.metric(
-            "Einkaufskosten",
-            inputs.get("purchase_cost", "–"),
-        )
-
-    with col3:
-        st.metric(
-            "Restwert",
-            inputs.get("salvage_value", "–"),
-        )
-
-    st.write(
-        "Nachfrageszenarien:",
-        inputs.get("demand_scenarios", []),
+    review_data = build_review_data(
+        graph_state,
+        variant_definition,
     )
 
-    st.write(
-        "Wahrscheinlichkeiten:",
-        inputs.get("scenario_probabilities", []),
+    if "review_sections" not in st.session_state:
+        st.session_state.review_sections = {
+            "problem": False,
+            "parameters": False,
+            "constraints": False,
+        }
+
+    review_sections = (
+        st.session_state.review_sections
     )
 
-    st.markdown("### Grenzen und Vorgaben")
+    # ---------------------------------------------------------
+    # Karte 1: Aufgabe
+    # ---------------------------------------------------------
 
-    if constraints:
-        for constraint in constraints:
-            st.write(
-                constraint.get("type"),
-                constraint.get("parameters", {}),
+    with st.container(border=True):
+        st.markdown("### 1. Ihre Aufgabe")
+
+        for item in review_data["problem"]:
+            st.markdown(
+                f"**{item['label']}**  \n"
+                f"{item['value']}"
             )
 
-        constraints_confirmed = st.checkbox(
-            "Die erkannten Grenzen und Vorgaben sind korrekt."
+        st.caption(
+            "Ausgewählte Berechnungsmethode: "
+            f"{review_data['model_name']}"
+        )
+
+        if review_sections["problem"]:
+            st.success("Dieser Bereich wurde bestätigt.")
+
+        col_change, col_confirm = st.columns(2)
+
+        with col_change:
+            st.button(
+                "Ändern",
+                key="change_review_problem",
+                use_container_width=True,
+                disabled=True,
+                help=(
+                    "Das gezielte Zurückspringen zu Formular 1 "
+                    "wird in einem späteren Schritt ergänzt."
+                ),
+            )
+
+        with col_confirm:
+            if st.button(
+                (
+                    "Bestätigt"
+                    if review_sections["problem"]
+                    else "Aufgabe bestätigen"
+                ),
+                key="confirm_review_problem",
+                use_container_width=True,
+                disabled=review_sections["problem"],
+            ):
+                st.session_state.review_sections = {
+                    **review_sections,
+                    "problem": True,
+                }
+                st.rerun()
+
+    # Nach einem Rerun den aktuellen Zustand erneut lesen.
+    review_sections = (
+        st.session_state.review_sections
+    )
+
+    # ---------------------------------------------------------
+    # Karte 2: Berechnungsangaben
+    # ---------------------------------------------------------
+
+    with st.container(border=True):
+        st.markdown("### 2. Angaben für die Berechnung")
+
+        for item in review_data["parameters"]:
+            st.markdown(
+                f"**{item['label']}**  \n"
+                f"{item['value']}"
+            )
+
+        if review_sections["parameters"]:
+            st.success("Dieser Bereich wurde bestätigt.")
+
+        col_change, col_confirm = st.columns(2)
+
+        with col_change:
+            st.button(
+                "Ändern",
+                key="change_review_parameters",
+                use_container_width=True,
+                disabled=True,
+                help=(
+                    "Das gezielte Zurückspringen zu Formular 3 "
+                    "wird in einem späteren Schritt ergänzt."
+                ),
+            )
+
+        with col_confirm:
+            if st.button(
+                (
+                    "Bestätigt"
+                    if review_sections["parameters"]
+                    else "Berechnungsangaben bestätigen"
+                ),
+                key="confirm_review_parameters",
+                use_container_width=True,
+                disabled=review_sections["parameters"],
+            ):
+                st.session_state.review_sections = {
+                    **review_sections,
+                    "parameters": True,
+                }
+                st.rerun()
+
+    review_sections = (
+        st.session_state.review_sections
+    )
+
+    # ---------------------------------------------------------
+    # Karte 3: Vorgaben und Grenzen
+    # ---------------------------------------------------------
+
+    with st.container(border=True):
+        st.markdown("### 3. Vorgaben und Grenzen")
+
+        if review_data["constraints"]:
+            for item in review_data["constraints"]:
+                st.markdown(
+                    f"**{item['label']}**  \n"
+                    f"{item['value']}"
+                )
+        else:
+            st.info(
+                "Es werden keine zusätzlichen Vorgaben oder "
+                "Grenzen berücksichtigt."
+            )
+
+        if review_sections["constraints"]:
+            st.success("Dieser Bereich wurde bestätigt.")
+
+        col_change, col_confirm = st.columns(2)
+
+        with col_change:
+            st.button(
+                "Ändern",
+                key="change_review_constraints",
+                use_container_width=True,
+                disabled=True,
+                help=(
+                    "Das gezielte Zurückspringen zu Formular 3 "
+                    "wird in einem späteren Schritt ergänzt."
+                ),
+            )
+
+        with col_confirm:
+            if st.button(
+                (
+                    "Bestätigt"
+                    if review_sections["constraints"]
+                    else "Vorgaben bestätigen"
+                ),
+                key="confirm_review_constraints",
+                use_container_width=True,
+                disabled=review_sections["constraints"],
+            ):
+                st.session_state.review_sections = {
+                    **review_sections,
+                    "constraints": True,
+                }
+                st.rerun()
+
+    review_sections = (
+        st.session_state.review_sections
+    )
+
+    # ---------------------------------------------------------
+    # Abschließende Bestätigung
+    # ---------------------------------------------------------
+
+    confirmed_count = sum(
+        bool(review_sections[section])
+        for section in (
+            "problem",
+            "parameters",
+            "constraints",
+        )
+    )
+
+    all_sections_confirmed = (
+        confirmed_count == 3
+    )
+
+    st.progress(
+        confirmed_count / 3,
+        text=(
+            f"{confirmed_count} von 3 Bereichen bestätigt"
+        ),
+    )
+
+    if all_sections_confirmed:
+        st.success(
+            "Alle Bereiche wurden geprüft. Die Berechnung "
+            "kann jetzt gestartet werden."
         )
     else:
         st.info(
-            "Es wurden keine zusätzlichen Grenzen oder "
-            "Vorgaben angegeben."
+            "Bestätige bitte noch alle Bereiche, bevor du "
+            "die Berechnung startest."
         )
 
-        constraints_confirmed = st.checkbox(
-            "Das ist korrekt – es gibt keine weiteren "
-            "Einschränkungen."
-        )
-
-    st.markdown("### Modellannahmen")
-
-    with st.expander("Modellannahmen anzeigen"):
-        st.markdown(
-            """
-            - Es wird ein Produkt betrachtet.
-            - Es wird eine Verkaufsperiode betrachtet.
-            - Die Bestellung erfolgt vor Bekanntwerden der Nachfrage.
-            - Die Nachfrage wird durch Szenarien und Wahrscheinlichkeiten beschrieben.
-            - Nicht verkaufte Einheiten besitzen den angegebenen Restwert.
-            - Ziel ist die Maximierung des erwarteten Gewinns.
-            """
-        )
-
-    col_back, col_start = st.columns(2)
-
-    with col_back:
-        if st.button(
-            "Angaben bearbeiten",
-            use_container_width=True,
-        ):
-            st.session_state.step = "model_input_form"
-            st.rerun()
-
-    with col_start:
-        start_optimization = st.button(
-            "Optimierung starten",
-            type="primary",
-            use_container_width=True,
-            disabled=not constraints_confirmed,
-        )
+    start_optimization = st.button(
+        "Optimierung starten",
+        type="primary",
+        use_container_width=True,
+        disabled=not all_sections_confirmed,
+    )
 
     if start_optimization:
         llm = st.session_state.get("llm")
@@ -696,245 +1234,200 @@ elif st.session_state.step == "review":
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SCHRITT 4: Ergebnis
+# SCHRITT 5: Optimierungsergebnis
 # ═══════════════════════════════════════════════════════════════════════════════
 
 elif st.session_state.step == "result":
-    gs = st.session_state.graph_state or {}
-    result = gs.get("result", {})
-    optimization_result = result.get("optimization_result")
-    optimization_errors = result.get("optimization_errors",[],)
-    reqs = result.get("requirements", {})
-    selected_model = result.get("selected_model", {})
+    graph_state = st.session_state.graph_state or {}
 
-    selected_family = selected_model.get("family_id")
-    selected_family_name = selected_model.get("family_name")
-
-    selected_variant = selected_model.get("variant_id")
-    selected_variant_name = selected_model.get("variant_name")
-
-    selected_model_inputs = result.get(
-        "selected_model_inputs",
-        {},
+    result_data = build_result_data(
+        graph_state
     )
 
-    if optimization_errors:
-        st.error(
-            "Die Optimierung konnte nicht abgeschlossen werden."
+    st.subheader("Optimierungsergebnis")
+
+    # ---------------------------------------------------------
+    # Status
+    # ---------------------------------------------------------
+
+    if result_data["successful"]:
+        st.success(
+            result_data["status_label"]
+        )
+        st.write(
+            result_data["status_message"]
         )
 
-        for error in optimization_errors:
+    elif result_data["errors"]:
+        st.error(
+            result_data["status_label"]
+        )
+        st.write(
+            result_data["status_message"]
+        )
+
+        for error in result_data["errors"]:
             st.error(error)
 
-    if optimization_result:
-        solver_status = optimization_result.get(
-            "solver_status"
-        )
-
-        st.subheader("Optimierungsergebnis")
-
-        if solver_status == "Optimal":
-            order_quantity = optimization_result.get(
-                "order_quantity"
-            )
-
-            expected_profit = optimization_result.get(
-                "expected_profit"
-            )
-
-            st.success(
-                "Eine optimale Bestellmenge wurde gefunden."
-            )
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-                st.metric(
-                    "Empfohlene Bestellmenge",
-                    (
-                        f"{order_quantity:g} Einheiten"
-                        if order_quantity is not None
-                        else "–"
-                    ),
-                )
-
-            with col2:
-                st.metric(
-                    "Erwarteter Gewinn",
-                    (
-                        f"{expected_profit:,.2f}"
-                        if expected_profit is not None
-                        else "–"
-                    ),
-                )
-        else:
-            st.warning(
-                "Es wurde keine optimale Lösung gefunden. "
-                f"Solverstatus: {solver_status}"
-            )
-
-    st.subheader("Ergebnis")
-    st.success(result.get("summary", ""))
-
-    # ── Erkannte Anforderungen ────────────────────────────────────────────────
-    st.markdown("### 📋 Erkannte Anforderungen")
-
-    constraints_list = reqs.get("constraints", [])
-
-    if isinstance(constraints_list, str):
-        constraints_list = [constraints_list]
-
-    st.markdown("#### Problemstruktur")
-    st.markdown(f"- **Entscheidung:** {reqs.get('decision', '–')}")
-    st.markdown(f"- **Ziel:** {reqs.get('objective', '–')}")
-    st.markdown(f"- **Nachfrage:** {reqs.get('demand_type', '–')}")
-
-    st.markdown("#### Restriktionen")
-    if constraints_list:
-        for constraint in constraints_list:
-            st.markdown(f"- {constraint}")
     else:
-        st.markdown("- –")
+        st.warning(
+            result_data["status_label"]
+        )
+        st.write(
+            result_data["status_message"]
+        )
 
-    # ── Ausgewähltes Modell ───────────────────────────────────────────────────
-    st.markdown("### 📐 Ausgewähltes Modell")
+    # ---------------------------------------------------------
+    # Zentrale Ergebniskennzahlen
+    # ---------------------------------------------------------
 
-    st.markdown(
-        f"- **Modellfamilie:** "
-        f"{selected_family_name or selected_family or '–'}"
-    )
+    if result_data["metrics"]:
+        metric_columns = st.columns(
+            len(result_data["metrics"])
+        )
 
-    st.markdown(
-        f"- **Variante:** "
-        f"{selected_variant_name or selected_variant or '–'}"
-    )
-    explanation = selected_model.get("explanation")
-    if explanation:
-        st.markdown(f"- **Begründung:** {explanation}")
-
-    # ── Modellspezifische Eingaben ────────────────────────────────────────────
-    if selected_model_inputs:
-        st.markdown("### 🧾 Erfasste Modellparameter")
-
-        if (
-            selected_family == "newsvendor"
-            and selected_variant == "single_product_single_period"
+        for column, metric in zip(
+            metric_columns,
+            result_data["metrics"],
         ):
-            col1, col2, col3 = st.columns(3)
-
-            with col1:
+            with column:
                 st.metric(
-                    "Verkaufspreis",
-                    selected_model_inputs.get("selling_price", "–"),
+                    metric["label"],
+                    metric["value"],
                 )
 
-            with col2:
-                st.metric(
-                    "Einkaufskosten",
-                    selected_model_inputs.get("purchase_cost", "–"),
-                )
+    # ---------------------------------------------------------
+    # Variantenspezifische Ergebnisdetails
+    # ---------------------------------------------------------
 
-            with col3:
-                st.metric(
-                    "Restwert",
-                    selected_model_inputs.get("salvage_value", "–"),
-                )
-
-            demand_scenarios = selected_model_inputs.get("demand_scenarios", [])
-            scenario_probabilities = selected_model_inputs.get(
-                "scenario_probabilities",
-                [],
-            )
-
-            if demand_scenarios and scenario_probabilities:
-                st.markdown("#### Nachfrageszenarien")
-
-                scenario_rows = [
-                    {
-                        "Szenario": index + 1,
-                        "Nachfrage": f"{demand:g}",
-                        "Wahrscheinlichkeit": f"{probability:.0%}",
-                    }
-                    for index, (demand, probability) in enumerate(
-                        zip(demand_scenarios, scenario_probabilities)
-                    )
-                ]
-
-                st.table(scenario_rows)
-
-        else:
-            st.json(selected_model_inputs)
-
-    st.divider()
-
-    structured_constraints = result.get(
-        "structured_constraints",
-        [],
-    )
-
-    unsupported_constraints = result.get(
-        "unsupported_constraints",
-        [],
-    )
-
-    if unsupported_constraints:
-        st.markdown("#### Nicht unterstützte Constraints")
-
-        for constraint in unsupported_constraints:
-            st.error(str(constraint))
-
-        st.markdown("### 🔒 Strukturierte optionale Constraints")
-
-        if structured_constraints:
-            for constraint in structured_constraints:
-                constraint_type = constraint.get("type", "unbekannt")
-                parameters = constraint.get("parameters", {})
-
-                st.markdown(f"- **{constraint_type}**: `{parameters}`")
-        else:
-            st.markdown("- Keine optionalen Constraints angegeben.")
-
-    st.divider()
-
-
-    # ── Modellvisualisierung ──────────────────────────────────────────────────
-    st.markdown("### 📐 Optimierungsmodell")
-    st.markdown(
-        result.get(
-            "model_markdown",
-            "Keine Modellvisualisierung verfügbar.",
-        )
-    )
-
-    st.divider()
-
-    if optimization_result:
-        model_representation = optimization_result.get(
-            "model_representation",
-            "",
-        )
-
+    if result_data["detail_rows"]:
         with st.expander(
-            "Technische Modellform"
+            result_data["detail_title"]
+            or "Ergebnis im Detail",
+            expanded=True,
         ):
             st.caption(
-                "Diese Darstellung entspricht exakt dem "
-                "Optimierungsmodell, das berechnet wurde."
+                "Die Tabelle zeigt, wie sich die Empfehlung "
+                "in den betrachteten Nachfragesituationen "
+                "auswirkt."
+            )
+
+            st.table(
+                result_data["detail_rows"]
+            )
+
+    # ---------------------------------------------------------
+    # Berücksichtigte Vorgaben
+    # ---------------------------------------------------------
+
+    with st.expander(
+        "Berücksichtigte Vorgaben und Grenzen"
+    ):
+        if result_data["constraints"]:
+            for constraint in result_data[
+                "constraints"
+            ]:
+                st.markdown(
+                    f"**{constraint['label']}**  \n"
+                    f"{constraint['value']}"
+                )
+        else:
+            st.info(
+                "Es wurden keine zusätzlichen Vorgaben oder "
+                "Grenzen berücksichtigt."
+            )
+
+    # ---------------------------------------------------------
+    # Technische Details
+    # ---------------------------------------------------------
+
+    with st.expander("Technische Details"):
+        st.markdown(
+            f"**Modellfamilie**  \n"
+            f"{result_data['family_name']}"
+        )
+
+        st.markdown(
+            f"**Modellvariante**  \n"
+            f"{result_data['variant_name']}"
+        )
+
+        st.markdown(
+            f"**Solverstatus**  \n"
+            f"{result_data['solver_status']}"
+        )
+
+        model_representation = result_data[
+            "model_representation"
+        ]
+
+        if model_representation:
+            st.markdown(
+                "**Tatsächlich berechnetes "
+                "Optimierungsmodell**"
+            )
+
+            st.caption(
+                "Diese Darstellung entspricht dem "
+                "PuLP-Modell, das an den Solver "
+                "übergeben wurde."
             )
 
             st.code(
                 model_representation,
                 language="text",
             )
-    # ── Nächste Schritte ──────────────────────────────────────────────────────
-    st.markdown("### 🔜 Nächste Schritte")
-    for step in result.get("next_steps", []):
-        st.markdown(f"- {step}")
+        else:
+            st.info(
+                "Für diese Berechnung ist keine technische "
+                "Modellrepräsentation verfügbar."
+            )
 
-    # ── Neu starten ───────────────────────────────────────────────────────────
+    # ---------------------------------------------------------
+    # Neue Optimierung
+    # ---------------------------------------------------------
+
     st.divider()
-    if st.button("↺ Neu starten", use_container_width=True):
-        for key in ["step", "form_data", "graph_state"]:
+
+    if st.button(
+        "Neue Optimierung starten",
+        use_container_width=True,
+    ):
+        keys_to_clear = [
+            "step",
+            "form_data",
+            "graph_state",
+            "review_sections",
+            "form_decision",
+            "form_objective",
+            "form_demand_type",
+            "form_product_scope",
+            "form_planning_horizon",
+            "submit_general_form",
+            "confirm_review_problem",
+            "confirm_review_parameters",
+            "confirm_review_constraints",
+            "change_review_problem",
+            "change_review_parameters",
+            "change_review_constraints",
+        ]
+
+        dynamic_key_prefixes = (
+            "model_input_",
+            "constraint_mode_",
+            "constraint_include_",
+            "constraint_parameter_",
+            "submit_model_inputs_",
+        )
+
+        keys_to_clear.extend(
+            key
+            for key in list(st.session_state)
+            if key.startswith(dynamic_key_prefixes)
+        )
+
+        for key in keys_to_clear:
             if key in st.session_state:
                 del st.session_state[key]
+
         st.rerun()

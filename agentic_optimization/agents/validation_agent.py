@@ -1,5 +1,5 @@
 import math
-from typing import Any
+from typing import Any, get_args
 
 from agentic_optimization.models.registry import (
     get_model_variant_definition,
@@ -12,32 +12,92 @@ from agentic_optimization.state import (
     WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
     WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS,
     WORKFLOW_READY_FOR_REVIEW,
+    DecisionType,
+    DemandType,
     GraphState,
+    ObjectiveType,
+    PlanningHorizon,
+    ProductScope,
     with_control,
 )
 
+ALLOWED_DECISION_TYPES = set(get_args(DecisionType))
+ALLOWED_OBJECTIVE_TYPES = set(get_args(ObjectiveType))
+ALLOWED_DEMAND_TYPES = set(get_args(DemandType))
+ALLOWED_PRODUCT_SCOPES = set(get_args(ProductScope))
+ALLOWED_PLANNING_HORIZONS = set(get_args(PlanningHorizon))
 
-def validate_general_requirements(state: GraphState) -> GraphState:
-    """
-    Validiert allgemeine Anforderungen vor der Modellauswahl.
 
-    Aktuell wird nur geprüft, ob Pflichtangaben fehlen.
-    Fachliche Konsistenzprüfungen können später hier ergänzt werden,
-    z.B. Widersprüche zwischen Formular und Freitext.
-    """
+def validate_general_requirements(
+    state: GraphState,
+) -> GraphState:
+    """Validiert die allgemeinen fachlichen Anforderungen."""
 
-    missing_fields = state.get("missing_fields", [])
+    requirements = state.get("requirements", {})
+
+    errors: list[str] = []
+    missing_fields = list(state.get("missing_fields", []))
+    requirement_conflicts = state.get("requirement_conflicts", [])
+
+    fields_to_validate = {
+        "decision": (
+            requirements.get("decision"),
+            ALLOWED_DECISION_TYPES,
+            "Die Art der Entscheidung besitzt einen ungültigen Wert.",
+        ),
+        "objective": (
+            requirements.get("objective"),
+            ALLOWED_OBJECTIVE_TYPES,
+            "Das Optimierungsziel besitzt einen ungültigen Wert.",
+        ),
+        "demand_type": (
+            requirements.get("demand_type"),
+            ALLOWED_DEMAND_TYPES,
+            "Die Nachfrageart besitzt einen ungültigen Wert.",
+        ),
+        "product_scope": (
+            requirements.get("product_scope"),
+            ALLOWED_PRODUCT_SCOPES,
+            "Der Produktumfang besitzt einen ungültigen Wert.",
+        ),
+        "planning_horizon": (
+            requirements.get("planning_horizon"),
+            ALLOWED_PLANNING_HORIZONS,
+            "Der Planungshorizont besitzt einen ungültigen Wert.",
+        ),
+    }
+
+    for field_name, (
+        value,
+        allowed_values,
+        error_message,
+    ) in fields_to_validate.items():
+        if value is None or value == "":
+            if field_name not in missing_fields:
+                missing_fields.append(field_name)
+            continue
+
+        if value not in allowed_values:
+            errors.append(error_message)
+            continue
+
+    missing_fields = list(dict.fromkeys(missing_fields))
+    needs_clarification = bool(
+        missing_fields
+        or errors
+        or requirement_conflicts
+    )
 
     return with_control(
         {
             **state,
-            "general_validation_errors": [],
-            "consistency_warnings": [],
+            "missing_fields": missing_fields,
+            "general_validation_errors": errors,
         },
         event=None,
         workflow_status=(
             WORKFLOW_NEEDS_GENERAL_CLARIFICATION
-            if missing_fields
+            if needs_clarification
             else WORKFLOW_GENERAL_INPUTS_VALID
         ),
     )

@@ -1,5 +1,9 @@
+from agentic_optimization.models.registry import (
+    find_matching_model_variant,
+)
 from agentic_optimization.state import (
     WORKFLOW_MODEL_SELECTED,
+    WORKFLOW_MODEL_UNSUPPORTED,
     GraphState,
     ModelConfig,
     with_control,
@@ -8,86 +12,68 @@ from agentic_optimization.state import (
 
 def modeling_agent(state: GraphState) -> GraphState:
     """
-    Wählt eine vollständig unterstützte Modellfamilie und Modellvariante aus.
+    Wählt anhand validierter strukturierter Requirements
+    deterministisch eine registrierte Modellvariante aus.
     """
 
     requirements = state.get("requirements", {})
 
-    decision = str(requirements.get("decision", "")).lower()
-    objective = str(requirements.get("objective", "")).lower()
-    demand_type = str(requirements.get("demand_type", "")).lower()
-    constraints = str(requirements.get("constraints", "")).lower()
-    raw_description = str(
-        requirements.get("raw_description", "")
-    ).lower()
+    match = find_matching_model_variant(requirements)
 
-    combined_text = (
-        f"{decision} {objective} {demand_type} "
-        f"{constraints} {raw_description}"
-    )
-
-    model_family: str | None = None
-    model_variant: str | None = None
-    family_name: str | None = None
-    variant_name: str | None = None
-
-    has_order_decision = any(
-        keyword in combined_text
-        for keyword in [
-            "bestellmenge",
-            "bestellen",
-            "einkaufsmenge",
-        ]
-    )
-
-    has_uncertain_demand = any(
-        keyword in combined_text
-        for keyword in [
-            "unsicher",
-            "saisonal",
-            "nachfrageszenarien",
-            "wahrscheinlichkeiten",
-        ]
-    )
-
-    if has_order_decision and has_uncertain_demand:
-        model_family = "newsvendor"
-        model_variant = "single_product_single_period"
-        family_name = "Newsvendor"
-        variant_name = "Single Product, Single Period"
-
-        explanation = (
-            "Das Problem beschreibt eine Bestellmengenentscheidung "
-            "für ein einzelnes Produkt und eine einzelne Periode "
-            "unter unsicherer Nachfrage. Dafür eignet sich die "
-            "Newsvendor-Variante 'Single Product, Single Period'."
+    if match is None:
+        return with_control(
+            {
+                **state,
+                "selected_model_family": None,
+                "selected_model_variant": None,
+                "model_config": {
+                    "explanation": (
+                        "Für diese Problemstruktur ist derzeit "
+                        "keine Modellvariante verfügbar."
+                    ),
+                    "objective": requirements.get("objective"),
+                    "decision": requirements.get("decision"),
+                },
+                "model_selection_error": (
+                    "Die aktuelle Version unterstützt diese "
+                    "Kombination aus Entscheidung, Ziel, "
+                    "Nachfrageart, Produktumfang und "
+                    "Planungshorizont noch nicht."
+                ),
+                "ready_for_optimization": False,
+            },
+            event=None,
+            workflow_status=WORKFLOW_MODEL_UNSUPPORTED,
         )
-    else:
-        explanation = (
-            "Es konnte derzeit keine vollständig unterstützte "
-            "Modellfamilie mit konkreter Variante ausgewählt werden."
-        )
+
+    family_definition, variant_definition = match
+
+    family_id = family_definition["family_id"]
+    variant_id = variant_definition["variant_id"]
 
     model_config: ModelConfig = {
-        "explanation": explanation,
+        "family_id": family_id,
+        "family_name": family_definition["family_name"],
+        "variant_id": variant_id,
+        "variant_name": variant_definition["variant_name"],
+        "explanation": (
+            "Die strukturierte Problemdefinition entspricht "
+            f"der Modellfamilie "
+            f"'{family_definition['family_name']}' und der "
+            f"Variante '{variant_definition['variant_name']}'."
+        ),
         "objective": requirements.get("objective"),
         "decision": requirements.get("decision"),
     }
 
-    if model_family is not None and family_name is not None:
-        model_config["family_id"] = model_family
-        model_config["family_name"] = family_name
-
-    if model_variant is not None and variant_name is not None:
-        model_config["variant_id"] = model_variant
-        model_config["variant_name"] = variant_name
-
     return with_control(
         {
             **state,
-            "selected_model_family": model_family,
-            "selected_model_variant": model_variant,
+            "selected_model_family": family_id,
+            "selected_model_variant": variant_id,
             "model_config": model_config,
+            "model_selection_error": None,
+            "ready_for_optimization": False,
         },
         event=None,
         workflow_status=WORKFLOW_MODEL_SELECTED,

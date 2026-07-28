@@ -47,6 +47,7 @@ def test_skips_llm_when_no_constraints_exist() -> None:
         create_base_state(constraints=[])
     )
 
+    assert result["constraint_candidates"] == []
     assert result["structured_constraints"] == []
     assert result["unsupported_constraints"] == []
     assert result["constraint_mapping_errors"] == []
@@ -87,7 +88,7 @@ def test_maps_budget_constraint() -> None:
     assert result["constraint_mapping_errors"] == []
     assert result["unsupported_constraints"] == []
 
-    assert result["structured_constraints"] == [
+    assert result["constraint_candidates"] == [
         {
             "type": "budget_limit",
             "parameters": {
@@ -156,11 +157,12 @@ def test_maps_one_text_to_multiple_constraints() -> None:
 
     assert [
         constraint["type"]
-        for constraint in result["structured_constraints"]
+        for constraint in result["constraint_candidates"]
     ] == [
         "minimum_order_quantity",
         "maximum_order_quantity",
     ]
+    assert result["structured_constraints"] == []
 
 
 def test_maps_missing_parameter_without_inventing_value() -> None:
@@ -193,7 +195,7 @@ def test_maps_missing_parameter_without_inventing_value() -> None:
 
     assert result["constraint_mapping_errors"] == []
 
-    assert result["structured_constraints"] == [
+    assert result["constraint_candidates"] == [
         {
             "type": "budget_limit",
             "parameters": {},
@@ -202,6 +204,7 @@ def test_maps_missing_parameter_without_inventing_value() -> None:
             ),
         }
     ]
+    assert result["structured_constraints"] == []
 
 
 def test_preserves_unsupported_constraint_text() -> None:
@@ -264,7 +267,7 @@ def test_rejects_llm_invented_constraint_type() -> None:
             ]
         )
     )
-
+    assert result["constraint_candidates"] == []
     assert result["structured_constraints"] == []
     assert result["constraint_mapping_errors"]
 
@@ -310,6 +313,7 @@ def test_rejects_unknown_constraint_parameter() -> None:
         )
     )
 
+    assert result["constraint_candidates"] == []
     assert result["structured_constraints"] == []
     assert result["constraint_mapping_errors"]
 
@@ -350,6 +354,7 @@ def test_rejects_unprocessed_source_constraint() -> None:
         )
     )
 
+    assert result["constraint_candidates"] == []
     assert result["structured_constraints"] == []
     assert result["constraint_mapping_errors"]
 
@@ -395,6 +400,7 @@ def test_rejects_unknown_source_id() -> None:
         )
     )
 
+    assert result["constraint_candidates"] == []
     assert result["structured_constraints"] == []
     assert result["constraint_mapping_errors"]
 
@@ -419,6 +425,7 @@ def test_rejects_invalid_json_response() -> None:
         )
     )
 
+    assert result["constraint_candidates"] == []
     assert result["structured_constraints"] == []
     assert result["unsupported_constraints"] == []
     assert result["constraint_mapping_errors"]
@@ -455,3 +462,101 @@ def test_rejects_missing_model_selection() -> None:
     )
 
     llm.invoke.assert_not_called()
+
+
+def test_accepts_unsupported_source_id_as_string() -> None:
+    response = {
+        "structured_constraints": [],
+        "unsupported_constraints": [
+            "constraint_0",
+        ],
+    }
+
+    llm = create_mock_llm(
+        response_content=json.dumps(response)
+    )
+
+    agent = create_constraint_mapping_agent(llm)
+
+    result = agent(
+        create_base_state(
+            constraints=[
+                "Die Bestellung muss bis Dienstag eintreffen."
+            ]
+        )
+    )
+
+    assert result["constraint_mapping_errors"] == []
+    assert result["constraint_candidates"] == []
+    assert result["structured_constraints"] == []
+    assert result["unsupported_constraints"] == [
+        "Die Bestellung muss bis Dienstag eintreffen."
+    ]
+
+
+def test_maps_minimum_quantity_and_budget_as_candidates() -> None:
+    response = {
+        "structured_constraints": [
+            {
+                "type": "minimum_order_quantity",
+                "parameters": {
+                    "quantity": 30,
+                },
+                "source_ids": [
+                    "constraint_0",
+                ],
+            },
+            {
+                "type": "budget_limit",
+                "parameters": {
+                    "budget": 5000,
+                },
+                "source_ids": [
+                    "constraint_1",
+                ],
+            },
+        ],
+        "unsupported_constraints": [],
+    }
+
+    llm = create_mock_llm(
+        response_content=json.dumps(response)
+    )
+
+    agent = create_constraint_mapping_agent(llm)
+
+    result = agent(
+        create_base_state(
+            constraints=[
+                "Mindestbestellmenge von 30 Stück",
+                "Maximales Budget von 5000 Euro",
+            ]
+        )
+    )
+
+    assert result["constraint_mapping_errors"] == []
+    assert result["unsupported_constraints"] == []
+
+    assert result["constraint_candidates"] == [
+        {
+            "type": "minimum_order_quantity",
+            "parameters": {
+                "quantity": 30,
+            },
+            "source_text": (
+                "Mindestbestellmenge von 30 Stück"
+            ),
+        },
+        {
+            "type": "budget_limit",
+            "parameters": {
+                "budget": 5000,
+            },
+            "source_text": (
+                "Maximales Budget von 5000 Euro"
+            ),
+        },
+    ]
+
+    # Kandidaten sind noch nicht vom Nutzer bestätigt.
+    assert result["structured_constraints"] == []

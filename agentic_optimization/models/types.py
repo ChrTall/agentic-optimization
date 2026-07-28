@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 
 class StructuredConstraint(TypedDict):
@@ -11,13 +11,19 @@ class StructuredConstraint(TypedDict):
 
 
 class ModelInputField(TypedDict):
-    """Beschreibt ein Eingabefeld einer konkreten Modellvariante."""
+    """Beschreibt ein Eingabefeld einer Modellvariante."""
 
     name: str
     label: str
     type: str
     required: bool
     help: str | None
+
+    placeholder: NotRequired[str | None]
+    min_value: NotRequired[int | float | None]
+    max_value: NotRequired[int | float | None]
+    step: NotRequired[int | float | None]
+    unit: NotRequired[str | None]
 
 
 class ConstraintParameterDefinition(TypedDict):
@@ -28,6 +34,12 @@ class ConstraintParameterDefinition(TypedDict):
     type: str
     required: bool
     help: str | None
+
+    placeholder: NotRequired[str | None]
+    min_value: NotRequired[int | float | None]
+    max_value: NotRequired[int | float | None]
+    step: NotRequired[int | float | None]
+    unit: NotRequired[str | None]
 
 
 class ConstraintDefinition(TypedDict):
@@ -61,12 +73,22 @@ ModelOptimizer = Callable[
     dict[str, Any],
 ]
 
+class ModelSelectionCriteria(TypedDict):
+    """Fachliche Merkmale zur Auswahl einer Modellvariante."""
+
+    decision: str
+    objective: str
+    demand_type: str
+    product_scope: str
+    planning_horizon: str
+
 
 class ModelVariantDefinition(TypedDict):
     """Vollständiger Datenvertrag einer konkreten Modellvariante."""
 
     variant_id: str
     variant_name: str
+    selection_criteria: ModelSelectionCriteria
     required_fields: list[str]
     input_fields: list[ModelInputField]
     supported_constraints: dict[str, ConstraintDefinition]

@@ -26,6 +26,7 @@ WORKFLOW_READY_FOR_OPTIMIZATION: Final = "ready_for_optimization"
 WORKFLOW_OPTIMIZATION_COMPLETED: Final = "optimization_completed"
 WORKFLOW_OPTIMIZATION_FAILED: Final = "optimization_failed"
 WORKFLOW_READY_FOR_REVIEW: Final = "ready_for_review"
+WORKFLOW_MODEL_UNSUPPORTED: Final = "model_unsupported"
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +67,7 @@ WorkflowStatus = Literal[
     "optimization_completed",
     "optimization_failed",
     "ready_for_review",
+    "model_unsupported",
 ]
 
 WorkflowEvent = Literal[
@@ -74,6 +76,57 @@ WorkflowEvent = Literal[
     "model_inputs_submitted",
     "optimization_requested",
 ]
+
+DecisionType = Literal[
+    "order_quantity",
+    "production_quantity",
+    "inventory_level",
+]
+
+ObjectiveType = Literal[
+    "maximize_profit",
+    "minimize_cost",
+    "reach_service_level",
+]
+
+DemandType = Literal[
+    "known",
+    "uncertain",
+    "historical_estimate",
+]
+
+ProductScope = Literal[
+    "single_product",
+    "multiple_products",
+]
+
+PlanningHorizon = Literal[
+    "single_period",
+    "multiple_periods",
+]
+
+
+class RequirementConflict(TypedDict):
+    field: str
+    form_value: str
+    raw_input_value: str
+    message: str
+
+
+class UnsupportedRequirement(TypedDict):
+    field: str
+    user_value: str
+    message: str
+
+
+class Requirements(TypedDict, total=False):
+    decision: DecisionType | None
+    objective: ObjectiveType | None
+    demand_type: DemandType | None
+    product_scope: ProductScope | None
+    planning_horizon: PlanningHorizon | None
+    constraints: list[str]
+    raw_description: str
 
 
 class ControlState(TypedDict, total=False):
@@ -118,7 +171,7 @@ class GraphState(TypedDict, total=False):
     messages: list[dict[str, str]]
 
     # Ergebnis der allgemeinen Requirement-Extraktion
-    requirements: dict[str, Any]
+    requirements: Requirements
     missing_fields: list[str]
     clarification_question: str
 
@@ -127,11 +180,15 @@ class GraphState(TypedDict, total=False):
 
     # Für spätere Konsistenzprüfung zwischen Formular, Freitext und Modellformularen
     consistency_warnings: list[dict[str, Any]]
+    requirement_warnings: list[str]
+    requirement_conflicts: list[RequirementConflict]
+    unsupported_requirements: list[UnsupportedRequirement]
 
     # Modellauswahl
     selected_model_family: str | None
     selected_model_variant: str | None
     model_config: ModelConfig
+    model_selection_error: str | None
 
     # Modellspezifische Eingaben:
     # family -> variant -> inputs
@@ -141,6 +198,7 @@ class GraphState(TypedDict, total=False):
     model_input_validation_errors: list[str]
 
     # Strukturierte optionale Constraints
+    constraint_candidates: list[StructuredConstraint]
     structured_constraints: list[StructuredConstraint]
     unsupported_constraints: list[str]
     constraint_mapping_errors: list[str]
@@ -213,4 +271,25 @@ def with_control(
     return {
         **state,
         "control": control,
+    }
+
+
+def invalidate_optimization_state(
+    state: GraphState,
+) -> GraphState:
+    """
+    Verwirft alle nachgelagerten Zustände, die von Modellinputs
+    oder aktiven Constraints abhängen.
+
+    Diese Funktion muss verwendet werden, sobald der Nutzer
+    Modellparameter oder strukturierte Constraints ändert.
+    """
+
+    return {
+        **state,
+        "review_confirmed": False,
+        "ready_for_optimization": False,
+        "optimization_result": None,
+        "optimization_errors": [],
+        "result": {},
     }
