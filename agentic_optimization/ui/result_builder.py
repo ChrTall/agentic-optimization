@@ -1,19 +1,17 @@
-from typing import Any, TypedDict
+from typing import TypedDict
 
 from agentic_optimization.models.registry import (
     get_model_family_definition,
     get_model_variant_definition,
+)
+from agentic_optimization.models.types import (
+    ResultMetric,
 )
 from agentic_optimization.state import GraphState
 from agentic_optimization.ui.review_builder import (
     ReviewItem,
     build_review_data,
 )
-
-
-class ResultMetric(TypedDict):
-    label: str
-    value: str
 
 
 class ResultData(TypedDict):
@@ -38,104 +36,6 @@ SOLVER_STATUS_LABELS = {
     "Not Solved": "Berechnung nicht abgeschlossen",
     "Undefined": "Unbestimmtes Berechnungsergebnis",
 }
-
-
-def _format_number(
-    value: float | None,
-) -> str:
-    if value is None:
-        return "–"
-
-    numeric_value = float(value)
-
-    if numeric_value.is_integer():
-        return str(int(numeric_value))
-
-    return f"{numeric_value:g}"
-
-
-def _format_currency(
-    value: float | None,
-) -> str:
-    if value is None:
-        return "–"
-
-    formatted = f"{float(value):,.2f}"
-
-    formatted = (
-        formatted
-        .replace(",", "_")
-        .replace(".", ",")
-        .replace("_", ".")
-    )
-
-    return f"{formatted} €"
-
-
-def _format_percentage(
-    value: float | None,
-) -> str:
-    if value is None:
-        return "–"
-
-    return f"{float(value) * 100:g} %"
-
-
-def _build_newsvendor_result(
-    optimization_result: dict[str, Any],
-) -> tuple[
-    list[ResultMetric],
-    str,
-    list[dict[str, str]],
-]:
-    metrics: list[ResultMetric] = [
-        {
-            "label": "Empfohlene Bestellmenge",
-            "value": (
-                f"{_format_number(
-                    optimization_result.get(
-                        'order_quantity'
-                    )
-                )} Einheiten"
-            ),
-        },
-        {
-            "label": "Erwarteter Gewinn",
-            "value": _format_currency(
-                optimization_result.get(
-                    "expected_profit"
-                )
-            ),
-        },
-    ]
-
-    detail_rows = [
-        {
-            "Nachfrage": _format_number(
-                scenario.get("demand")
-            ),
-            "Wahrscheinlichkeit": _format_percentage(
-                scenario.get("probability")
-            ),
-            "Verkauft": _format_number(
-                scenario.get("sold")
-            ),
-            "Restbestand": _format_number(
-                scenario.get("leftover")
-            ),
-        }
-        for scenario in optimization_result.get(
-            "scenario_results",
-            [],
-        )
-        if isinstance(scenario, dict)
-    ]
-
-    return (
-        metrics,
-        "Ergebnis nach Nachfrageszenario",
-        detail_rows,
-    )
 
 
 def build_result_data(
@@ -213,19 +113,20 @@ def build_result_data(
     detail_title: str | None = None
     detail_rows: list[dict[str, str]] = []
 
-    if (
-        successful
-        and family_id == "newsvendor"
-        and variant_id
-        == "single_product_single_period"
-    ):
-        (
-            metrics,
-            detail_title,
-            detail_rows,
-        ) = _build_newsvendor_result(
+    if successful and variant_definition is not None:
+        variant_result = variant_definition[
+            "result_builder"
+        ](
             optimization_result
         )
+
+        metrics = variant_result["metrics"]
+        detail_title = variant_result[
+            "detail_title"
+        ]
+        detail_rows = variant_result[
+            "detail_rows"
+        ]
 
     if optimization_errors:
         status_label = "Berechnung fehlgeschlagen"
@@ -242,8 +143,9 @@ def build_result_data(
 
     elif solver_status == "Infeasible":
         status_message = (
-            "Für die angegebenen Werte und Vorgaben existiert "
-            "keine zulässige Lösung."
+            "Für die angegebenen Werte und betrieblichen "
+            "Rahmenbedingungen existiert keine zulässige "
+            "Lösung."
         )
 
     elif solver_status == "Unbounded":

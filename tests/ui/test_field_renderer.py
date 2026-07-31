@@ -2,6 +2,7 @@ import pytest
 
 from agentic_optimization.ui.field_renderer import (
     parse_input_value,
+    render_input_field,
 )
 
 
@@ -161,3 +162,98 @@ def test_rejects_invalid_item_type_in_number_list() -> None:
             create_number_list_field(),
             [0.2, True, 0.8],
         )
+
+
+def test_disables_number_input_and_preserves_initial_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    received_arguments: dict = {}
+    fake_session_state: dict = {}
+
+    def fake_number_input(
+        **arguments,
+    ) -> None:
+        received_arguments.update(arguments)
+        return fake_session_state.get(
+            arguments["key"]
+        )
+
+    monkeypatch.setattr(
+        (
+            "agentic_optimization.ui."
+            "field_renderer.st.number_input"
+        ),
+        fake_number_input,
+    )
+
+    monkeypatch.setattr(
+        (
+            "agentic_optimization.ui."
+            "field_renderer.st.session_state"
+        ),
+        fake_session_state,
+    )
+
+    result = render_input_field(
+        create_number_field(),
+        7400.0,
+        key_prefix="test_constraint",
+        disabled=True,
+    )
+
+    widget_key = (
+        "test_constraint_selling_price"
+    )
+
+    assert received_arguments["disabled"] is True
+    assert received_arguments["value"] is None
+    assert fake_session_state[widget_key] == 7400.0
+    assert result == 7400.0
+
+
+def test_does_not_restore_cleared_number_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    received_arguments: dict = {}
+
+    widget_key = (
+        "test_constraint_selling_price"
+    )
+
+    fake_session_state = {
+        widget_key: None,
+    }
+
+    def fake_number_input(
+        **arguments,
+    ) -> None:
+        received_arguments.update(arguments)
+        return fake_session_state.get(
+            arguments["key"]
+        )
+
+    monkeypatch.setattr(
+        (
+            "agentic_optimization.ui."
+            "field_renderer.st.number_input"
+        ),
+        fake_number_input,
+    )
+
+    monkeypatch.setattr(
+        (
+            "agentic_optimization.ui."
+            "field_renderer.st.session_state"
+        ),
+        fake_session_state,
+    )
+
+    result = render_input_field(
+        create_number_field(),
+        40.0,
+        key_prefix="test_constraint",
+    )
+
+    assert received_arguments["value"] is None
+    assert fake_session_state[widget_key] is None
+    assert result is None

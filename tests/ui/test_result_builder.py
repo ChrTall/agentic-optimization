@@ -1,3 +1,6 @@
+from agentic_optimization.models.newsvendor.single_product_single_period import (
+    VARIANT_DEFINITION,
+)
 from agentic_optimization.ui.result_builder import (
     build_result_data,
 )
@@ -227,3 +230,35 @@ def test_builds_technical_details() -> None:
     assert result_data["model_representation"] == (
         "Newsvendor_Model:\nMAXIMIZE\n..."
     )
+
+
+def test_variant_registers_result_builder() -> None:
+    result_builder = VARIANT_DEFINITION[
+        "result_builder"
+    ]
+
+    presentation = result_builder(
+        create_result_state()[
+            "optimization_result"
+        ]
+    )
+
+    assert presentation["metrics"] == [
+        {
+            "label": "Empfohlene Bestellmenge",
+            "value": "120 Einheiten",
+        },
+        {
+            "label": "Erwarteter Gewinn",
+            "value": "840,00 €",
+        },
+    ]
+
+    assert (
+        presentation["detail_title"]
+        == "Ergebnis nach Nachfrageszenario"
+    )
+
+    assert len(
+        presentation["detail_rows"]
+    ) == 3

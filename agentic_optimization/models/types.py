@@ -10,6 +10,26 @@ class StructuredConstraint(TypedDict):
     source_text: str | None
 
 
+class ResultMetric(TypedDict):
+    """Eine prominent dargestellte fachliche Ergebniskennzahl."""
+
+    label: str
+    value: str
+
+
+class VariantResultPresentation(TypedDict):
+    """
+    Variantenspezifische, bereits formatierte Ergebnisdarstellung.
+
+    Der zentrale UI-Builder ergänzt Status, Fehler,
+    Rahmenbedingungen und technische Details.
+    """
+
+    metrics: list[ResultMetric]
+    detail_title: str | None
+    detail_rows: list[dict[str, str]]
+
+
 class ModelInputField(TypedDict):
     """Beschreibt ein Eingabefeld einer Modellvariante."""
 
@@ -73,6 +93,13 @@ ModelOptimizer = Callable[
     dict[str, Any],
 ]
 
+
+ResultPresentationBuilder = Callable[
+    [dict[str, Any]],
+    VariantResultPresentation,
+]
+
+
 class ModelSelectionCriteria(TypedDict):
     """Fachliche Merkmale zur Auswahl einer Modellvariante."""
 
@@ -95,6 +122,7 @@ class ModelVariantDefinition(TypedDict):
     input_validator: InputValidator
     constraint_validator: ConstraintValidator
     optimizer: ModelOptimizer
+    result_builder: ResultPresentationBuilder
 
 
 class ModelFamilyDefinition(TypedDict):

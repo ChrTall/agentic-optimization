@@ -5,16 +5,12 @@ from agentic_optimization.state import (
     GraphState,
     with_control,
 )
-from agentic_optimization.visualization.markdown_renderer import (
-    render_model_markdown,
-)
 
 
 def result_node(state: GraphState) -> GraphState:
     """
-    Bereitet die Modellvorschau für UI, API oder Chat auf.
-
-    Validierung und PuLP-Codegenerierung erfolgen bereits in eigenen Nodes.
+    Bereitet das Optimierungsergebnis für nachgelagerte
+    Ausgabekanäle auf.
     """
 
     requirements = state.get("requirements", {})
@@ -27,13 +23,6 @@ def result_node(state: GraphState) -> GraphState:
         state=state,
         family=family,
         variant=variant,
-    )
-
-    requirements_with_model_inputs = _requirements_with_model_inputs(
-        requirements=requirements,
-        family=family,
-        variant=variant,
-        selected_model_inputs=selected_model_inputs,
     )
 
     optimization_result = state.get(
@@ -80,10 +69,6 @@ def result_node(state: GraphState) -> GraphState:
         ),
         "optimization_result": optimization_result,
         "optimization_errors": optimization_errors,
-        "model_markdown": render_model_markdown(
-            model_config,
-            requirements_with_model_inputs,
-        ),
         "next_steps": [
             "Optimierungsergebnis fachlich prüfen.",
             "Modellannahmen bei Bedarf anpassen.",
@@ -114,32 +99,6 @@ def _get_selected_model_inputs(
         .get(family, {})
         .get(variant, {})
     )
-
-
-def _requirements_with_model_inputs(
-    requirements: dict[str, Any],
-    family: str | None,
-    variant: str | None,
-    selected_model_inputs: dict[str, Any],
-) -> dict[str, Any]:
-    if not family or not variant or not selected_model_inputs:
-        return requirements
-
-    model_parameters = {
-        **requirements.get("model_parameters", {}),
-        family: {
-            **requirements.get(
-                "model_parameters",
-                {},
-            ).get(family, {}),
-            variant: selected_model_inputs,
-        },
-    }
-
-    return {
-        **requirements,
-        "model_parameters": model_parameters,
-    }
 
 
 def _build_summary(

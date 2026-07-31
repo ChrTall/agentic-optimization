@@ -8,7 +8,9 @@ from agentic_optimization.models.types import (
     ConstraintDefinition,
     ModelInputField,
     ModelVariantDefinition,
+    ResultMetric,
     StructuredConstraint,
+    VariantResultPresentation,
 )
 
 REQUIRED_FIELDS = [
@@ -687,6 +689,109 @@ def optimize_single_product_single_period(
     return asdict(result)
 
 
+def _format_result_number(
+    value: int | float | None,
+) -> str:
+    if value is None:
+        return "–"
+
+    numeric_value = float(value)
+
+    if numeric_value.is_integer():
+        return str(int(numeric_value))
+
+    return f"{numeric_value:g}"
+
+
+def _format_result_currency(
+    value: float | None,
+) -> str:
+    if value is None:
+        return "–"
+
+    formatted = f"{float(value):,.2f}"
+
+    formatted = (
+        formatted
+        .replace(",", "_")
+        .replace(".", ",")
+        .replace("_", ".")
+    )
+
+    return f"{formatted} €"
+
+
+def _format_result_percentage(
+    value: float | None,
+) -> str:
+    if value is None:
+        return "–"
+
+    return f"{float(value) * 100:g} %"
+
+
+def build_single_product_single_period_result_presentation(
+    optimization_result: dict[str, Any],
+) -> VariantResultPresentation:
+    """
+    Bereitet die fachlichen Ergebniskennzahlen und
+    Szenariodetails dieser Modellvariante für die UI auf.
+    """
+
+    metrics: list[ResultMetric] = [
+        {
+            "label": "Empfohlene Bestellmenge",
+            "value": (
+                f"{_format_result_number(
+                    optimization_result.get(
+                        'order_quantity'
+                    )
+                )} Einheiten"
+            ),
+        },
+        {
+            "label": "Erwarteter Gewinn",
+            "value": _format_result_currency(
+                optimization_result.get(
+                    "expected_profit"
+                )
+            ),
+        },
+    ]
+
+    detail_rows = [
+        {
+            "Nachfrage": _format_result_number(
+                scenario.get("demand")
+            ),
+            "Wahrscheinlichkeit": (
+                _format_result_percentage(
+                    scenario.get("probability")
+                )
+            ),
+            "Verkauft": _format_result_number(
+                scenario.get("sold")
+            ),
+            "Restbestand": _format_result_number(
+                scenario.get("leftover")
+            ),
+        }
+        for scenario in optimization_result.get(
+            "scenario_results",
+            [],
+        )
+        if isinstance(scenario, dict)
+    ]
+
+    return {
+        "metrics": metrics,
+        "detail_title": (
+            "Ergebnis nach Nachfrageszenario"
+        ),
+        "detail_rows": detail_rows,
+    }
+
+
 VARIANT_DEFINITION: ModelVariantDefinition = {
     "variant_id": "single_product_single_period",
     "variant_name": "Single Product, Single Period",
@@ -701,8 +806,7 @@ VARIANT_DEFINITION: ModelVariantDefinition = {
     "input_fields": INPUT_FIELDS,
     "supported_constraints": SUPPORTED_CONSTRAINTS,
     "input_validator": validate_single_product_single_period_inputs,
-    "constraint_validator": (
-        validate_single_product_single_period_constraints
-    ),
+    "constraint_validator": validate_single_product_single_period_constraints,
     "optimizer": optimize_single_product_single_period,
+    "result_builder": build_single_product_single_period_result_presentation,
 }

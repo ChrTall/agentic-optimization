@@ -60,16 +60,24 @@ def render_input_field(
     placeholder = field_definition.get("placeholder")
 
     if field_type == "number":
+        initial_value = (
+            float(existing_value)
+            if isinstance(existing_value, (int, float))
+            and not isinstance(existing_value, bool)
+            else None
+        )
+
+        if widget_key not in st.session_state:
+            st.session_state[
+                widget_key
+            ] = initial_value
+
         number_input_arguments: dict[str, Any] = {
             "label": label,
-            "value": (
-                float(existing_value)
-                if isinstance(existing_value, (int, float))
-                and not isinstance(existing_value, bool)
-                else None
-            ),
+            "value": None,
             "help": help_text,
             "key": widget_key,
+            "disabled": disabled,
         }
 
         min_value = field_definition.get("min_value")
