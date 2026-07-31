@@ -39,6 +39,7 @@ def create_llm_response(
         "product_scope": None,
         "planning_horizon": None,
         "constraints": [],
+        "unsupported_requirements": [],
     }
     response.update(overrides)
     return response
@@ -357,4 +358,124 @@ def test_separates_problem_structure_from_constraints() -> None:
     ]
 
     assert "saisonales Produkt" not in requirements["constraints"]
-    assert "unsichere Nachfrage" not in requirements["constraints"]   
+    assert "unsichere Nachfrage" not in requirements["constraints"]
+
+
+def test_preserves_unsupported_requirement_from_llm() -> None:
+    llm = create_mock_llm(
+        create_llm_response(
+            demand_type="uncertain",
+            unsupported_requirements=[
+                {
+                    "field": "decision",
+                    "user_value": "Bestellzeitpunkt optimieren",
+                    "message": (
+                        "Die Optimierung des Bestellzeitpunkts "
+                        "wird derzeit nicht unterstützt."
+                    ),
+                }
+            ],
+        )
+    )
+    agent = create_requirement_agent(llm)
+
+    result = agent(
+        {
+            "form_data": create_complete_form_data(),
+            "raw_input": (
+                "Wir verkaufen ein Produkt mit unsicherer "
+                "Nachfrage und möchten den Bestellzeitpunkt "
+                "optimieren."
+            ),
+        }
+    )
+
+    assert result["unsupported_requirements"] == [
+        {
+            "field": "decision",
+            "user_value": "Bestellzeitpunkt optimieren",
+            "message": (
+                "Die Optimierung des Bestellzeitpunkts "
+                "wird derzeit nicht unterstützt."
+            ),
+        }
+    ]
+
+
+def test_unsupported_requirement_requires_clarification() -> None:
+    llm = create_mock_llm(
+        create_llm_response(
+            demand_type="uncertain",
+            unsupported_requirements=[
+                {
+                    "field": "decision",
+                    "user_value": "Bestellzeitpunkt optimieren",
+                    "message": (
+                        "Die Optimierung des Bestellzeitpunkts "
+                        "wird derzeit nicht unterstützt."
+                    ),
+                }
+            ],
+        )
+    )
+    agent = create_requirement_agent(llm)
+
+    extracted_state = agent(
+        {
+            "form_data": create_complete_form_data(),
+            "raw_input": (
+                "Das Ziel ist, den Bestellzeitpunkt "
+                "zu optimieren."
+            ),
+        }
+    )
+
+    validated_state = validate_general_requirements(
+        extracted_state
+    )
+
+    assert (
+        get_workflow_status(validated_state)
+        == WORKFLOW_NEEDS_GENERAL_CLARIFICATION
+    )
+
+    clarification_state = clarification_node(
+        validated_state
+    )
+
+    assert (
+        "Bestellzeitpunkts"
+        in clarification_state["clarification_question"]
+    )
+
+
+def test_new_analysis_clears_old_unsupported_requirements() -> None:
+    llm = create_mock_llm(
+        create_llm_response(
+            demand_type="uncertain",
+            unsupported_requirements=[],
+        )
+    )
+    agent = create_requirement_agent(llm)
+
+    result = agent(
+        {
+            "form_data": create_complete_form_data(),
+            "raw_input": (
+                "Wir verkaufen ein Produkt mit unsicherer "
+                "Nachfrage."
+            ),
+            "unsupported_requirements": [
+                {
+                    "field": "decision",
+                    "user_value": "Bestellzeitpunkt optimieren",
+                    "message": (
+                        "Die Optimierung des Bestellzeitpunkts "
+                        "wird derzeit nicht unterstützt."
+                    ),
+                }
+            ],
+        }
+    )
+
+    assert result["unsupported_requirements"] == []

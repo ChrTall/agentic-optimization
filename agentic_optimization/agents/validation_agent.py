@@ -38,6 +38,7 @@ def validate_general_requirements(
     errors: list[str] = []
     missing_fields = list(state.get("missing_fields", []))
     requirement_conflicts = state.get("requirement_conflicts", [])
+    unsupported_requirements = state.get("unsupported_requirements",[],)
 
     fields_to_validate = {
         "decision": (
@@ -86,6 +87,7 @@ def validate_general_requirements(
         missing_fields
         or errors
         or requirement_conflicts
+        or unsupported_requirements
     )
 
     return with_control(

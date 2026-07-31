@@ -15,6 +15,7 @@ from agentic_optimization.state import (
     PlanningHorizon,
     ProductScope,
     RequirementConflict,
+    UnsupportedRequirement,
     with_control,
 )
 
@@ -33,13 +34,21 @@ Gib deine Antwort ausschließlich als JSON-Objekt zurück. Verwende keine
 Markdown-Backticks und keine zusätzlichen Erklärungen.
 
 Format:
+Format:
 {
   "decision": "order_quantity | production_quantity | inventory_level | null",
   "objective": "maximize_profit | minimize_cost | reach_service_level | null",
   "demand_type": "known | uncertain | historical_estimate | null",
   "product_scope": "single_product | multiple_products | null",
   "planning_horizon": "single_period | multiple_periods | null",
-  "constraints": ["...", "..."]
+  "constraints": ["...", "..."],
+  "unsupported_requirements": [
+    {
+      "field": "decision",
+      "user_value": "Bestellzeitpunkt optimieren",
+      "message": "Die Optimierung des Bestellzeitpunkts wird derzeit nicht unterstützt."
+    }
+  ]
 }
 
 Bedeutung:
@@ -91,6 +100,40 @@ Keine Constraints sind:
 Vorgabe oder Grenze beschrieben wird. Merkmale der Problemstruktur gehören
 ausschließlich in die dafür vorgesehenen strukturierten Felder.
 
+unsupported_requirements enthält ausdrücklich genannte Anforderungen an
+die Problemstruktur, die keinem der erlaubten Werte zugeordnet werden können.
+
+Betroffen sind ausschließlich:
+- decision
+- objective
+- demand_type
+- product_scope
+- planning_horizon
+
+Beispiele:
+- "Bestellzeitpunkt optimieren" ist eine nicht unterstützte decision.
+- "Meldebestand bestimmen" ist eine nicht unterstützte decision.
+- "Sicherheitsbestand bestimmen" ist eine nicht unterstützte decision.
+
+Wenn eine solche Anforderung ausdrücklich genannt wird:
+- setze das entsprechende strukturierte Feld auf null,
+- übernimm die Formulierung in user_value,
+- füge eine verständliche deutsche message hinzu,
+- trage sie in unsupported_requirements ein.
+
+Nicht als unsupported_requirements behandeln:
+- Preise, Kosten oder andere Modellparameter,
+- betriebliche Vorgaben wie Budget oder Lagerkapazität,
+- bloße Produkteigenschaften,
+- Informationen, die lediglich fehlen.
+
+Insbesondere bedeuten genannte Einkaufskosten nicht automatisch, dass
+Kosten minimiert werden sollen. Ein objective darf nur gesetzt werden,
+wenn der Nutzer ein Optimierungsziel ausdrücklich nennt.
+
+Wenn keine nicht unterstützte strukturelle Anforderung genannt wurde,
+gib eine leere Liste zurück.
+
 Erfinde keine Angaben. Wenn ein strukturelles Feld nicht eindeutig aus dem
 Freitext erkennbar ist, gib dafür null zurück.
 
@@ -114,6 +157,58 @@ def _normalize_constraints(
         for item in value
         if isinstance(item, str) and item.strip()
     ]
+
+
+def _normalize_unsupported_requirements(
+    value: object,
+) -> list[UnsupportedRequirement]:
+    if not isinstance(value, list):
+        return []
+
+    allowed_fields = set(REQUIRED_FIELDS)
+    normalized_requirements: list[UnsupportedRequirement] = []
+
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+
+        field = item.get("field")
+        user_value = item.get("user_value")
+        message = item.get("message")
+
+        if not isinstance(field, str):
+            continue
+
+        field = field.strip()
+
+        if field not in allowed_fields:
+            continue
+
+        if not isinstance(user_value, str):
+            continue
+
+        user_value = user_value.strip()
+
+        if not user_value:
+            continue
+
+        if not isinstance(message, str) or not message.strip():
+            message = (
+                f"Die Anforderung „{user_value}“ wird "
+                "derzeit nicht unterstützt."
+            )
+        else:
+            message = message.strip()
+
+        normalized_requirements.append(
+            {
+                "field": field,
+                "user_value": user_value,
+                "message": message,
+            }
+        )
+
+    return normalized_requirements
 
 
 def create_requirement_agent(llm: BaseChatModel) -> Callable[[GraphState], GraphState]:
@@ -141,6 +236,12 @@ def create_requirement_agent(llm: BaseChatModel) -> Callable[[GraphState], Graph
 
         extracted_constraints = _normalize_constraints(
             extracted.get("constraints"),
+        )
+
+        unsupported_requirements = (
+            _normalize_unsupported_requirements(
+                extracted.get("unsupported_requirements"),
+            )
         )
 
         constraints = list(
@@ -220,7 +321,7 @@ def create_requirement_agent(llm: BaseChatModel) -> Callable[[GraphState], Graph
                 "consistency_warnings": [],
                 "requirement_warnings": requirement_warnings,
                 "requirement_conflicts": requirement_conflicts,
-                "unsupported_requirements": [],
+                "unsupported_requirements": unsupported_requirements,
             },
             event=None,
             workflow_status=WORKFLOW_GENERAL_REQUIREMENTS_EXTRACTED,
@@ -343,4 +444,5 @@ def _extract_rule_based(
         "product_scope": None,
         "planning_horizon": None,
         "constraints": [],
+        "unsupported_requirements": [],
     }

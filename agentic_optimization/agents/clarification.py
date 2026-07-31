@@ -14,6 +14,31 @@ FIELD_QUESTIONS = {
     "planning_horizon": "Geht es um eine einmalige Bestellentscheidung oder um mehrere aufeinanderfolgende Zeiträume?",
 }
 
+FIELD_LABELS = {
+    "decision": "Art der Entscheidung",
+    "objective": "Optimierungsziel",
+    "demand_type": "Nachfrage",
+    "product_scope": "Produktumfang",
+    "planning_horizon": "Planungszeitraum",
+}
+
+VALUE_LABELS = {
+    "order_quantity": "Bestellmenge",
+    "production_quantity": "Produktionsmenge",
+    "inventory_level": "Lagerbestand",
+    "maximize_profit": "Gewinn maximieren",
+    "minimize_cost": "Kosten minimieren",
+    "reach_service_level": "Servicelevel erreichen",
+    "known": "sichere oder bekannte Nachfrage",
+    "uncertain": "unsichere Nachfrage",
+    "historical_estimate": (
+        "historisch geschätzte Nachfrage"
+    ),
+    "single_product": "ein Produkt",
+    "multiple_products": "mehrere Produkte",
+    "single_period": "eine einmalige Entscheidung",
+    "multiple_periods": "mehrere Zeiträume",
+}
 
 def clarification_node(state: GraphState) -> GraphState:
     """
@@ -25,8 +50,13 @@ def clarification_node(state: GraphState) -> GraphState:
 
     missing_fields = state.get("missing_fields", [])
     requirement_conflicts = state.get("requirement_conflicts", [])
+    unsupported_requirements = state.get("unsupported_requirements", [],)
 
-    if not missing_fields and not requirement_conflicts:
+    if (
+        not missing_fields
+        and not requirement_conflicts
+        and not unsupported_requirements
+    ):
         return with_control(
             {
                 **state,
@@ -37,18 +67,72 @@ def clarification_node(state: GraphState) -> GraphState:
         )
 
     questions = [
-        FIELD_QUESTIONS.get(field, f"Bitte ergänze die Angabe: {field}.")
+        FIELD_QUESTIONS.get(
+            field,
+            f"Bitte ergänzen Sie die Angabe: {field}.",
+        )
         for field in missing_fields
     ]
-    questions.extend(
-    conflict.get(
-        "message",
-        "Eine Formularangabe widerspricht der freien Beschreibung.",
-    )
-    for conflict in requirement_conflicts
-)
+    for conflict in requirement_conflicts:
+        field_name = conflict.get(
+            "field",
+            "",
+        )
 
-    clarification_question = "Ich brauche noch folgende Informationen:\n\n"
+        field_label = FIELD_LABELS.get(
+            field_name,
+            field_name or "Angabe",
+        )
+
+        form_value = conflict.get(
+            "form_value",
+            "",
+        )
+
+        raw_input_value = conflict.get(
+            "raw_input_value",
+            "",
+        )
+
+        form_label = VALUE_LABELS.get(
+            form_value,
+            form_value,
+        )
+
+        raw_input_label = VALUE_LABELS.get(
+            raw_input_value,
+            raw_input_value,
+        )
+
+        questions.append(
+            f"Die Angaben zu „{field_label}“ "
+            "widersprechen sich. "
+            f"In Formular 1 wurde „{form_label}“ "
+            "ausgewählt. Im Beschreibungstext wurde "
+            f"„{raw_input_label}“ erkannt. Bitte "
+            "korrigieren Sie entweder die Auswahl oder "
+            "den Beschreibungstext."
+        )
+
+    for unsupported in unsupported_requirements:
+        message = unsupported.get("message", "").strip()
+
+        if message:
+            questions.append(message)
+            continue
+
+        user_value = unsupported.get(
+            "user_value",
+            "Diese Anforderung",
+        )
+
+        questions.append(
+            f"Die Anforderung „{user_value}“ wird derzeit "
+            "nicht unterstützt. Bitte passen Sie die "
+            "Problembeschreibung an."
+        )
+
+    clarification_question = "Bitte prüfen Sie folgende Angaben:\n\n"
     clarification_question += "\n".join(f"- {question}" for question in questions)
 
     return with_control(

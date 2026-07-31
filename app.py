@@ -7,7 +7,6 @@ from agentic_optimization.models.registry import (
     get_model_variant_definition,
 )
 from agentic_optimization.state import (
-    EVENT_GENERAL_CLARIFICATION_SUBMITTED,
     EVENT_MODEL_INPUTS_SUBMITTED,
     EVENT_NEW_PROBLEM,
     EVENT_OPTIMIZATION_REQUESTED,
@@ -116,6 +115,8 @@ if "form_data" not in st.session_state:
     st.session_state.form_data = {}
 if "graph_state" not in st.session_state:
     st.session_state.graph_state = None
+if "raw_problem_description" not in st.session_state:
+    st.session_state.raw_problem_description = ""
 
 # ── Fortschrittsanzeige ───────────────────────────────────────────────────────
 
@@ -125,11 +126,7 @@ STEP_LABELS = ["① Formular", "② Beschreibung", "③ Modellinput", "④ Über
 step_for_progress = (
     "form"
     if st.session_state.step == "model_unsupported"
-    else (
-        "freitext"
-        if st.session_state.step == "clarify"
-        else st.session_state.step
-    )
+    else st.session_state.step
 )
 step_index = STEPS.index(step_for_progress) if step_for_progress in STEPS else 1
 cols = st.columns(len(STEP_LABELS))
@@ -166,7 +163,7 @@ def route_ui_from_graph_state(graph_state: dict) -> str:
     status = get_workflow_status(graph_state)
 
     if status == WORKFLOW_NEEDS_GENERAL_CLARIFICATION:
-        return "clarify"
+        return "freitext"
 
     if status in {
         WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS,
@@ -265,6 +262,10 @@ if st.session_state.step == "form":
             "planning_horizon": planning_horizon,
         }
 
+        # Eine Änderung der grundlegenden Angaben macht
+        # sämtliche vorherigen Ableitungen ungültig.
+        st.session_state.graph_state = None
+
         st.session_state.step = "freitext"
         st.rerun()
 
@@ -276,7 +277,17 @@ if st.session_state.step == "form":
 elif st.session_state.step == "freitext":
     st.subheader("Problembeschreibung")
 
-    # Formularauswahl kurz anzeigen
+    graph_state = st.session_state.graph_state or {}
+
+    has_clarification = (
+        get_workflow_status(graph_state)
+        == WORKFLOW_NEEDS_GENERAL_CLARIFICATION
+    )
+
+    # ---------------------------------------------------------
+    # Bisherige Formularangaben
+    # ---------------------------------------------------------
+
     with st.expander(
         "Ihre bisherigen Angaben",
         expanded=False,
@@ -302,6 +313,35 @@ elif st.session_state.step == "freitext":
                 f"**{label}:** {display_value}"
             )
 
+    # ---------------------------------------------------------
+    # Clarification direkt in Formular 2
+    # ---------------------------------------------------------
+
+    if has_clarification:
+        clarification_question = graph_state.get(
+            "clarification_question",
+            "",
+        )
+
+        st.warning(
+            clarification_question
+            or (
+                "Die Beschreibung enthält unvollständige "
+                "oder widersprüchliche Angaben. Bitte "
+                "korrigieren Sie den Text und analysieren "
+                "Sie ihn erneut."
+            )
+        )
+
+        st.caption(
+            "Ihr bisheriger Text bleibt erhalten. Ändern "
+            "Sie nur die betreffende Angabe."
+        )
+
+    # ---------------------------------------------------------
+    # Editierbarer Beschreibungstext
+    # ---------------------------------------------------------
+
     raw_input = st.text_area(
         "Beschreiben Sie Ihr Problem in eigenen Worten",
         placeholder=(
@@ -309,128 +349,85 @@ elif st.session_state.step == "freitext":
             "Produkt mit unsicherer Nachfrage und einer "
             "Lagerkapazität von maximal 1.000 Einheiten."
         ),
-        height=160,
+        height=200,
+        key="raw_problem_description",
     )
 
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        if st.button("← Zurück"):
+    col_back, col_analyze = st.columns([1, 3])
+
+    with col_back:
+        if st.button(
+            "← Zurück",
+            use_container_width=True,
+        ):
             st.session_state.step = "form"
             st.rerun()
-    with col2:
-        analyze = st.button("Problem analysieren →", use_container_width=True, type="primary")
+
+    with col_analyze:
+        analyze = st.button(
+            (
+                "Erneut analysieren →"
+                if has_clarification
+                else "Problem analysieren →"
+            ),
+            use_container_width=True,
+            type="primary",
+        )
+
+    # ---------------------------------------------------------
+    # Erste und erneute Analyse: derselbe Codepfad
+    # ---------------------------------------------------------
 
     if analyze:
-        with st.spinner("Ihre Beschreibung wird analysiert …"):
+        with st.spinner(
+            "Ihre Beschreibung wird analysiert …"
+        ):
             llm = st.session_state.get("llm")
+
             if llm is None:
                 try:
-                    llm_config = load_llm_configuration()
-                    llm = create_chat_model(llm_config)
-                except ValueError as e:
-                    st.error(str(e))
+                    llm_config = (
+                        load_llm_configuration()
+                    )
+                    llm = create_chat_model(
+                        llm_config
+                    )
+                except ValueError as error:
+                    st.error(str(error))
                     st.stop()
+
                 st.session_state.llm = llm
+
             app = build_graph(llm)
-            initial_state = {
+
+            analysis_state = {
                 "control": {
                     "event": EVENT_NEW_PROBLEM,
                 },
                 "raw_input": raw_input,
-                "form_data": st.session_state.form_data,
+                "form_data": (
+                    st.session_state.form_data
+                ),
                 "messages": [],
             }
-            st.session_state.graph_state = app.invoke(initial_state)
 
-        st.session_state.step = route_ui_from_graph_state(
-            st.session_state.graph_state
+            st.session_state.graph_state = (
+                app.invoke(analysis_state)
+            )
+
+        st.session_state.step = (
+            route_ui_from_graph_state(
+                st.session_state.graph_state
+            )
         )
+
         st.rerun()
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SCHRITT 2b: Rückfrage (Clarification Loop)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-elif st.session_state.step == "clarify":
-    st.subheader("Rückfrage")
-    st.info(st.session_state.graph_state["clarification_question"])
 
-    answer = st.text_area(
-        "Ihre Antwort",
-        placeholder=(
-            "Ergänzen Sie die fehlenden Angaben …"
-        ),
-        height=120,
-    )
-
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        if st.button("← Zurück"):
-            st.session_state.step = "freitext"
-            st.rerun()
-    with col2:
-        retry = st.button("Erneut analysieren →", use_container_width=True, type="primary")
-
-    if retry and answer:
-        with st.spinner("🤖 LLM analysiert erneut …"):
-            prev = st.session_state.graph_state or {}
-            combined = (prev.get("raw_input") or "") + "\n\nNachtrag: " + answer
-            llm = st.session_state.get("llm")
-            if llm is None:
-                try:
-                    llm_config = load_llm_configuration()
-                    llm = create_chat_model(llm_config)
-                except ValueError as e:
-                    st.error(str(e))
-                    st.stop()
-                st.session_state.llm = llm
-            app = build_graph(llm)
-            st.session_state.graph_state = app.invoke({
-                **prev,
-                "control": {
-                    **prev.get("control", {}),
-                    "event": EVENT_GENERAL_CLARIFICATION_SUBMITTED,
-                },
-                "raw_input": combined,
-                "form_data": st.session_state.form_data,
-                "messages": [],
-            })
-
-        st.session_state.step = route_ui_from_graph_state(
-            st.session_state.graph_state
-        )
-        st.rerun()
-
-
-elif st.session_state.step == "model_unsupported":
-    st.subheader("Berechnungsmethode nicht verfügbar")
-
-    graph_state = st.session_state.graph_state or {}
-
-    model_selection_error = graph_state.get(
-        "model_selection_error"
-    )
-
-    st.warning(
-        model_selection_error
-        or (
-            "Für diese Problemstruktur ist derzeit noch "
-            "keine Berechnungsmethode verfügbar."
-        )
-    )
-
-    model_config = graph_state.get("model_config", {})
-    explanation = model_config.get("explanation")
-
-    if explanation:
-        st.info(explanation)
-
-    if st.button(
-        "← Angaben ändern",
-        use_container_width=True,
-    ):
-        st.session_state.step = "form"
-        st.rerun()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -900,6 +897,18 @@ elif st.session_state.step == "model_input_form":
         ),
     )
 
+    submission_error_area = st.container()
+
+    with submission_error_area:
+        if (
+            model_input_errors
+            or constraint_validation_errors
+        ):
+            st.error(
+                "Die Eingaben enthalten Fehler. Bitte prüfen "
+                "Sie die markierten Bereiche."
+            )
+
     # ---------------------------------------------------------
     # Absenden und normalisieren
     # ---------------------------------------------------------
@@ -927,11 +936,34 @@ elif st.session_state.step == "model_input_form":
                 )
                 st.error(str(error))
 
+            with submission_error_area:
+                st.error(
+                    "Die Eingaben enthalten Fehler. Bitte prüfen "
+                    "Sie die markierten Bereiche."
+                )
+
             st.stop()
 
         final_structured_constraints: list[dict] = []
 
         if constraints_enabled:
+            if not selected_constraint_types:
+                with constraint_error_area:
+                    st.error(
+                        "Sie haben ausgewählt, dass betriebliche "
+                        "Rahmenbedingungen berücksichtigt werden "
+                        "sollen. Aktivieren Sie mindestens eine "
+                        "Rahmenbedingung oder wählen Sie „Nein“."
+                    )
+
+                with submission_error_area:
+                    st.error(
+                        "Die Eingaben enthalten Fehler. Bitte prüfen "
+                        "Sie die markierten Bereiche."
+                    )
+
+                st.stop()
+
             if unsupported_constraints:
                 with constraint_error_area:
                     st.error(
@@ -943,6 +975,12 @@ elif st.session_state.step == "model_input_form":
                         "bearbeiten Sie die "
                         "Problembeschreibung."
                     )
+
+                with submission_error_area:
+                    st.error(
+                        "Die Eingaben enthalten Fehler. Bitte prüfen "
+                        "Sie die markierten Bereiche."
+        )
 
                 st.stop()
 
@@ -1037,6 +1075,12 @@ elif st.session_state.step == "model_input_form":
                         "betrieblichen Rahmenbedingungen:"
                     )
                     st.error(str(error))
+
+                with submission_error_area:
+                    st.error(
+                        "Die Eingaben enthalten Fehler. Bitte prüfen "
+                        "Sie die markierten Bereiche."
+                    )
 
                 st.stop()
 
@@ -1576,6 +1620,7 @@ elif st.session_state.step == "result":
             "step",
             "form_data",
             "graph_state",
+            "raw_problem_description",
             "review_sections",
             "form_decision",
             "form_objective",
