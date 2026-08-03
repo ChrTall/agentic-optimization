@@ -25,8 +25,21 @@ Regeln:
 2. Erfinde keine weiteren Constraint-Typen.
 3. Erfinde keine Parameterwerte.
 4. Übernimm einen Parameterwert nur, wenn er im Nutzertext eindeutig angegeben ist.
-5. Wenn ein erlaubter Typ erkennbar ist, aber ein Pflichtparameter fehlt,
-   gib den Constraint mit einem unvollständigen parameters-Objekt zurück.
+5. Wenn ein erlaubter Constraint-Typ erkennbar ist, aber ein oder mehrere
+   Pflichtparameter fehlen, gib den unterstützten Constraint trotzdem zurück.
+   Verwende für fehlende Parameter ein unvollständiges oder leeres
+   parameters-Objekt. Ein fehlender Parameterwert ist niemals ein Grund,
+   einen erkannten unterstützten Constraint als unsupported zurückzugeben.
+
+   Beispiele:
+   - "ein begrenztes Budget"
+     → type: "budget_limit", parameters: {}
+   - "das Budget beträgt 5000 Euro"
+     → type: "budget_limit", parameters: {"budget": 5000}
+   - "der Lagerplatz ist begrenzt"
+     → type: "storage_capacity", parameters: {}
+   - "es können höchstens 200 Einheiten gelagert werden"
+     → type: "storage_capacity", parameters: {"capacity": 200}
 6. Wenn eine echte Nebenbedingung keinem erlaubten Constraint-Typ zugeordnet
    werden kann, füge ein Objekt mit ihrer source_id zu
    "unsupported_constraints" hinzu:
@@ -109,19 +122,12 @@ Zu mappende Nutzeranforderungen:
     indent=2,
 )}
 
-Erwartetes Ausgabeformat:
-{{
-  "structured_constraints": [
-    {{
-      "type": "budget_limit",
-      "parameters": {{
-        "budget": 1000
-      }},
-      "source_ids": ["constraint_0"]
-    }}
-  ],
-  "unsupported_constraints": []
-}}
+Wichtige Zuordnungsregel:
+Wenn der Text eindeutig einem erlaubten Constraint-Typ entspricht,
+muss er als structured_constraint zurückgegeben werden. Das gilt auch,
+wenn der erforderliche Zahlenwert fehlt. Verwende dann ein leeres
+parameters-Objekt. Nur ein tatsächlich nicht unterstützter Typ gehört
+in unsupported_constraints.
 """.strip()
 
 

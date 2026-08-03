@@ -100,12 +100,20 @@ def test_rejects_negative_salvage_value(
     )
 
 
-def test_rejects_salvage_value_above_purchase_cost(
+@pytest.mark.parametrize(
+    "salvage_value",
+    [
+        5.0,
+        6.0,
+    ],
+)
+def test_rejects_salvage_value_not_below_purchase_cost(
     valid_inputs: dict,
+    salvage_value: float,
 ) -> None:
     inputs = {
         **valid_inputs,
-        "salvage_value": 6.0,
+        "salvage_value": salvage_value,
     }
 
     errors = validate_single_product_single_period_inputs(
@@ -113,7 +121,11 @@ def test_rejects_salvage_value_above_purchase_cost(
     )
 
     assert any(
-        "Restwert darf nicht größer" in error
+        (
+            "Restwert muss kleiner als die "
+            "Einkaufskosten sein."
+        )
+        in error
         for error in errors
     )
 

@@ -56,7 +56,8 @@ INPUT_FIELDS: list[ModelInputField] = [
         "required": True,
         "help": (
             "Wert einer Einheit, die nach der Periode "
-            "nicht verkauft wurde."
+            "nicht verkauft wurde. Der Restwert muss "
+            "kleiner als die Einkaufskosten sein."
         ),
         "placeholder": None,
         "min_value": 0.0,
@@ -264,20 +265,21 @@ def validate_single_product_single_period_inputs(
     if (
         salvage_value is not None
         and purchase_cost is not None
-        and salvage_value > purchase_cost
+        and salvage_value >= purchase_cost
     ):
         errors.append(
-            "Der Restwert darf nicht größer als die Einkaufskosten sein."
+            "Der Restwert muss kleiner als die "
+            "Einkaufskosten sein."
         )
 
     if not demand_scenarios:
         errors.append(
-            "Bitte gib mindestens ein Nachfrageszenario ein."
+            "Bitte geben Sie mindestens ein Nachfrageszenario ein."
         )
 
     if not scenario_probabilities:
         errors.append(
-            "Bitte gib mindestens eine Wahrscheinlichkeit ein."
+            "Bitte geben Sie mindestens eine Wahrscheinlichkeit ein."
         )
 
     if (
@@ -690,7 +692,7 @@ def optimize_single_product_single_period(
 
 
 def _format_result_number(
-    value: int | float | None,
+    value: float | None,
 ) -> str:
     if value is None:
         return "–"
