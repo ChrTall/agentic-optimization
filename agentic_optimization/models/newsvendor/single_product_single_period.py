@@ -1,3 +1,10 @@
+"""
+Implementiert die Newsvendor-Variante für ein Produkt und eine Periode.
+
+Die Datei enthält Registry-Metadaten, Validierung, Modellspezifikation,
+deterministischen PuLP-Aufbau, Solverausführung und Ergebnisdarstellung.
+"""
+
 import math
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -169,6 +176,13 @@ SUPPORTED_CONSTRAINTS: dict[str, ConstraintDefinition] = {
 def validate_single_product_single_period_inputs(
     inputs: dict[str, Any],
 ) -> list[str]:
+    """
+    Prüft Preise, Nachfrageszenarien und Szenariowahrscheinlichkeiten.
+
+    Zusätzlich werden die für diese Newsvendor-Variante erforderlichen
+    Beziehungen zwischen Verkaufspreis, Einkaufskosten und Restwert geprüft.
+    """
+
     errors: list[str] = []
 
     selling_price = inputs.get("selling_price")
@@ -320,6 +334,13 @@ def validate_single_product_single_period_constraints(
     inputs: dict[str, Any],
     constraints: list[StructuredConstraint],
 ) -> list[str]:
+    """
+    Prüft Wertebereiche und Beziehungen der unterstützten Constraints.
+
+    Die generische Prüfung von Typen und Pflichtparametern erfolgt bereits
+    im Validation Agent.
+    """
+
     errors: list[str] = []
 
     minimum_quantity: float | None = None
@@ -386,6 +407,7 @@ def validate_single_product_single_period_constraints(
 
 @dataclass(frozen=True)
 class SingleProductSinglePeriodSpecification:
+    """Normalisierte unveränderliche Eingabe für den PuLP-Builder."""
     selling_price: float
     purchase_cost: float
     salvage_value: float
@@ -400,6 +422,7 @@ class SingleProductSinglePeriodSpecification:
 
 @dataclass
 class BuiltSingleProductSinglePeriodModel:
+    """Bündelt das PuLP-Modell und die Variablen zur Ergebnisauswertung."""
     model: pulp.LpProblem
     order_quantity: pulp.LpVariable
     sold: dict[int, pulp.LpVariable]
@@ -513,7 +536,10 @@ def build_single_product_single_period_model(
     specification: SingleProductSinglePeriodSpecification,
 ) -> BuiltSingleProductSinglePeriodModel:
     """
-    Baut das tatsächlich zu lösende PuLP-Modell.
+    Erstellt das deterministische PuLP-Modell aus der Modellspezifikation.
+
+    Optionale Constraints werden nur hinzugefügt, wenn ihr Wert in der
+    Spezifikation gesetzt ist.
     """
 
     model = pulp.LpProblem(
@@ -521,6 +547,7 @@ def build_single_product_single_period_model(
         pulp.LpMaximize,
     )
 
+    # Entscheidungsvariable und szenariospezifische Hilfsvariablen
     order_quantity = pulp.LpVariable(
         "order_quantity",
         lowBound=0,
@@ -546,6 +573,7 @@ def build_single_product_single_period_model(
         for index in scenario_indices
     }
 
+    # Feste Constraints für Nachfrage und Bestandsbilanz
     for index, demand in enumerate(
         specification.demand_scenarios
     ):
@@ -560,6 +588,7 @@ def build_single_product_single_period_model(
             f"inventory_balance_{index}",
         )
 
+    # Erwarteter Erlös und Zielfunktion
     expected_revenue = pulp.lpSum(
         specification.scenario_probabilities[index]
         * (
@@ -575,6 +604,7 @@ def build_single_product_single_period_model(
         "expected_profit",
     )
 
+    # Vom Nutzer bestätigte optionale Constraints
     if specification.minimum_order_quantity is not None:
         model += (
             order_quantity
@@ -615,8 +645,11 @@ def solve_single_product_single_period(
     specification: SingleProductSinglePeriodSpecification,
 ) -> SingleProductSinglePeriodResult:
     """
-    Baut und löst das Modell und gibt ausschließlich serialisierbare
-    fachliche Ergebniswerte zurück.
+    Baut und löst das PuLP-Modell.
+
+    Bei optimaler Lösung werden Bestellmenge, erwarteter Gewinn und
+    Szenarioergebnisse ausgelesen. Bei anderen Solverstatus bleiben die
+    fachlichen Ergebniswerte leer.
     """
 
     built_model = build_single_product_single_period_model(
@@ -677,6 +710,12 @@ def optimize_single_product_single_period(
     inputs: dict[str, Any],
     constraints: list[StructuredConstraint],
 ) -> dict[str, Any]:
+    """
+    Führt Spezifikation, Modellaufbau und Solverausführung zusammen.
+
+    Das Ergebnis wird als Dictionary für den zentralen Result-Node zurückgegeben.
+    """
+
     specification = (
         create_single_product_single_period_specification(
             inputs,

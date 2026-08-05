@@ -1,3 +1,7 @@
+"""
+Bereitet das Optimierungsergebnis für die Darstellung in Formular 5 auf.
+"""
+
 from typing import TypedDict
 
 from agentic_optimization.models.registry import (
@@ -15,6 +19,7 @@ from agentic_optimization.ui.review_builder import (
 
 
 class ResultData(TypedDict):
+    """UI-Datenvertrag für die finale Ergebnisansicht."""
     successful: bool
     status_label: str
     status_message: str
@@ -41,6 +46,14 @@ SOLVER_STATUS_LABELS = {
 def build_result_data(
     state: GraphState,
 ) -> ResultData:
+    """
+    Erstellt die Daten für die Ergebnisansicht aus dem Graph-State.
+
+    Solverstatus, Fehler, aktive Constraints und technische Details werden
+    zentral aufbereitet. Fachliche Kennzahlen und Szenariodetails liefert
+    der result_builder der ausgewählten Modellvariante.
+    """
+
     result = state.get("result", {})
 
     optimization_result = (
@@ -113,6 +126,7 @@ def build_result_data(
     detail_title: str | None = None
     detail_rows: list[dict[str, str]] = []
 
+    # Fachliche Kennzahlen und Detailzeilen sind variantenspezifisch.
     if successful and variant_definition is not None:
         variant_result = variant_definition[
             "result_builder"
@@ -162,6 +176,7 @@ def build_result_data(
 
     constraints: list[ReviewItem] = []
 
+    # Aktive Constraints verwenden dieselben Labels und Einheiten wie im Review.
     if variant_definition is not None:
         review_data = build_review_data(
             state,

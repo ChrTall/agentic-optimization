@@ -18,6 +18,8 @@ def modeling_agent(state: GraphState) -> GraphState:
 
     requirements = state.get("requirements", {})
 
+    # Die Modellauswahl erfolgt ausschließlich über die in der Registry
+    # definierten Regeln. Das LLM entscheidet nicht über das Modell.
     match = find_matching_model_variant(requirements)
 
     if match is None:

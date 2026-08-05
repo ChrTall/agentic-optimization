@@ -291,6 +291,18 @@ def test_invalid_requirement_value_is_rejected() -> None:
         "Die Art der Entscheidung besitzt einen ungültigen Wert."
     ]
 
+    clarification_state = clarification_node(result)
+
+    assert (
+        "Die Art der Entscheidung besitzt einen ungültigen Wert."
+        in clarification_state["clarification_question"]
+    )
+
+    assert (
+        get_workflow_status(clarification_state)
+        == WORKFLOW_NEEDS_GENERAL_CLARIFICATION
+    )
+
 
 def test_safe_fallback_preserves_form_values() -> None:
     llm = Mock()

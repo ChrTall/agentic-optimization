@@ -9,8 +9,10 @@ from agentic_optimization.state import (
 
 def result_node(state: GraphState) -> GraphState:
     """
-    Bereitet das Optimierungsergebnis für nachgelagerte
-    Ausgabekanäle auf.
+    Bündelt den finalen Workflow-Zustand zu einem ausgabekanalunabhängigen Ergebnis.
+
+    Sowohl erfolgreiche Optimierungen als auch Solverfehler und unzulässige
+    Modelle werden in einem einheitlichen Ergebnisobjekt zusammengeführt.
     """
 
     requirements = state.get("requirements", {})
@@ -34,6 +36,9 @@ def result_node(state: GraphState) -> GraphState:
         [],
     )
 
+    # Das Ergebnis enthält einen abgeschlossenen Snapshot der für die
+    # Darstellung relevanten Daten und kann unabhängig vom Graph-State
+    # an unterschiedliche Ausgabekanäle übergeben werden.
     result = {
         "summary": _build_summary(
             requirements=requirements,
@@ -91,6 +96,8 @@ def _get_selected_model_inputs(
     family: str | None,
     variant: str | None,
 ) -> dict[str, Any]:
+    """Liest die Eingaben der aktuell ausgewählten Modellvariante."""
+
     if not family or not variant:
         return {}
 
@@ -107,6 +114,7 @@ def _build_summary(
     family: str | None,
     variant: str | None,
 ) -> str:
+    """Erstellt eine kurze Zusammenfassung der Modellauswahl."""
     decision = requirements.get(
         "decision",
         "nicht angegeben",

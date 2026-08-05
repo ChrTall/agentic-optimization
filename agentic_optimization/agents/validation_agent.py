@@ -31,7 +31,12 @@ ALLOWED_PLANNING_HORIZONS = set(get_args(PlanningHorizon))
 def validate_general_requirements(
     state: GraphState,
 ) -> GraphState:
-    """Validiert die allgemeinen fachlichen Anforderungen."""
+    """
+    Prüft das Ergebnis des Requirement Agents nach Formular 1 und 2.
+
+    Fehlende Felder, ungültige Werte, Widersprüche zwischen Formular und
+    Freitext sowie unsupported Requirements verhindern die Modellauswahl.
+    """
 
     requirements = state.get("requirements", {})
 
@@ -108,6 +113,8 @@ def validate_general_requirements(
 def _get_selected_model_inputs(
     state: GraphState,
 ) -> dict[str, Any]:
+    """Liest die gespeicherten Formular-3-Werte der ausgewählten Variante."""
+
     family = state.get("selected_model_family")
     variant = state.get("selected_model_variant")
 
@@ -209,9 +216,10 @@ def validate_model_specific_inputs(
     state: GraphState,
 ) -> GraphState:
     """
-    Validiert die Pflichtinputs der ausgewählten Modellvariante.
+    Prüft die Modellparameter aus Formular 3.
 
-    Optionale Constraints werden separat validiert.
+    Neben fehlenden Pflichtwerten werden die Werte durch den input_validator
+    der ausgewählten Modellvariante geprüft.
     """
 
     family = state.get("selected_model_family")
@@ -285,10 +293,10 @@ def validate_structured_constraints(
     state: GraphState,
 ) -> GraphState:
     """
-    Validiert zunächst die allgemeine Struktur optionaler Constraints.
+    Prüft die in Formular 3 bestätigten Constraints.
 
-    Wenn die allgemeine Struktur gültig ist, wird anschließend der
-    variantenspezifische Constraintvalidator aus der Registry ausgeführt.
+    Geprüft werden Constraint-Typen, Parameter und Pflichtwerte. Danach wird
+    der constraint_validator der ausgewählten Modellvariante ausgeführt.
     """
 
     family = state.get("selected_model_family")
@@ -342,7 +350,7 @@ def validate_structured_constraints(
         unsupported_constraints = []
 
     # ---------------------------------------------------------------
-    # 3. Nicht unterstützte Nutzeranforderungen ablehnen
+    # 3. Unsupported Constraints als Fehler übernehmen
     # ---------------------------------------------------------------
 
     for unsupported in unsupported_constraints:

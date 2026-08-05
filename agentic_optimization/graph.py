@@ -50,7 +50,7 @@ def route_workflow(state: GraphState) -> str:
 
     if event == EVENT_MODEL_INPUTS_SUBMITTED:
         return "validate_model_specific_inputs"
-    
+
     if event == EVENT_OPTIMIZATION_REQUESTED:
         return "optimize_model"
 
@@ -121,9 +121,9 @@ def route_after_model_input_validation(state: GraphState) -> str:
     raise ValueError(f"Unexpected workflow_status after model input validation: {status}")
 
 
-def route_after_constraint_validation(
-    state: GraphState,
-) -> str:
+def route_after_constraint_validation(state: GraphState) -> str:
+    """Routet nach der Validierung der aktiven Constraints."""
+
     status = get_workflow_status(state)
 
     if status == WORKFLOW_MODEL_INPUTS_INVALID:
@@ -138,9 +138,9 @@ def route_after_constraint_validation(
     )
 
 
-def route_after_optimization(
-    state: GraphState,
-) -> str:
+def route_after_optimization(state: GraphState) -> str:
+    """Routet jedes Optimierungsergebnis zur Ergebnisaufbereitung."""
+
     status = get_workflow_status(state)
 
     if status == WORKFLOW_OPTIMIZATION_COMPLETED:
@@ -155,9 +155,9 @@ def route_after_optimization(
     )
 
 
-def route_after_constraint_mapping(
-    state: GraphState,
-) -> str:
+def route_after_constraint_mapping(state: GraphState) -> str:
+    """Beendet den Graph bei Mappingfehlern."""
+
     mapping_errors = state.get(
         "constraint_mapping_errors",
         [],
@@ -186,8 +186,8 @@ def build_graph(llm: BaseChatModel):
     graph.add_node("requirement_agent", create_requirement_agent(llm))
     graph.add_node("clarification", clarification_node)
 
-    # Bestehender modeling_agent kann erstmal weiterverwendet werden,
-    # sollte aber perspektivisch eher "select_model" heißen.
+    # Die Modellauswahl erfolgt deterministisch anhand der validierten
+    # Requirements und der in der Registry definierten Auswahlkriterien.
     graph.add_node("modeling_agent", modeling_agent)
 
     # Validierungs- und Input-Erkennungs-Nodes
@@ -197,11 +197,12 @@ def build_graph(llm: BaseChatModel):
     graph.add_node("validate_structured_constraints", validate_structured_constraints)
 
     graph.add_node(
-            "constraint_mapping_agent",
-            create_constraint_mapping_agent(llm),
-        )
-    
-    # Bereitet das finale Ergebnis für die UI auf.
+        "constraint_mapping_agent",
+        create_constraint_mapping_agent(llm),
+    )
+
+    # Der Result-Node bündelt Solverausgabe und Workflowdaten zu
+    # einem UI-unabhängigen finalen Ergebnisobjekt.
     graph.add_node("result_node", result_node)
     graph.add_node("optimize_model", optimize_model)
 
@@ -215,7 +216,7 @@ def build_graph(llm: BaseChatModel):
                 "validate_model_specific_inputs"
             ),
             "optimize_model": "optimize_model",
-        }
+        },
     )
 
     # Nach der Requirement-Extraktion immer allgemein validieren.
@@ -234,6 +235,9 @@ def build_graph(llm: BaseChatModel):
     # Bei Rückfragen endet der Graph, die UI wartet auf Nutzereingabe.
     graph.add_edge("clarification", END)
 
+    # Für nicht unterstützte Problemstrukturen endet der Graph
+    # bewusst. Die UI zeigt den Modellfehler und ermöglicht die
+    # Bearbeitung der grundlegenden Angaben oder Beschreibung.
     graph.add_conditional_edges(
         "modeling_agent",
         route_after_modeling,
@@ -243,6 +247,9 @@ def build_graph(llm: BaseChatModel):
         },
     )
 
+    # Das LLM erzeugt ausschließlich unbestätigte Constraint-Kandidaten.
+    # Mappingfehler stoppen den Graph; erfolgreiche Kandidaten werden
+    # anschließend zusammen mit den Modellinputs verarbeitet.
     graph.add_conditional_edges(
         "constraint_mapping_agent",
         route_after_constraint_mapping,
@@ -274,16 +281,21 @@ def build_graph(llm: BaseChatModel):
         },
     )
 
+    # Nach erfolgreicher Validierung endet dieser Graph-Durchlauf
+    # beim Review. Die Optimierung startet erst durch ein separates
+    # Nutzer-Event nach der ausdrücklichen Bestätigung.
     graph.add_conditional_edges(
         "validate_structured_constraints",
         route_after_constraint_validation,
         {
             "constraints_invalid": END,
             "review_ready": END,
-        }
+        },
     )
 
-
+    # Sowohl erfolgreiche als auch fehlgeschlagene Optimierungen
+    # werden für Formular 5 aufbereitet, damit Solverfehler und
+    # Infeasibility verständlich dargestellt werden können.
     graph.add_conditional_edges(
         "optimize_model",
         route_after_optimization,
@@ -292,8 +304,8 @@ def build_graph(llm: BaseChatModel):
         },
     )
 
-
-    # Bereitet die Modellvorschau für Formular 4 auf.
+    # Nach der finalen Ergebnisaufbereitung übernimmt die UI
+    # anhand des Workflow-Status die Darstellung von Formular 5.
     graph.add_edge("result_node", END)
 
     return graph.compile()

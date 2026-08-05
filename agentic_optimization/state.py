@@ -106,6 +106,8 @@ PlanningHorizon = Literal[
 ]
 
 
+# Konflikte entstehen, wenn Formular und Freitext zwei
+# unterschiedliche, grundsätzlich unterstützte Werte liefern.
 class RequirementConflict(TypedDict):
     field: str
     form_value: str
@@ -113,6 +115,9 @@ class RequirementConflict(TypedDict):
     message: str
 
 
+# Unsupported Requirements beschreiben ausdrücklich genannte
+# Problemmerkmale, für die das System noch keinen erlaubten
+# strukturierten Wert beziehungsweise kein Modell unterstützt.
 class UnsupportedRequirement(TypedDict):
     field: str
     user_value: str
@@ -144,6 +149,9 @@ class ControlState(TypedDict, total=False):
     workflow_status: WorkflowStatus
 
 
+# Beschreibende Metadaten der Modellauswahl.
+# Die verbindlichen technischen Schlüssel sind
+# selected_model_family und selected_model_variant.
 class ModelConfig(TypedDict, total=False):
     family_id: str
     family_name: str
@@ -178,9 +186,13 @@ class GraphState(TypedDict, total=False):
     # Ergebnis der allgemeinen Validierung
     general_validation_errors: list[str]
 
-    # Für spätere Konsistenzprüfung zwischen Formular, Freitext und Modellformularen
+    # Vorgesehene Felder für zukünftige Hinweise zu auffälligen
+    # oder möglicherweise inkonsistenten Eingaben.
     consistency_warnings: list[dict[str, Any]]
     requirement_warnings: list[str]
+
+    # Probleme in den erkannten Anforderungen, die geklärt
+    # werden müssen, bevor der Workflow fortgesetzt werden kann.
     requirement_conflicts: list[RequirementConflict]
     unsupported_requirements: list[UnsupportedRequirement]
 
@@ -197,24 +209,38 @@ class GraphState(TypedDict, total=False):
     missing_model_input_fields: list[str]
     model_input_validation_errors: list[str]
 
-    # Strukturierte optionale Constraints
+    # Das LLM liefert zunächst unbestätigte Kandidaten.
+    # Nur die vom Nutzer bestätigten structured_constraints werden
+    # validiert und später an den deterministischen Modell-Builder übergeben.
     constraint_candidates: list[StructuredConstraint]
     structured_constraints: list[StructuredConstraint]
+
+    # Im Freitext erkannte Rahmenbedingungen, die von der
+    # ausgewählten Modellvariante nicht unterstützt werden.
     unsupported_constraints: list[str]
+
+    # Fehler bei der Zuordnung von Freitext-Constraints.
     constraint_mapping_errors: list[str]
+
+    # Fehler bei der Validierung aktiver Constraints.
     constraint_validation_errors: list[str]
+
+    # Noch fehlende Parameter aktiver Constraints.
     required_constraint_inputs: list[dict[str, Any]]
 
-    # Codegenerierung
+    # Optimierungssteuerung
+    # Wird erst nach erfolgreicher Input- und Constraintvalidierung gesetzt.
     ready_for_optimization: bool
 
-    # Optimierungsergebnis
+    # Technische Rohausgabe des variantenspezifischen Optimierers.
     optimization_result: dict[str, Any] | None
     optimization_errors: list[str]
 
+    # Schutz vor einer Optimierung ohne ausdrückliche
+    # Bestätigung des Nutzers im Review-Formular.
     review_confirmed: bool
 
-    # Ergebnis
+    # Vom Result-Node gebündeltes Ergebnis.
     result: dict[str, Any]
 
 

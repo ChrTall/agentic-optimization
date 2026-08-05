@@ -34,7 +34,6 @@ Gib deine Antwort ausschließlich als JSON-Objekt zurück. Verwende keine
 Markdown-Backticks und keine zusätzlichen Erklärungen.
 
 Format:
-Format:
 {
   "decision": "order_quantity | production_quantity | inventory_level | null",
   "objective": "maximize_profit | minimize_cost | reach_service_level | null",
@@ -212,6 +211,14 @@ def _normalize_unsupported_requirements(
 
 
 def create_requirement_agent(llm: BaseChatModel) -> Callable[[GraphState], GraphState]:
+    """
+    Erstellt den Graph-Node zur Extraktion allgemeiner Anforderungen.
+
+    Das LLM analysiert ausschließlich den Freitext. Formularwerte werden
+    anschließend deterministisch priorisiert und mit der Extraktion
+    zusammengeführt.
+    """
+
     def requirement_agent(state: GraphState) -> GraphState:
         form_data = state.get("form_data", {})
         raw_input = state.get("raw_input", "")
@@ -221,14 +228,17 @@ def create_requirement_agent(llm: BaseChatModel) -> Callable[[GraphState], Graph
         print("=== LLM INPUT ===")
         print(user_message)
 
+        # Das LLM wertet nur den Freitext aus. Formularwerte werden
+        # anschließend separat und regelbasiert berücksichtigt.
         try:
             extracted = _extract_with_llm(llm, user_message)
             print("=== LLM OUTPUT ===")
             print(extracted)
         except Exception as e:
+            # Schlägt die LLM-Auswertung fehl, bleiben die Formularwerte
+            # erhalten. Aus dem Freitext werden dann keine Angaben übernommen.
             print(f"=== LLM FEHLER: {e} ===")
             extracted = _extract_rule_based(raw_input)
-
 
         form_constraints = _normalize_constraints(
             form_data.get("constraints"),
@@ -359,6 +369,7 @@ def _build_user_message(raw_input: str) -> str:
 
 def _parse_json(text: str) -> dict:
     """Extrahiert JSON aus LLM-Antwort, auch wenn Markdown-Backticks vorhanden."""
+
     clean = re.sub(r"```(?:json)?|```", "", text).strip()
     parsed = json.loads(clean)
 
@@ -393,6 +404,13 @@ def _resolve_structured_field(
     allowed_values: set[str],
     conflicts: list[RequirementConflict],
 ) -> str | None:
+    """
+    Führt einen Formularwert und einen extrahierten Freitextwert zusammen.
+
+    Ein vorhandener Formularwert bleibt führend. Abweichende LLM-Werte
+    werden als Konflikt gespeichert und überschreiben das Formular nicht.
+    """
+
     form_value = _normalize_choice(
         form_data.get(field_name),
         allowed_values,

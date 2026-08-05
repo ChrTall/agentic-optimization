@@ -1,3 +1,7 @@
+"""
+Rendert Registry-definierte Eingabefelder und konvertiert ihre Widgetwerte.
+"""
+
 from typing import Any, TypeAlias
 
 import streamlit as st
@@ -46,8 +50,8 @@ def render_input_field(
     """
     Rendert ein Eingabefeld anhand seiner Registrydefinition.
 
-    Der Rückgabewert ist zunächst der rohe Widgetwert. Die fachliche
-    Konvertierung erfolgt anschließend mit parse_input_value().
+    Der Rückgabewert ist zunächst der rohe Widgetwert. Typkonvertierung
+    und generische Grenzprüfung erfolgen mit parse_input_value().
     """
 
     field_name = field_definition["name"]
@@ -67,6 +71,8 @@ def render_input_field(
             else None
         )
 
+        # Nur beim ersten Rendern initialisieren, damit Streamlit-Reruns
+        # spätere Nutzereingaben nicht überschreiben.
         if widget_key not in st.session_state:
             st.session_state[
                 widget_key
@@ -124,6 +130,8 @@ def _validate_numeric_bounds(
     field_definition: FieldDefinition,
     values: list[float],
 ) -> None:
+    """Prüft Werte gegen min_value und max_value der Field-Definition."""
+
     min_value = field_definition.get("min_value")
     max_value = field_definition.get("max_value")
     label = field_definition["label"]
@@ -152,8 +160,8 @@ def parse_input_value(
     """
     Konvertiert einen Widgetwert in den internen Modellwert.
 
-    Leere Pflichtfelder werden hier noch nicht fachlich abgelehnt.
-    Das übernimmt weiterhin der variantenspezifische Validator.
+    Leere Werte werden als None beziehungsweise leere Liste zurückgegeben.
+    Die Prüfung erforderlicher Felder erfolgt anschließend im Validation Agent.
     """
 
     field_type = field_definition["type"]

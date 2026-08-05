@@ -78,6 +78,11 @@ Erwartetes Format:
 def _build_allowed_constraints_for_prompt(
     supported_constraints: dict,
 ) -> list[dict]:
+    """
+    Bereitet die registrierten variantenspezifischen
+    Constraintdefinitionen für den LLM-Prompt auf.
+    """
+
     return [
         {
             "type": constraint_type,
@@ -135,6 +140,10 @@ def _map_with_llm(
     llm: BaseChatModel,
     user_message: str,
 ) -> dict:
+    """
+    Ruft das LLM mit dem vorbereiteten Mapping-Prompt auf und
+    dekodiert die Antwort als JSON-Objekt.
+    """
     response = llm.invoke(
         [
             SystemMessage(content=SYSTEM_PROMPT),
@@ -157,6 +166,14 @@ def _sanitize_mapping_result(
     supported_constraints: dict,
     raw_constraint_items: list[dict],
 ) -> dict:
+    """
+    Prüft und bereinigt das vom LLM erzeugte Constraint-Mapping.
+
+    Übernommen werden nur registrierte Constraint-Typen, erlaubte Parameter
+    und bekannte source_ids. Jede übergebene Nutzeranforderung muss entweder
+    einem unterstützten oder einem nicht unterstützten Constraint zugeordnet werden.
+    """
+
     if not isinstance(mapping_result, dict):
         raise TypeError(
             "Das Mapping-Ergebnis muss ein JSON-Objekt sein."
@@ -363,6 +380,13 @@ def _sanitize_mapping_result(
 def create_constraint_mapping_agent(
     llm: BaseChatModel,
 ) -> Callable[[GraphState], GraphState]:
+    """
+    Erstellt den Graph-Node für das variantenspezifische Constraint-Mapping.
+
+    Das LLM darf Freitext ausschließlich auf die von der ausgewählten
+    Modellvariante unterstützten Constraint-Typen abbilden. Das geprüfte
+    Ergebnis wird zunächst nur als unbestätigter Kandidat gespeichert.
+    """
 
     def constraint_mapping_agent(
         state: GraphState,
@@ -523,6 +547,8 @@ def create_constraint_mapping_agent(
             "unsupported_constraints"
         ]
 
+        # Gemappte Constraints bleiben unverbindliche Kandidaten.
+        # Erst die Bestätigung in Formular 3 erzeugt structured_constraints.
         return {
             **state,
             "constraint_candidates": constraint_candidates,
@@ -532,5 +558,3 @@ def create_constraint_mapping_agent(
         }
 
     return constraint_mapping_agent
-
-

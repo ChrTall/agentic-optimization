@@ -15,7 +15,11 @@ def optimize_model(
     state: GraphState,
 ) -> GraphState:
     """
-    Baut und löst eine vollständig validierte Modellvariante.
+    Führt den registrierten Optimierer für die ausgewählte Modellvariante aus.
+
+    Die Optimierung wird nur nach erfolgreicher Validierung und ausdrücklicher
+    Bestätigung im Review gestartet. Modellaufbau und Solverausführung bleiben
+    vollständig variantenspezifisch und deterministisch.
     """
 
     if not state.get("ready_for_optimization"):
@@ -89,6 +93,8 @@ def optimize_model(
         [],
     )
 
+    # Der Graph kennt keine modellspezifische Solverlogik.
+    # Aufbau und Lösung des Modells werden über die Registry delegiert.
     optimizer = model_definition["optimizer"]
 
     try:
@@ -112,6 +118,8 @@ def optimize_model(
             workflow_status=WORKFLOW_OPTIMIZATION_FAILED,
         )
 
+    # Auch ein fachlich unzulässiges Modell ist eine erfolgreich ausgeführte
+    # Optimierung. Der Solverstatus wird später im Ergebnis ausgewertet.
     return with_control(
         {
             **state,

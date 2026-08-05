@@ -1,3 +1,10 @@
+"""
+Zentrale Registry für verfügbare Modellfamilien und Modellvarianten.
+
+Variantenspezifische Metadaten und Funktionen werden in den jeweiligen
+Moduldateien definiert und hier lediglich registriert.
+"""
+
 from typing import Any
 
 from agentic_optimization.models.newsvendor.single_product_single_period import (
@@ -27,8 +34,10 @@ def find_matching_model_variant(
     ModelVariantDefinition,
 ] | None:
     """
-    Sucht deterministisch nach einer Modellvariante, deren
-    Auswahlkriterien vollständig zu den Requirements passen.
+    Sucht die Modellvariante, deren selection_criteria zu den Requirements passen.
+
+    Gibt None zurück, wenn keine Variante passt, und löst bei mehreren
+    Treffern einen Fehler aus.
     """
 
     matches: list[

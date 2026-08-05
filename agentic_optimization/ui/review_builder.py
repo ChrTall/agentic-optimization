@@ -1,3 +1,7 @@
+"""
+Erstellt die Anzeigedaten für Formular 4 aus Graph-State und Registry-Metadaten.
+"""
+
 from typing import Any, TypedDict
 
 from agentic_optimization.models.types import (
@@ -7,11 +11,14 @@ from agentic_optimization.state import GraphState
 
 
 class ReviewItem(TypedDict):
+    """Eine einzelne Angabe, die im Review mit Bezeichnung und Wert angezeigt wird."""
+
     label: str
     value: str
 
 
 class ReviewData(TypedDict):
+    """Datenvertrag für die drei Review-Bereiche in Formular 4."""
     problem: list[ReviewItem]
     parameters: list[ReviewItem]
     constraints: list[ReviewItem]
@@ -88,6 +95,8 @@ def _format_value(
 def _build_problem_items(
     requirements: dict[str, Any],
 ) -> list[ReviewItem]:
+    """Übersetzt die Requirements aus Formular 1 in Review-Zeilen."""
+
     definitions = [
         (
             "Entscheidung",
@@ -132,6 +141,8 @@ def _build_parameter_items(
     inputs: dict[str, Any],
     variant_definition: ModelVariantDefinition,
 ) -> list[ReviewItem]:
+    """Erstellt Review-Zeilen aus Modellinputs und Input-Field-Metadaten."""
+
     items: list[ReviewItem] = []
 
     for field_definition in variant_definition[
@@ -156,6 +167,8 @@ def _build_constraint_items(
     constraints: list[dict[str, Any]],
     variant_definition: ModelVariantDefinition,
 ) -> list[ReviewItem]:
+    """Erstellt Review-Zeilen für die bestätigten structured_constraints."""
+
     items: list[ReviewItem] = []
 
     supported_constraints = variant_definition[
@@ -214,6 +227,13 @@ def build_review_data(
     state: GraphState,
     variant_definition: ModelVariantDefinition,
 ) -> ReviewData:
+    """
+    Erstellt die drei Review-Bereiche aus dem aktuellen Graph-State.
+
+    Verwendet werden die Requirements, die Inputs der ausgewählten Variante
+    und die bestätigten structured_constraints.
+    """
+
     family = state.get("selected_model_family")
     variant = state.get("selected_model_variant")
 

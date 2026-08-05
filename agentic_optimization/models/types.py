@@ -1,9 +1,13 @@
+"""
+Gemeinsame Typverträge für Registry, Modellvarianten, Validierung und UI.
+"""
+
 from collections.abc import Callable
 from typing import Any, NotRequired, TypedDict
 
 
 class StructuredConstraint(TypedDict):
-    """Ein validierbarer, strukturierter optionaler Constraint."""
+    """Ein gemappter oder vom Nutzer bestätigter Constraint mit Parametern."""
 
     type: str
     parameters: dict[str, int | float]
@@ -101,7 +105,7 @@ ResultPresentationBuilder = Callable[
 
 
 class ModelSelectionCriteria(TypedDict):
-    """Fachliche Merkmale zur Auswahl einer Modellvariante."""
+    """Requirements-Felder für die deterministische Auswahl einer Modellvariante."""
 
     decision: str
     objective: str

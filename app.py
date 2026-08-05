@@ -93,6 +93,8 @@ def format_selectbox_value(
     value: str | None,
     labels: dict[str, str],
 ) -> str:
+    """Übersetzt einen internen Auswahlwert in das zugehörige UI-Label."""
+
     if value is None:
         return ""
 
@@ -143,14 +145,6 @@ for i, (col, label) in enumerate(zip(cols, STEP_LABELS)):
 st.divider()
 
 
-def parse_constraints(value: str) -> list[str]:
-    return [
-        item.strip()
-        for item in value.splitlines()
-        if item.strip()
-    ]
-
-
 def route_ui_from_graph_state(graph_state: dict) -> str:
     """
     Übersetzt den fachlichen Workflow-Status aus dem Graph
@@ -183,7 +177,7 @@ def route_ui_from_graph_state(graph_state: dict) -> str:
     return "freitext"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SCHRITT 1: Formular
+# SCHRITT 1: Grundlegende Angaben
 # ═══════════════════════════════════════════════════════════════════════════════
 
 if st.session_state.step == "form":
@@ -424,10 +418,47 @@ elif st.session_state.step == "freitext":
         st.rerun()
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SCHRITT 2b: Rückfrage (Clarification Loop)
+# FALL: Problemstruktur wird noch nicht unterstützt
 # ═══════════════════════════════════════════════════════════════════════════════
 
+elif st.session_state.step == "model_unsupported":
+    st.subheader("Problemart noch nicht unterstützt")
 
+    graph_state = (
+        st.session_state.graph_state
+        or {}
+    )
+
+    st.warning(
+        graph_state.get(
+            "model_selection_error",
+            (
+                "Für diese Problemstruktur ist derzeit "
+                "keine Berechnungsmethode verfügbar."
+            ),
+        )
+    )
+
+    st.info(
+        "Passen Sie die grundlegenden Angaben oder die "
+        "Problembeschreibung an."
+    )
+
+    if st.button(
+        "← Grundlegende Angaben bearbeiten",
+        use_container_width=True,
+    ):
+        st.session_state.step = "form"
+        st.rerun()
+
+    if st.button(
+        "Problembeschreibung bearbeiten",
+        use_container_width=True,
+    ):
+        st.session_state.step = "freitext"
+        st.rerun()
+
+    st.stop()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -504,7 +535,7 @@ elif st.session_state.step == "model_input_form":
     )
 
     # ---------------------------------------------------------
-    # Variantendaten laden
+    # UI-Daten der ausgewählten Modellvariante laden
     # ---------------------------------------------------------
 
     model_config = graph_state.get("model_config", {})
@@ -1129,6 +1160,7 @@ elif st.session_state.step == "model_input_form":
             "required_constraint_inputs": [],
         }
 
+        # Neue Formular-3-Daten verwerfen Review-Bestätigung und alte Ergebnisse.
         next_state = invalidate_optimization_state(next_state)
 
         st.session_state.review_sections = {
@@ -1330,7 +1362,7 @@ elif st.session_state.step == "review":
     )
 
     # ---------------------------------------------------------
-    # Karte 3: Vorgaben und Grenzen
+    # Karte 3: Betriebliche Rahmenbedingungen
     # ---------------------------------------------------------
 
     with st.container(border=True):
@@ -1434,6 +1466,7 @@ elif st.session_state.step == "review":
             )
             st.stop()
 
+        # Die Optimierung startet erst nach Bestätigung aller drei Review-Bereiche.
         next_state = {
             **graph_state,
             "control": {
@@ -1501,7 +1534,7 @@ elif st.session_state.step == "result":
         )
 
     # ---------------------------------------------------------
-    # Zentrale Ergebniskennzahlen
+    # Fachliche Ergebniskennzahlen der Modellvariante
     # ---------------------------------------------------------
 
     if result_data["metrics"]:

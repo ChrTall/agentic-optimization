@@ -9,7 +9,7 @@ FIELD_QUESTIONS = {
     "decision": "Welche konkrete Entscheidung soll optimiert werden? Zum Beispiel Bestellmenge, Produktionsmenge oder Lagerbestand.",
     "objective": "Was ist das Ziel der Optimierung? Zum Beispiel Kosten minimieren, Gewinn maximieren oder Servicelevel erreichen.",
     "demand_type": "Wie ist die Nachfrage beschaffen? Ist sie bekannt, unsicher, saisonal oder historisch geschätzt?",
-    "constraints": "Welche Nebenbedingungen müssen berücksichtigt werden? Zum Beispiel Budget, Kapazität, Lagerplatz, Mindestmengen oder Lieferzeiten.",
+    "constraints": "Welche betrieblichen Rahmenbedingungen oder Limits müssen berücksichtigt werden? Zum Beispiel Budget, Kapazität, Lagerplatz, Mindestmengen oder Lieferzeiten.",
     "product_scope": "Für wie viele Produkte soll eine Entscheidung getroffen werden: für ein Produkt oder für mehrere Produkte?",
     "planning_horizon": "Geht es um eine einmalige Bestellentscheidung oder um mehrere aufeinanderfolgende Zeiträume?",
 }
@@ -42,20 +42,22 @@ VALUE_LABELS = {
 
 def clarification_node(state: GraphState) -> GraphState:
     """
-    Erstellt eine Rückfrage, falls wichtige Informationen fehlen.
+    Erstellt die in Formular 2 angezeigte Clarification-Meldung.
 
-    Diese Version beantwortet noch nicht automatisch die Rückfrage,
-    sondern formuliert nur die Frage, die später im Chat angezeigt werden kann.
+    Fehlende oder ungültige Angaben, Widersprüche und unsupported
+    Requirements werden zu einer gemeinsamen Meldung zusammengeführt.
     """
 
     missing_fields = state.get("missing_fields", [])
     requirement_conflicts = state.get("requirement_conflicts", [])
-    unsupported_requirements = state.get("unsupported_requirements", [],)
+    unsupported_requirements = state.get("unsupported_requirements", [])
+    general_validation_errors = state.get("general_validation_errors", [])
 
     if (
         not missing_fields
         and not requirement_conflicts
         and not unsupported_requirements
+        and not general_validation_errors
     ):
         return with_control(
             {
@@ -73,6 +75,8 @@ def clarification_node(state: GraphState) -> GraphState:
         )
         for field in missing_fields
     ]
+    questions.extend(general_validation_errors)
+
     for conflict in requirement_conflicts:
         field_name = conflict.get(
             "field",
