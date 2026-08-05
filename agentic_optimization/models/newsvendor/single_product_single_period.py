@@ -39,7 +39,7 @@ INPUT_FIELDS: list[ModelInputField] = [
             "Preis, zu dem eine Einheit verkauft wird."
         ),
         "placeholder": None,
-        "min_value": 0.0,
+        "min_value": 0.01,
         "step": 0.5,
         "unit": "€ pro Einheit",
     },
@@ -52,7 +52,7 @@ INPUT_FIELDS: list[ModelInputField] = [
             "Kosten für die Beschaffung einer Einheit."
         ),
         "placeholder": None,
-        "min_value": 0.0,
+        "min_value": 0.01,
         "step": 0.5,
         "unit": "€ pro Einheit",
     },
@@ -113,7 +113,7 @@ SUPPORTED_CONSTRAINTS: dict[str, ConstraintDefinition] = {
                 "required": True,
                 "help": "Die mindestens zu bestellende Menge.",
                 "placeholder": None,
-                "min_value": 0.0,
+                "min_value": 1.0,
                 "step": 1.0,
                 "unit": "Einheiten",
             }

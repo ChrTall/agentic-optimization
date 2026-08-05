@@ -225,19 +225,13 @@ def create_requirement_agent(llm: BaseChatModel) -> Callable[[GraphState], Graph
 
         user_message = _build_user_message(raw_input)
 
-        print("=== LLM INPUT ===")
-        print(user_message)
-
         # Das LLM wertet nur den Freitext aus. Formularwerte werden
         # anschließend separat und regelbasiert berücksichtigt.
         try:
             extracted = _extract_with_llm(llm, user_message)
-            print("=== LLM OUTPUT ===")
-            print(extracted)
-        except Exception as e:
+        except Exception:
             # Schlägt die LLM-Auswertung fehl, bleiben die Formularwerte
             # erhalten. Aus dem Freitext werden dann keine Angaben übernommen.
-            print(f"=== LLM FEHLER: {e} ===")
             extracted = _extract_rule_based(raw_input)
 
         form_constraints = _normalize_constraints(

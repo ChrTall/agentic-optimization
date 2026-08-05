@@ -488,9 +488,6 @@ def create_constraint_mapping_agent(
             raw_constraint_items=raw_constraint_items,
         )
 
-        print("=== CONSTRAINT MAPPING INPUT ===")
-        print(user_message)
-
         try:
             mapping_result = _map_with_llm(
                 llm=llm,
@@ -515,9 +512,6 @@ def create_constraint_mapping_agent(
                 event=None,
                 workflow_status=WORKFLOW_MODEL_INPUTS_INVALID,
             )
-
-        print("=== CONSTRAINT MAPPING OUTPUT ===")
-        print(mapping_result)
 
         try:
             sanitized_result = _sanitize_mapping_result(
