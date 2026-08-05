@@ -118,6 +118,23 @@ def test_llm_fills_missing_form_values() -> None:
     assert result["requirement_conflicts"] == []
 
 
+def test_handles_non_string_raw_input() -> None:
+    llm = create_mock_llm(
+        create_llm_response()
+    )
+    agent = create_requirement_agent(llm)
+
+    result = agent(
+        {
+            "form_data": create_complete_form_data(),
+            "raw_input": None,
+        }
+    )
+
+    assert result["requirements"]["raw_description"] == ""
+    assert result["missing_fields"] == []
+
+
 def test_detects_conflict_between_form_and_raw_input() -> None:
     llm = create_mock_llm(
         create_llm_response(

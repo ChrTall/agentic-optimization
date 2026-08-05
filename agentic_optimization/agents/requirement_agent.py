@@ -221,7 +221,12 @@ def create_requirement_agent(llm: BaseChatModel) -> Callable[[GraphState], Graph
 
     def requirement_agent(state: GraphState) -> GraphState:
         form_data = state.get("form_data", {})
-        raw_input = state.get("raw_input", "")
+        raw_input_value = state.get("raw_input", "")
+        raw_input = (
+            raw_input_value
+            if isinstance(raw_input_value, str)
+            else ""
+        )
 
         user_message = _build_user_message(raw_input)
 
