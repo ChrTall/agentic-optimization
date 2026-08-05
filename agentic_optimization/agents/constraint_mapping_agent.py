@@ -158,7 +158,17 @@ def _map_with_llm(
             "Die LLM-Antwort muss Text enthalten."
         )
 
-    return json.loads(content)
+    clean_content = content.strip()
+    lines = clean_content.splitlines()
+
+    if (
+        len(lines) >= 3
+        and lines[0].strip().lower() in {"```", "```json"}
+        and lines[-1].strip() == "```"
+    ):
+        clean_content = "\n".join(lines[1:-1]).strip()
+
+    return json.loads(clean_content)
 
 
 def _sanitize_mapping_result(

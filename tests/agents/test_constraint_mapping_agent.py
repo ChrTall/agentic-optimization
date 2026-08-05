@@ -111,6 +111,54 @@ def test_maps_budget_constraint() -> None:
     assert "storage_capacity" in human_message
 
 
+def test_maps_json_response_wrapped_in_code_fence() -> None:
+    response = {
+        "structured_constraints": [
+            {
+                "type": "budget_limit",
+                "parameters": {
+                    "budget": 1000,
+                },
+                "source_ids": [
+                    "constraint_0",
+                ],
+            }
+        ],
+        "unsupported_constraints": [],
+    }
+
+    llm = create_mock_llm(
+        response_content=(
+            "```json\n"
+            f"{json.dumps(response)}\n"
+            "```"
+        )
+    )
+
+    agent = create_constraint_mapping_agent(llm)
+
+    result = agent(
+        create_base_state(
+            constraints=[
+                "Das Budget beträgt maximal 1000 Euro."
+            ]
+        )
+    )
+
+    assert result["constraint_mapping_errors"] == []
+    assert result["constraint_candidates"] == [
+        {
+            "type": "budget_limit",
+            "parameters": {
+                "budget": 1000,
+            },
+            "source_text": (
+                "Das Budget beträgt maximal 1000 Euro."
+            ),
+        }
+    ]
+
+
 def test_maps_one_text_to_multiple_constraints() -> None:
     response = {
         "structured_constraints": [
