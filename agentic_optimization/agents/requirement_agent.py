@@ -1,73 +1,324 @@
 import json
 import re
-from typing import Callable
+from collections.abc import Callable
+from typing import get_args
+
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
+
 from agentic_optimization.state import (
-    GraphState,
     WORKFLOW_GENERAL_REQUIREMENTS_EXTRACTED,
+    DecisionType,
+    DemandType,
+    GraphState,
+    ObjectiveType,
+    PlanningHorizon,
+    ProductScope,
+    RequirementConflict,
+    UnsupportedRequirement,
     with_control,
 )
 
+ALLOWED_DECISION_TYPES = set(get_args(DecisionType))
+ALLOWED_OBJECTIVE_TYPES = set(get_args(ObjectiveType))
+ALLOWED_DEMAND_TYPES = set(get_args(DemandType))
+ALLOWED_PRODUCT_SCOPES = set(get_args(ProductScope))
+ALLOWED_PLANNING_HORIZONS = set(get_args(PlanningHorizon))
 
-REQUIRED_FIELDS = ["decision", "objective", "demand_type", "constraints"]
+REQUIRED_FIELDS = ["decision", "objective", "demand_type", "product_scope", "planning_horizon"]
 
-SYSTEM_PROMPT = """Du bist ein Assistent, der Optimierungsprobleme analysiert.
+SYSTEM_PROMPT = """Du analysierst ausschließlich die freie Beschreibung
+eines Optimierungsproblems.
 
-Der Nutzer hat ein Formular ausgefüllt und optional einen Freitext eingegeben.
-Deine Aufgabe: Extrahiere die vier wichtigsten Angaben für ein Optimierungsmodell.
-
-Gib deine Antwort NUR als JSON zurück, ohne Erklärungen, ohne Markdown-Backticks.
+Gib deine Antwort ausschließlich als JSON-Objekt zurück. Verwende keine
+Markdown-Backticks und keine zusätzlichen Erklärungen.
 
 Format:
 {
-  "decision": "...",
-  "objective": "...",
-  "demand_type": "...",
+  "decision": "order_quantity | production_quantity | inventory_level | null",
+  "objective": "maximize_profit | minimize_cost | reach_service_level | null",
+  "demand_type": "known | uncertain | historical_estimate | null",
+  "product_scope": "single_product | multiple_products | null",
+  "planning_horizon": "single_period | multiple_periods | null",
   "constraints": ["...", "..."],
-  "missing_fields": ["field1", "field2"]
+  "unsupported_requirements": [
+    {
+      "field": "decision",
+      "user_value": "Bestellzeitpunkt optimieren",
+      "message": "Die Optimierung des Bestellzeitpunkts wird derzeit nicht unterstützt."
+    }
+  ]
 }
 
-Felder:
-- decision: Welche Entscheidung soll optimiert werden? (z.B. Bestellmenge, Produktionsmenge)
-- objective: Was ist das Ziel? (z.B. Gewinn maximieren, Kosten minimieren)
-- demand_type: Wie ist die Nachfrage? (z.B. sicher, unsicher, saisonal)
-- constraints: Welche Nebenbedingungen gibt es? (z.B. Budget, Kapazität, Lagerplatz)
+Bedeutung:
 
-Wenn eine Information weder im Formular noch im Freitext erkennbar ist, setze das Feld auf null
-und füge den Feldnamen in missing_fields ein.
+decision:
+- order_quantity: Bestellmenge oder Einkaufsmenge festlegen
+- production_quantity: Produktionsmenge festlegen
+- inventory_level: Lagerbestand festlegen
+
+objective:
+- maximize_profit: Gewinn maximieren
+- minimize_cost: Kosten minimieren
+- reach_service_level: ein Servicelevel erreichen
+
+demand_type:
+- known: sichere oder bekannte Nachfrage
+- uncertain: unsichere oder saisonale Nachfrage
+- historical_estimate: aus historischen Daten geschätzte Nachfrage
+
+product_scope:
+- single_product: genau ein Produkt
+- multiple_products: mehrere Produkte
+
+planning_horizon:
+- single_period: eine einmalige Entscheidung
+- multiple_periods: mehrere aufeinanderfolgende Zeiträume
+
+
+constraints enthält ausschließlich konkrete betriebliche Vorgaben oder
+Grenzen, welche die zulässige Optimierungsentscheidung einschränken.
+
+Beispiele für Constraints:
+- ein maximales Budget
+- begrenzter Lagerplatz oder begrenzte Kapazität
+- eine Mindestmenge
+- eine Höchstmenge
+- eine Lieferfrist
+
+Keine Constraints sind:
+- unsichere Nachfrage
+- saisonale Nachfrage
+- historische Nachfrage
+- die Anzahl der Produkte
+- der Planungshorizont
+- das Optimierungsziel
+- eine allgemeine Beschreibung des Produkts
+
+Übernimm einen Text nur in constraints, wenn darin tatsächlich eine konkrete
+Vorgabe oder Grenze beschrieben wird. Merkmale der Problemstruktur gehören
+ausschließlich in die dafür vorgesehenen strukturierten Felder.
+
+unsupported_requirements enthält ausdrücklich genannte Anforderungen an
+die Problemstruktur, die keinem der erlaubten Werte zugeordnet werden können.
+
+Betroffen sind ausschließlich:
+- decision
+- objective
+- demand_type
+- product_scope
+- planning_horizon
+
+Beispiele:
+- "Bestellzeitpunkt optimieren" ist eine nicht unterstützte decision.
+- "Meldebestand bestimmen" ist eine nicht unterstützte decision.
+- "Sicherheitsbestand bestimmen" ist eine nicht unterstützte decision.
+
+Wenn eine solche Anforderung ausdrücklich genannt wird:
+- setze das entsprechende strukturierte Feld auf null,
+- übernimm die Formulierung in user_value,
+- füge eine verständliche deutsche message hinzu,
+- trage sie in unsupported_requirements ein.
+
+Nicht als unsupported_requirements behandeln:
+- Preise, Kosten oder andere Modellparameter,
+- betriebliche Vorgaben wie Budget oder Lagerkapazität,
+- bloße Produkteigenschaften,
+- Informationen, die lediglich fehlen.
+
+Insbesondere bedeuten genannte Einkaufskosten nicht automatisch, dass
+Kosten minimiert werden sollen. Ein objective darf nur gesetzt werden,
+wenn der Nutzer ein Optimierungsziel ausdrücklich nennt.
+
+Wenn keine nicht unterstützte strukturelle Anforderung genannt wurde,
+gib eine leere Liste zurück.
+
+Erfinde keine Angaben. Wenn ein strukturelles Feld nicht eindeutig aus dem
+Freitext erkennbar ist, gib dafür null zurück.
+
+Analysiere den Freitext unabhängig von vorhandenen Formularangaben.
+Widersprüche zwischen Formular und Freitext werden anschließend durch
+deterministischen Python-Code geprüft.
 """
 
 
+def _normalize_constraints(
+    value: object,
+) -> list[str]:
+    if isinstance(value, str):
+        value = [value]
+
+    if not isinstance(value, list):
+        return []
+
+    return [
+        item.strip()
+        for item in value
+        if isinstance(item, str) and item.strip()
+    ]
+
+
+def _normalize_unsupported_requirements(
+    value: object,
+) -> list[UnsupportedRequirement]:
+    if not isinstance(value, list):
+        return []
+
+    allowed_fields = set(REQUIRED_FIELDS)
+    normalized_requirements: list[UnsupportedRequirement] = []
+
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+
+        field = item.get("field")
+        user_value = item.get("user_value")
+        message = item.get("message")
+
+        if not isinstance(field, str):
+            continue
+
+        field = field.strip()
+
+        if field not in allowed_fields:
+            continue
+
+        if not isinstance(user_value, str):
+            continue
+
+        user_value = user_value.strip()
+
+        if not user_value:
+            continue
+
+        if not isinstance(message, str) or not message.strip():
+            message = (
+                f"Die Anforderung „{user_value}“ wird "
+                "derzeit nicht unterstützt."
+            )
+        else:
+            message = message.strip()
+
+        normalized_requirements.append(
+            {
+                "field": field,
+                "user_value": user_value,
+                "message": message,
+            }
+        )
+
+    return normalized_requirements
+
+
 def create_requirement_agent(llm: BaseChatModel) -> Callable[[GraphState], GraphState]:
+    """
+    Erstellt den Graph-Node zur Extraktion allgemeiner Anforderungen.
+
+    Das LLM analysiert ausschließlich den Freitext. Formularwerte werden
+    anschließend deterministisch priorisiert und mit der Extraktion
+    zusammengeführt.
+    """
+
     def requirement_agent(state: GraphState) -> GraphState:
         form_data = state.get("form_data", {})
-        raw_input = state.get("raw_input", "")
+        raw_input_value = state.get("raw_input", "")
+        raw_input = (
+            raw_input_value
+            if isinstance(raw_input_value, str)
+            else ""
+        )
 
-        user_message = _build_user_message(form_data, raw_input)
+        user_message = _build_user_message(raw_input)
 
-        print("=== LLM INPUT ===")
-        print(user_message)
-
+        # Das LLM wertet nur den Freitext aus. Formularwerte werden
+        # anschließend separat und regelbasiert berücksichtigt.
         try:
             extracted = _extract_with_llm(llm, user_message)
-            print("=== LLM OUTPUT ===")
-            print(extracted)
-        except Exception as e:
-            print(f"=== LLM FEHLER: {e} ===")
-            extracted = _extract_rule_based(form_data, raw_input)
+        except Exception:
+            # Schlägt die LLM-Auswertung fehl, bleiben die Formularwerte
+            # erhalten. Aus dem Freitext werden dann keine Angaben übernommen.
+            extracted = _extract_rule_based(raw_input)
 
-        missing_fields = extracted.get("missing_fields") or [
-            f for f in REQUIRED_FIELDS if not extracted.get(f)
-        ]
+        form_constraints = _normalize_constraints(
+            form_data.get("constraints"),
+        )
+
+        extracted_constraints = _normalize_constraints(
+            extracted.get("constraints"),
+        )
+
+        unsupported_requirements = (
+            _normalize_unsupported_requirements(
+                extracted.get("unsupported_requirements"),
+            )
+        )
+
+        constraints = list(
+            dict.fromkeys(
+                form_constraints + extracted_constraints
+            )
+        )
+
+        requirement_warnings: list[str] = []
+        requirement_conflicts: list[RequirementConflict] = []
+
+        decision = _resolve_structured_field(
+            field_name="decision",
+            form_data=form_data,
+            extracted=extracted,
+            allowed_values=ALLOWED_DECISION_TYPES,
+            conflicts=requirement_conflicts,
+        )
+
+        objective = _resolve_structured_field(
+            field_name="objective",
+            form_data=form_data,
+            extracted=extracted,
+            allowed_values=ALLOWED_OBJECTIVE_TYPES,
+            conflicts=requirement_conflicts,
+        )
+
+        demand_type = _resolve_structured_field(
+            field_name="demand_type",
+            form_data=form_data,
+            extracted=extracted,
+            allowed_values=ALLOWED_DEMAND_TYPES,
+            conflicts=requirement_conflicts,
+        )
+
+        product_scope = _resolve_structured_field(
+            field_name="product_scope",
+            form_data=form_data,
+            extracted=extracted,
+            allowed_values=ALLOWED_PRODUCT_SCOPES,
+            conflicts=requirement_conflicts,
+        )
+
+        planning_horizon = _resolve_structured_field(
+            field_name="planning_horizon",
+            form_data=form_data,
+            extracted=extracted,
+            allowed_values=ALLOWED_PLANNING_HORIZONS,
+            conflicts=requirement_conflicts,
+        )
 
         requirements = {
-            "decision": extracted.get("decision"),
-            "objective": extracted.get("objective"),
-            "demand_type": extracted.get("demand_type"),
-            "constraints": extracted.get("constraints"),
+            "decision": decision,
+            "objective": objective,
+            "demand_type": demand_type,
+            "product_scope": product_scope,
+            "planning_horizon": planning_horizon,
+            "constraints": constraints,
             "raw_description": raw_input,
         }
+
+        missing_fields = [
+            field
+            for field in REQUIRED_FIELDS
+            if not requirements.get(field)
+        ]
+
+        missing_fields = list(dict.fromkeys(missing_fields))
 
         return with_control(
             {
@@ -77,6 +328,9 @@ def create_requirement_agent(llm: BaseChatModel) -> Callable[[GraphState], Graph
                 "clarification_question": "",
                 "general_validation_errors": [],
                 "consistency_warnings": [],
+                "requirement_warnings": requirement_warnings,
+                "requirement_conflicts": requirement_conflicts,
+                "unsupported_requirements": unsupported_requirements,
             },
             event=None,
             workflow_status=WORKFLOW_GENERAL_REQUIREMENTS_EXTRACTED,
@@ -93,36 +347,119 @@ def _extract_with_llm(llm: BaseChatModel, user_message: str) -> dict:
         HumanMessage(content=user_message),
     ])
 
-    raw_text = response.content
+    raw_text = str(response.content)
     return _parse_json(raw_text)
 
 
 # ── Hilfsfunktionen ───────────────────────────────────────────────────────────
 
-def _build_user_message(form_data: dict, raw_input: str) -> str:
-    lines = ["Formulareingaben:"]
-    for key, value in form_data.items():
-        lines.append(f"  {key}: {value}")
-    if raw_input:
-        lines.append(f"\nFreitext des Nutzers:\n{raw_input}")
-    return "\n".join(lines)
+def _build_user_message(raw_input: str) -> str:
+    if not raw_input.strip():
+        return (
+            "Der Nutzer hat keine zusätzliche freie Beschreibung "
+            "angegeben."
+        )
+
+    return (
+        "Freie Beschreibung des Nutzers:\n"
+        f"{raw_input.strip()}"
+    )
 
 
 def _parse_json(text: str) -> dict:
     """Extrahiert JSON aus LLM-Antwort, auch wenn Markdown-Backticks vorhanden."""
+
     clean = re.sub(r"```(?:json)?|```", "", text).strip()
-    return json.loads(clean)
+    parsed = json.loads(clean)
+
+    if not isinstance(parsed, dict):
+        raise TypeError(
+            "Die LLM-Antwort muss ein JSON-Objekt sein."
+        )
+
+    return parsed
 
 
-def _extract_rule_based(form_data: dict, raw_input: str) -> dict:
-    """Fallback: direkte Übernahme der Formularfelder."""
+def _normalize_choice(
+    value: object,
+    allowed_values: set[str],
+) -> str | None:
+    if not isinstance(value, str):
+        return None
+
+    normalized = value.strip().lower()
+
+    if normalized not in allowed_values:
+        return None
+
+    return normalized
+
+
+def _resolve_structured_field(
+    *,
+    field_name: str,
+    form_data: dict,
+    extracted: dict,
+    allowed_values: set[str],
+    conflicts: list[RequirementConflict],
+) -> str | None:
+    """
+    Führt einen Formularwert und einen extrahierten Freitextwert zusammen.
+
+    Ein vorhandener Formularwert bleibt führend. Abweichende LLM-Werte
+    werden als Konflikt gespeichert und überschreiben das Formular nicht.
+    """
+
+    form_value = _normalize_choice(
+        form_data.get(field_name),
+        allowed_values,
+    )
+
+    extracted_value = _normalize_choice(
+        extracted.get(field_name),
+        allowed_values,
+    )
+
+    if (
+        form_value is not None
+        and extracted_value is not None
+        and form_value != extracted_value
+    ):
+        conflicts.append(
+            {
+                "field": field_name,
+                "form_value": form_value,
+                "raw_input_value": extracted_value,
+                "message": (
+                    f"Die Angaben zu '{field_name}' widersprechen "
+                    "sich zwischen Formular und Freitext."
+                ),
+            }
+        )
+
+    if form_value is not None:
+        return form_value
+
+    return extracted_value
+
+
+def _extract_rule_based(
+    raw_input: str,
+) -> dict:
+    """
+    Sicherer Fallback, wenn die LLM-Auswertung fehlschlägt.
+
+    Der Fallback erfindet keine Informationen aus dem Freitext.
+    Formularwerte werden anschließend separat mit den extrahierten
+    Werten zusammengeführt.
+    """
+
     return {
-        "decision": form_data.get("decision"),
-        "objective": form_data.get("objective"),
-        "demand_type": form_data.get("demand_type"),
-        "constraints": form_data.get("constraints"),
-        "missing_fields": [
-            f for f in REQUIRED_FIELDS
-            if not form_data.get(f)
-        ],
+        "decision": None,
+        "objective": None,
+        "demand_type": None,
+        "product_scope": None,
+        "planning_horizon": None,
+        "constraints": [],
+        "unsupported_requirements": [],
     }
