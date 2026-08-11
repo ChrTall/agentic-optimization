@@ -12,12 +12,6 @@ def create_result_state() -> dict:
         "selected_model_variant": (
             "single_product_single_period"
         ),
-        "model_config": {
-            "family_name": "Newsvendor",
-            "variant_name": (
-                "Single Product, Single Period"
-            ),
-        },
         "requirements": {
             "decision": "order_quantity",
             "objective": "maximize_profit",

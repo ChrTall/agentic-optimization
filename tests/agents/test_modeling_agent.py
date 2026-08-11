@@ -43,6 +43,7 @@ def test_selects_registered_newsvendor_variant() -> None:
         == "single_product_single_period"
     )
     assert result["model_selection_error"] is None
+    assert "model_config" not in result
 
 
 def test_constraints_do_not_affect_model_selection() -> None:
@@ -99,6 +100,7 @@ def test_returns_unsupported_for_unregistered_combination(
     assert result["selected_model_variant"] is None
     assert result["model_selection_error"]
     assert result["ready_for_optimization"] is False
+    assert "model_config" not in result
 
 
 def test_registry_returns_no_match_for_incomplete_requirements() -> None:

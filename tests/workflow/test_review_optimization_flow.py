@@ -52,18 +52,6 @@ def create_model_submission_state(
         "selected_model_variant": (
             "single_product_single_period"
         ),
-        "model_config": {
-            "family_id": "newsvendor",
-            "family_name": "Newsvendor",
-            "variant_id": (
-                "single_product_single_period"
-            ),
-            "variant_name": (
-                "Single Product, Single Period"
-            ),
-            "decision": "Bestellmenge",
-            "objective": "Gewinn maximieren",
-        },
         "requirements": {
             "decision": "Bestellmenge",
             "objective": "Gewinn maximieren",
@@ -159,6 +147,15 @@ def test_confirmed_review_starts_optimization(
         ["solver_status"]
         == "Optimal"
     )
+
+    assert prepared_result["selected_model"] == {
+        "family_id": "newsvendor",
+        "family_name": "Newsvendor",
+        "variant_id": "single_product_single_period",
+        "variant_name": "Single Product, Single Period",
+    }
+
+    assert "model_config" not in prepared_result
 
 
 def test_review_with_constraint_affects_result(

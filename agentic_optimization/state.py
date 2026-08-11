@@ -149,19 +149,6 @@ class ControlState(TypedDict, total=False):
     workflow_status: WorkflowStatus
 
 
-# Beschreibende Metadaten der Modellauswahl.
-# Die verbindlichen technischen Schlüssel sind
-# selected_model_family und selected_model_variant.
-class ModelConfig(TypedDict, total=False):
-    family_id: str
-    family_name: str
-    variant_id: str
-    variant_name: str
-    explanation: str
-    objective: Any
-    decision: Any
-
-
 class GraphState(TypedDict, total=False):
     """
     Gemeinsamer Zustand des LangGraph-Workflows.
@@ -173,10 +160,9 @@ class GraphState(TypedDict, total=False):
     # Steuerinformationen für Routing im Graph und in der UI
     control: ControlState
 
-    # Eingaben aus UI / Formular / Chat
+    # Eingaben aus Formular 1 und 2
     raw_input: str
     form_data: dict[str, Any]
-    messages: list[dict[str, str]]
 
     # Ergebnis der allgemeinen Requirement-Extraktion
     requirements: Requirements
@@ -186,11 +172,6 @@ class GraphState(TypedDict, total=False):
     # Ergebnis der allgemeinen Validierung
     general_validation_errors: list[str]
 
-    # Vorgesehene Felder für zukünftige Hinweise zu auffälligen
-    # oder möglicherweise inkonsistenten Eingaben.
-    consistency_warnings: list[dict[str, Any]]
-    requirement_warnings: list[str]
-
     # Probleme in den erkannten Anforderungen, die geklärt
     # werden müssen, bevor der Workflow fortgesetzt werden kann.
     requirement_conflicts: list[RequirementConflict]
@@ -199,13 +180,11 @@ class GraphState(TypedDict, total=False):
     # Modellauswahl
     selected_model_family: str | None
     selected_model_variant: str | None
-    model_config: ModelConfig
     model_selection_error: str | None
 
     # Modellspezifische Eingaben:
     # family -> variant -> inputs
     model_specific_inputs: dict[str, dict[str, dict[str, Any]]]
-    required_model_inputs: list[dict[str, Any]]
     missing_model_input_fields: list[str]
     model_input_validation_errors: list[str]
 
@@ -224,9 +203,6 @@ class GraphState(TypedDict, total=False):
 
     # Fehler bei der Validierung aktiver Constraints.
     constraint_validation_errors: list[str]
-
-    # Noch fehlende Parameter aktiver Constraints.
-    required_constraint_inputs: list[dict[str, Any]]
 
     # Optimierungssteuerung
     # Wird erst nach erfolgreicher Input- und Constraintvalidierung gesetzt.

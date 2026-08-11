@@ -4,6 +4,7 @@ from agentic_optimization.configuration.llm_config import load_llm_configuration
 from agentic_optimization.graph import build_graph
 from agentic_optimization.llm.factory import create_chat_model
 from agentic_optimization.models.registry import (
+    get_model_family_definition,
     get_model_variant_definition,
 )
 from agentic_optimization.state import (
@@ -402,7 +403,6 @@ elif st.session_state.step == "freitext":
                 "form_data": (
                     st.session_state.form_data
                 ),
-                "messages": [],
             }
 
             st.session_state.graph_state = (
@@ -538,17 +538,17 @@ elif st.session_state.step == "model_input_form":
     # UI-Daten der ausgewählten Modellvariante laden
     # ---------------------------------------------------------
 
-    model_config = graph_state.get("model_config", {})
-
-    family_name = model_config.get(
-        "family_name",
-        selected_family,
+    family_definition = get_model_family_definition(
+        selected_family
     )
 
-    variant_name = model_config.get(
-        "variant_name",
-        selected_variant,
+    family_name = (
+        family_definition["family_name"]
+        if family_definition is not None
+        else selected_family
     )
+
+    variant_name = variant_definition["variant_name"]
 
     message_column, info_column = st.columns(
         [12, 1]
@@ -1157,7 +1157,6 @@ elif st.session_state.step == "model_input_form":
                 final_unsupported_constraints
             ),
             "constraint_validation_errors": [],
-            "required_constraint_inputs": [],
         }
 
         # Neue Formular-3-Daten verwerfen Review-Bestätigung und alte Ergebnisse.
