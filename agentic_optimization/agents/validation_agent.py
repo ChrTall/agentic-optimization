@@ -4,6 +4,9 @@ from typing import Any, get_args
 from agentic_optimization.models.registry import (
     get_model_variant_definition,
 )
+from agentic_optimization.models.types import (
+    ModelVariantDefinition,
+)
 from agentic_optimization.state import (
     WORKFLOW_GENERAL_INPUTS_VALID,
     WORKFLOW_MODEL_INPUTS_INVALID,
@@ -127,6 +130,19 @@ def _get_selected_model_inputs(
         .get(variant, {})
     )
 
+
+def _get_required_model_input_names(
+    model_definition: ModelVariantDefinition,
+) -> list[str]:
+    """Leitet Pflichtfelder aus den registrierten Eingabefeldern ab."""
+
+    return [
+        field_definition["name"]
+        for field_definition in model_definition["input_fields"]
+        if field_definition["required"]
+    ]
+
+
 def detect_model_specific_inputs(
     state: GraphState,
 ) -> GraphState:
@@ -172,12 +188,12 @@ def detect_model_specific_inputs(
         )
 
     selected_inputs = _get_selected_model_inputs(state)
-    required_fields = model_definition["required_fields"]
+    required_input_names = _get_required_model_input_names(model_definition)
 
     missing_fields = [
-        field
-        for field in required_fields
-        if selected_inputs.get(field) in (None, "", [])
+        field_name
+        for field_name in required_input_names
+        if selected_inputs.get(field_name) in (None, "", [])
     ]
 
     return with_control(
@@ -233,12 +249,12 @@ def validate_model_specific_inputs(
 
     if model_definition is not None:
         selected_inputs = _get_selected_model_inputs(state)
-        required_fields = model_definition["required_fields"]
+        required_input_names = _get_required_model_input_names(model_definition)
 
         missing_fields = [
-            field
-            for field in required_fields
-            if selected_inputs.get(field) in (None, "", [])
+            field_name
+            for field_name in required_input_names
+            if selected_inputs.get(field_name) in (None, "", [])
         ]
 
         input_validator = model_definition["input_validator"]
