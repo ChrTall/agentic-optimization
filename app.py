@@ -402,7 +402,6 @@ elif st.session_state.step == "freitext":
                 "form_data": (
                     st.session_state.form_data
                 ),
-                "messages": [],
             }
 
             st.session_state.graph_state = (

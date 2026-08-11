@@ -259,7 +259,6 @@ def create_requirement_agent(llm: BaseChatModel) -> Callable[[GraphState], Graph
             )
         )
 
-        requirement_warnings: list[str] = []
         requirement_conflicts: list[RequirementConflict] = []
 
         decision = _resolve_structured_field(
@@ -327,8 +326,6 @@ def create_requirement_agent(llm: BaseChatModel) -> Callable[[GraphState], Graph
                 "missing_fields": missing_fields,
                 "clarification_question": "",
                 "general_validation_errors": [],
-                "consistency_warnings": [],
-                "requirement_warnings": requirement_warnings,
                 "requirement_conflicts": requirement_conflicts,
                 "unsupported_requirements": unsupported_requirements,
             },

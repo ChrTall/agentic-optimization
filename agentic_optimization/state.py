@@ -173,10 +173,9 @@ class GraphState(TypedDict, total=False):
     # Steuerinformationen für Routing im Graph und in der UI
     control: ControlState
 
-    # Eingaben aus UI / Formular / Chat
+    # Eingaben aus Formular 1 und 2
     raw_input: str
     form_data: dict[str, Any]
-    messages: list[dict[str, str]]
 
     # Ergebnis der allgemeinen Requirement-Extraktion
     requirements: Requirements
@@ -185,11 +184,6 @@ class GraphState(TypedDict, total=False):
 
     # Ergebnis der allgemeinen Validierung
     general_validation_errors: list[str]
-
-    # Vorgesehene Felder für zukünftige Hinweise zu auffälligen
-    # oder möglicherweise inkonsistenten Eingaben.
-    consistency_warnings: list[dict[str, Any]]
-    requirement_warnings: list[str]
 
     # Probleme in den erkannten Anforderungen, die geklärt
     # werden müssen, bevor der Workflow fortgesetzt werden kann.
