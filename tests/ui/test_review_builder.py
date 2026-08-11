@@ -12,11 +12,6 @@ def create_review_state() -> dict:
         "selected_model_variant": (
             "single_product_single_period"
         ),
-        "model_config": {
-            "variant_name": (
-                "Ein Produkt, eine Periode"
-            ),
-        },
         "requirements": {
             "decision": "order_quantity",
             "objective": "maximize_profit",
@@ -160,12 +155,9 @@ def test_allows_review_without_constraints() -> None:
     assert review_data["constraints"] == []
 
 
-def test_uses_registered_variant_name_as_fallback() -> None:
-    state = create_review_state()
-    state["model_config"] = {}
-
+def test_uses_registered_variant_name() -> None:
     review_data = build_review_data(
-        state,
+        create_review_state(),
         VARIANT_DEFINITION,
     )
 

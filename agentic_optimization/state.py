@@ -149,19 +149,6 @@ class ControlState(TypedDict, total=False):
     workflow_status: WorkflowStatus
 
 
-# Beschreibende Metadaten der Modellauswahl.
-# Die verbindlichen technischen Schlüssel sind
-# selected_model_family und selected_model_variant.
-class ModelConfig(TypedDict, total=False):
-    family_id: str
-    family_name: str
-    variant_id: str
-    variant_name: str
-    explanation: str
-    objective: Any
-    decision: Any
-
-
 class GraphState(TypedDict, total=False):
     """
     Gemeinsamer Zustand des LangGraph-Workflows.
@@ -193,7 +180,6 @@ class GraphState(TypedDict, total=False):
     # Modellauswahl
     selected_model_family: str | None
     selected_model_variant: str | None
-    model_config: ModelConfig
     model_selection_error: str | None
 
     # Modellspezifische Eingaben:

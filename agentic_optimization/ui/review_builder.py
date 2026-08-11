@@ -249,13 +249,6 @@ def build_review_data(
         [],
     )
 
-    model_config = state.get("model_config", {})
-
-    model_name = model_config.get(
-        "variant_name",
-        variant_definition["variant_name"],
-    )
-
     return {
         "problem": _build_problem_items(
             requirements,
@@ -268,5 +261,5 @@ def build_review_data(
             constraints,
             variant_definition,
         ),
-        "model_name": str(model_name),
+        "model_name": variant_definition["variant_name"],
     }
