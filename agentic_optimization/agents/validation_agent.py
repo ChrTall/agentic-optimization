@@ -142,7 +142,6 @@ def detect_model_specific_inputs(
         return with_control(
             {
                 **state,
-                "required_model_inputs": [],
                 "missing_model_input_fields": [],
                 "model_input_validation_errors": [
                     "Es konnte keine vollständig unterstützte Modellfamilie und Modellvariante ausgewählt werden."
@@ -162,7 +161,6 @@ def detect_model_specific_inputs(
         return with_control(
             {
                 **state,
-                "required_model_inputs": [],
                 "missing_model_input_fields": [],
                 "model_input_validation_errors": [
                     f"Die Modellvariante '{family}/{variant}' ist nicht registriert."
@@ -182,23 +180,9 @@ def detect_model_specific_inputs(
         if selected_inputs.get(field) in (None, "", [])
     ]
 
-    required_model_inputs = (
-        [
-            {
-                "family": family,
-                "variant": variant,
-                "form_id": f"{family}_{variant}_parameters",
-                "fields": model_definition["input_fields"],
-            }
-        ]
-        if missing_fields
-        else []
-    )
-
     return with_control(
         {
             **state,
-            "required_model_inputs": required_model_inputs,
             "missing_model_input_fields": missing_fields,
             "model_input_validation_errors": [],
             "ready_for_optimization": False,
@@ -227,7 +211,6 @@ def validate_model_specific_inputs(
 
     errors: list[str] = []
     missing_fields: list[str] = []
-    required_model_inputs: list[dict[str, Any]] = []
 
     model_definition = None
 
@@ -261,23 +244,12 @@ def validate_model_specific_inputs(
         input_validator = model_definition["input_validator"]
         errors.extend(input_validator(selected_inputs))
 
-        if errors or missing_fields:
-            required_model_inputs = [
-                {
-                    "family": family,
-                    "variant": variant,
-                    "form_id": f"{family}_{variant}_parameters",
-                    "fields": model_definition["input_fields"],
-                }
-            ]
-
     validation_failed = bool(errors or missing_fields)
 
     return with_control(
         {
             **state,
             "missing_model_input_fields": missing_fields,
-            "required_model_inputs": required_model_inputs,
             "model_input_validation_errors": errors,
             "ready_for_optimization": False,
         },
@@ -308,7 +280,6 @@ def validate_structured_constraints(
     )
 
     errors: list[str] = []
-    required_constraint_inputs: list[dict[str, Any]] = []
 
     # ---------------------------------------------------------------
     # 1. Ausgewählte Modellvariante prüfen
@@ -371,7 +342,7 @@ def validate_structured_constraints(
 
     seen_types: set[str] = set()
 
-    for constraint_index, constraint in enumerate(constraints):
+    for constraint in constraints:
         if not isinstance(constraint, dict):
             errors.append(
                 "Ein strukturierter Constraint muss als Dictionary "
@@ -444,10 +415,6 @@ def validate_structured_constraints(
                 f"Constraint '{constraint_type}' nicht unterstützt."
             )
 
-        missing_parameter_fields: list[
-            dict[str, Any]
-        ] = []
-
         for parameter_definition in definition["parameters"]:
             parameter_name = parameter_definition["name"]
             parameter_type = parameter_definition["type"]
@@ -463,16 +430,6 @@ def validate_structured_constraints(
                 errors.append(
                     f"Für den Constraint '{constraint_type}' "
                     f"fehlt der Parameter '{parameter_name}'."
-                )
-
-                missing_parameter_fields.append(
-                    {
-                        "name": parameter_name,
-                        "label": parameter_definition["label"],
-                        "type": parameter_type,
-                        "required": required,
-                        "help": parameter_definition.get("help"),
-                    }
                 )
 
                 continue
@@ -492,18 +449,6 @@ def validate_structured_constraints(
                     f"Constraints '{constraint_type}' muss "
                     "eine endliche Zahl sein."
                 )
-
-        if missing_parameter_fields:
-            required_constraint_inputs.append(
-                {
-                    "constraint_index": constraint_index,
-                    "constraint_type": constraint_type,
-                    "source_text": constraint.get(
-                        "source_text"
-                    ),
-                    "fields": missing_parameter_fields,
-                }
-            )
 
     # ---------------------------------------------------------------
     # 5. Variantenspezifischen Constraintvalidator ausführen
@@ -533,9 +478,6 @@ def validate_structured_constraints(
         {
             **state,
             "constraint_validation_errors": errors,
-            "required_constraint_inputs": (
-                required_constraint_inputs
-            ),
             "ready_for_optimization": not validation_failed,
             "review_confirmed": False,
         },

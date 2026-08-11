@@ -58,10 +58,6 @@ def test_rejects_active_constraint_without_required_parameter() -> None:
         ]
     )
 
-    assert result[
-        "required_constraint_inputs"
-    ]
-
     assert result["ready_for_optimization"] is False
 
     assert (

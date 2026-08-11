@@ -1156,7 +1156,6 @@ elif st.session_state.step == "model_input_form":
                 final_unsupported_constraints
             ),
             "constraint_validation_errors": [],
-            "required_constraint_inputs": [],
         }
 
         # Neue Formular-3-Daten verwerfen Review-Bestätigung und alte Ergebnisse.
