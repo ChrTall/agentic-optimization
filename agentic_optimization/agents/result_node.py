@@ -89,11 +89,6 @@ def result_node(state: GraphState) -> GraphState:
         ),
         "optimization_result": optimization_result,
         "optimization_errors": optimization_errors,
-        "next_steps": [
-            "Optimierungsergebnis fachlich prüfen.",
-            "Modellannahmen bei Bedarf anpassen.",
-            "Bestellentscheidung dokumentieren.",
-        ],
     }
 
     return with_control(
