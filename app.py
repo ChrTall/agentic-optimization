@@ -24,6 +24,9 @@ from agentic_optimization.ui.field_renderer import (
     parse_input_value,
     render_input_field,
 )
+from agentic_optimization.ui.pdf_input import (
+    extract_text_from_pdf,
+)
 from agentic_optimization.ui.result_builder import (
     build_result_data,
 )
@@ -120,6 +123,15 @@ if "graph_state" not in st.session_state:
     st.session_state.graph_state = None
 if "raw_problem_description" not in st.session_state:
     st.session_state.raw_problem_description = ""
+if "description_input_mode" not in st.session_state:
+    st.session_state.description_input_mode = "freitext"
+if "pdf_extraction_signature" not in st.session_state:
+    st.session_state.pdf_extraction_signature = None
+
+DESCRIPTION_INPUT_MODE_LABELS = {
+    "freitext": "✏️ Freitext eingeben",
+    "pdf": "📄 Dokument hochladen (PDF)",
+}
 
 # ── Fortschrittsanzeige ───────────────────────────────────────────────────────
 
@@ -334,7 +346,85 @@ elif st.session_state.step == "freitext":
         )
 
     # ---------------------------------------------------------
-    # Editierbarer Beschreibungstext
+    # Auswahl der Eingabeart: Freitext oder PDF-Dokument
+    # ---------------------------------------------------------
+
+    st.session_state.description_input_mode = st.radio(
+        "Wie möchten Sie Ihr Problem beschreiben?",
+        options=list(DESCRIPTION_INPUT_MODE_LABELS),
+        format_func=lambda value: (
+            DESCRIPTION_INPUT_MODE_LABELS[value]
+        ),
+        horizontal=True,
+        key="description_input_mode_choice",
+        index=list(DESCRIPTION_INPUT_MODE_LABELS).index(
+            st.session_state.description_input_mode
+        ),
+    )
+
+    input_mode = st.session_state.description_input_mode
+
+    # ---------------------------------------------------------
+    # PDF-Upload: Text wird extrahiert und in das Beschreibungs-
+    # feld unten übernommen, damit der bestehende Analyse-Pfad
+    # (raw_input) unverändert bleibt.
+    # ---------------------------------------------------------
+
+    if input_mode == "pdf":
+        uploaded_pdf = st.file_uploader(
+            (
+                "PDF-Dokument hochladen (z. B. Liefervertrag, "
+                "Spezifikation)"
+            ),
+            type=["pdf"],
+            key="pdf_uploader",
+        )
+
+        if uploaded_pdf is not None:
+            file_signature = (
+                uploaded_pdf.name,
+                uploaded_pdf.size,
+            )
+
+            if (
+                st.session_state.pdf_extraction_signature
+                != file_signature
+            ):
+                with st.spinner(
+                    "PDF wird gelesen und Text extrahiert …"
+                ):
+                    extraction_result = (
+                        extract_text_from_pdf(uploaded_pdf)
+                    )
+
+                if extraction_result.error:
+                    st.error(extraction_result.error)
+                else:
+                    st.session_state.raw_problem_description = (
+                        extraction_result.text
+                    )
+                    st.success(
+                        "Text wurde aus "
+                        f"{extraction_result.page_count} "
+                        "Seite(n) übernommen. Sie können ihn "
+                        "unten noch anpassen."
+                    )
+
+                st.session_state.pdf_extraction_signature = (
+                    file_signature
+                )
+        else:
+            st.session_state.pdf_extraction_signature = None
+
+        st.caption(
+            "Der extrahierte Text erscheint editierbar im "
+            "Textfeld unten und wird genauso analysiert wie "
+            "eine manuell eingegebene Beschreibung."
+        )
+
+    # ---------------------------------------------------------
+    # Editierbarer Beschreibungstext (gemeinsame Grundlage für
+    # Freitext- und PDF-Eingabe)
     # ---------------------------------------------------------
 
     raw_input = st.text_area(
@@ -1660,6 +1750,12 @@ elif st.session_state.step == "result":
             "form_product_scope",
             "form_planning_horizon",
             "submit_general_form",
+            "form_planning_horizon",
+            "submit_general_form",
+            "description_input_mode",
+            "description_input_mode_choice",
+            "pdf_extraction_signature",
+            "pdf_uploader",
             "confirm_review_problem",
             "confirm_review_parameters",
             "confirm_review_constraints",
