@@ -39,7 +39,7 @@ Format:
   "objective": "maximize_profit | minimize_cost | reach_service_level | null",
   "demand_type": "known | uncertain | historical_estimate | null",
   "product_scope": "single_product | multiple_products | null",
-  "planning_horizon": "single_period | multiple_periods | null",
+  "planning_horizon": "single_period | repeated_cycles | multiple_periods | null",
   "constraints": ["...", "..."],
   "unsupported_requirements": [
     {
@@ -73,7 +73,8 @@ product_scope:
 
 planning_horizon:
 - single_period: eine einmalige Entscheidung
-- multiple_periods: mehrere aufeinanderfolgende Zeiträume
+- repeated_cycles: eine dauerhaft wiederkehrende Entscheidung in gleichartigen Zyklen
+- multiple_periods: mehrere explizit aufeinanderfolgende Zeiträume mit zeitabhängiger Planung
 
 
 constraints enthält ausschließlich konkrete betriebliche Vorgaben oder

@@ -11,8 +11,9 @@ FIELD_QUESTIONS = {
     "demand_type": "Wie ist die Nachfrage beschaffen? Ist sie bekannt, unsicher, saisonal oder historisch geschätzt?",
     "constraints": "Welche betrieblichen Rahmenbedingungen oder Limits müssen berücksichtigt werden? Zum Beispiel Budget, Kapazität, Lagerplatz, Mindestmengen oder Lieferzeiten.",
     "product_scope": "Für wie viele Produkte soll eine Entscheidung getroffen werden: für ein Produkt oder für mehrere Produkte?",
-    "planning_horizon": "Geht es um eine einmalige Bestellentscheidung oder um mehrere aufeinanderfolgende Zeiträume?",
+    "planning_horizon": "Geht es um eine einmalige Entscheidung, um wiederkehrende gleichartige Bestellzyklen oder um mehrere aufeinanderfolgende Planungszeiträume?",
 }
+
 
 FIELD_LABELS = {
     "decision": "Art der Entscheidung",
@@ -37,6 +38,7 @@ VALUE_LABELS = {
     "single_product": "ein Produkt",
     "multiple_products": "mehrere Produkte",
     "single_period": "eine einmalige Entscheidung",
+    "repeated_cycles": "wiederkehrende Bestellzyklen",
     "multiple_periods": "mehrere Zeiträume",
 }
 
