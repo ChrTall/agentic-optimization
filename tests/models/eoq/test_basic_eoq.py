@@ -120,6 +120,18 @@ def test_optimizer_returns_dictionary(
         result["model_representation"]
     )
 
+    assert (
+        "Mindestbestellmenge = nicht gesetzt"
+        in result["model_representation"]
+    )
+
+    assert (
+        "Höchstbestellmenge = nicht gesetzt"
+        in result["model_representation"]
+    )
+
+    assert "None" not in result["model_representation"]
+
 
 def test_minimum_order_quantity_limits_result(
     valid_inputs: dict,

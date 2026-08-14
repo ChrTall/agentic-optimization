@@ -366,6 +366,18 @@ def solve_basic_eoq(
         + annual_holding_cost
     )
 
+    minimum_quantity_text = (
+        "nicht gesetzt"
+        if specification.minimum_order_quantity is None
+        else str(specification.minimum_order_quantity)
+    )
+
+    maximum_quantity_text = (
+        "nicht gesetzt"
+        if specification.maximum_order_quantity is None
+        else str(specification.maximum_order_quantity)
+    )
+
     model_representation = "\n".join(
         [
             "Q* = sqrt(2 * D * S / H)",
@@ -378,11 +390,11 @@ def solve_basic_eoq(
             ),
             (
                 "Mindestbestellmenge = "
-                f"{specification.minimum_order_quantity}"
+                f"{minimum_quantity_text}"
             ),
             (
                 "Höchstbestellmenge = "
-                f"{specification.maximum_order_quantity}"
+                f"{maximum_quantity_text}"
             ),
             (
                 "Empfohlene Bestellmenge = "
