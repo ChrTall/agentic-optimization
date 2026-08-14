@@ -337,3 +337,24 @@ def test_variant_definition_uses_analytical_eoq_components() -> None:
         VARIANT_DEFINITION["result_builder"]
         is build_basic_eoq_result_presentation
     )
+
+
+def test_optimizer_rejects_missing_constraint_quantity(
+    valid_inputs: dict,
+) -> None:
+    constraints = [
+        {
+            "type": "minimum_order_quantity",
+            "parameters": {},
+            "source_text": None,
+        }
+    ]
+
+    with pytest.raises(
+        ValueError,
+        match="fehlt der Parameter 'quantity'",
+    ):
+        optimize_basic_eoq(
+            inputs=valid_inputs,
+            constraints=constraints,
+        )

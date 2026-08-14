@@ -244,3 +244,62 @@ def test_rejects_unsupported_constraint(
             "wird von Basic EOQ nicht unterstützt."
         )
     ]
+
+
+def test_rejects_missing_constraint_quantity(
+    valid_inputs: dict,
+) -> None:
+    constraints = [
+        {
+            "type": "minimum_order_quantity",
+            "parameters": {},
+            "source_text": None,
+        }
+    ]
+
+    errors = validate_basic_eoq_constraints(
+        valid_inputs,
+        constraints,
+    )
+
+    assert errors == [
+        (
+            "Für den Constraint "
+            "'minimum_order_quantity' "
+            "fehlt der Parameter 'quantity'."
+        )
+    ]
+
+
+def test_rejects_duplicate_constraint_type(
+    valid_inputs: dict,
+) -> None:
+    constraints = [
+        {
+            "type": "minimum_order_quantity",
+            "parameters": {
+                "quantity": 200.0,
+            },
+            "source_text": None,
+        },
+        {
+            "type": "minimum_order_quantity",
+            "parameters": {
+                "quantity": 300.0,
+            },
+            "source_text": None,
+        },
+    ]
+
+    errors = validate_basic_eoq_constraints(
+        valid_inputs,
+        constraints,
+    )
+
+    assert errors == [
+        (
+            "Der Constraint-Typ "
+            "'minimum_order_quantity' "
+            "wurde mehrfach angegeben."
+        )
+    ]

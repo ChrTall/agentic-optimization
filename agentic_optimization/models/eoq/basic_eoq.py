@@ -158,10 +158,21 @@ def validate_basic_eoq_constraints(
 
     minimum_quantity: float | None = None
     maximum_quantity: float | None = None
+    seen_types: set[str] = set()
+
 
     for constraint in constraints:
         constraint_type = constraint["type"]
         parameters = constraint["parameters"]
+
+        if constraint_type in seen_types:
+            errors.append(
+                f"Der Constraint-Typ '{constraint_type}' "
+                "wurde mehrfach angegeben."
+            )
+            continue
+
+        seen_types.add(constraint_type)
 
         if constraint_type not in SUPPORTED_CONSTRAINTS:
             errors.append(
@@ -172,7 +183,11 @@ def validate_basic_eoq_constraints(
 
         quantity = parameters.get("quantity")
 
-        if quantity is None:
+        if quantity is None or quantity == "":
+            errors.append(
+                f"Für den Constraint '{constraint_type}' "
+                "fehlt der Parameter 'quantity'."
+            )
             continue
 
         if (
