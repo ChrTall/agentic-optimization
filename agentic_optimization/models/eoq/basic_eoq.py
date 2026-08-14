@@ -21,11 +21,13 @@ from agentic_optimization.models.types import (
 INPUT_FIELDS: list[ModelInputField] = [
     {
         "name": "annual_demand",
-        "label": "Jahresbedarf",
+        "label": "Erwarteter Jahresbedarf",
         "type": "number",
         "required": True,
         "help": (
-            "Gesamter erwarteter Bedarf innerhalb eines Jahres."
+            "Erwarteter Gesamtbedarf innerhalb eines Jahres. "
+            "Das Basic-EOQ-Modell setzt einen über die Zeit "
+            "annähernd konstanten Bedarf voraus."
         ),
         "placeholder": None,
         "min_value": 0.01,
@@ -114,7 +116,7 @@ def validate_basic_eoq_inputs(
     errors: list[str] = []
 
     input_labels = {
-        "annual_demand": "Der Jahresbedarf",
+        "annual_demand": "Der erwartete Jahresbedarf",
         "ordering_cost": "Die Bestellkosten",
         "holding_cost": "Die Lagerhaltungskosten",
     }

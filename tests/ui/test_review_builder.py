@@ -237,7 +237,7 @@ def test_builds_basic_eoq_review_data() -> None:
 
     assert review_data["parameters"] == [
         {
-            "label": "Jahresbedarf",
+            "label": "Erwarteter Jahresbedarf",
             "value": "3500 Einheiten pro Jahr",
         },
         {
