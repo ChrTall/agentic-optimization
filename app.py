@@ -56,6 +56,9 @@ PRODUCT_SCOPE_LABELS = {
 
 PLANNING_HORIZON_LABELS = {
     "single_period": "Für eine einmalige Entscheidung",
+    "repeated_cycles": (
+        "Für wiederkehrende Bestellungen"
+    ),
     "multiple_periods": (
         "Für mehrere aufeinanderfolgende Zeiträume"
     ),
@@ -1562,9 +1565,8 @@ elif st.session_state.step == "result":
             expanded=True,
         ):
             st.caption(
-                "Die Tabelle zeigt, wie sich die Empfehlung "
-                "in den betrachteten Nachfragesituationen "
-                "auswirkt."
+                "Die Tabelle zeigt weitere Kennzahlen und "
+                "Details der Berechnung."
             )
 
             st.table(
@@ -1608,7 +1610,7 @@ elif st.session_state.step == "result":
         )
 
         st.markdown(
-            f"**Solverstatus**  \n"
+            f"**Berechnungsstatus**  \n"
             f"{result_data['solver_status']}"
         )
 
@@ -1618,14 +1620,13 @@ elif st.session_state.step == "result":
 
         if model_representation:
             st.markdown(
-                "**Tatsächlich berechnetes "
-                "Optimierungsmodell**"
+                "**Technische Darstellung der Berechnung**"
             )
 
             st.caption(
-                "Diese Darstellung entspricht dem "
-                "PuLP-Modell, das an den Solver "
-                "übergeben wurde."
+                "Diese Darstellung zeigt die verwendete "
+                "mathematische Berechnung beziehungsweise "
+                "das Optimierungsmodell."
             )
 
             st.code(

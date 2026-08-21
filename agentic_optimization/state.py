@@ -102,6 +102,7 @@ ProductScope = Literal[
 
 PlanningHorizon = Literal[
     "single_period",
+    "repeated_cycles",
     "multiple_periods",
 ]
 

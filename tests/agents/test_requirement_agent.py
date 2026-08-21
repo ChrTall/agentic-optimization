@@ -83,6 +83,54 @@ def test_uses_canonical_form_values() -> None:
     assert result["requirement_conflicts"] == []
 
 
+def test_accepts_repeated_cycles_planning_horizon() -> None:
+    llm = create_mock_llm(
+        create_llm_response(
+            planning_horizon="repeated_cycles",
+        )
+    )
+
+    agent = create_requirement_agent(llm)
+
+    form_data = create_complete_form_data()
+    form_data["objective"] = "minimize_cost"
+    form_data["demand_type"] = "known"
+    form_data["planning_horizon"] = (
+        "repeated_cycles"
+    )
+
+    extracted_state = agent(
+        {
+            "form_data": form_data,
+            "raw_input": (
+                "Der Bedarf ist bekannt. Die Bestellung "
+                "wird in gleichartigen Zyklen wiederholt."
+            ),
+        }
+    )
+
+    assert (
+        extracted_state["requirements"][
+            "planning_horizon"
+        ]
+        == "repeated_cycles"
+    )
+
+    assert (
+        extracted_state["requirement_conflicts"]
+        == []
+    )
+
+    validated_state = validate_general_requirements(
+        extracted_state
+    )
+
+    assert (
+        get_workflow_status(validated_state)
+        == WORKFLOW_GENERAL_INPUTS_VALID
+    )
+
+
 def test_llm_fills_missing_form_values() -> None:
     llm = create_mock_llm(
         create_llm_response(

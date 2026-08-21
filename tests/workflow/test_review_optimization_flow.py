@@ -1,3 +1,4 @@
+import math
 from unittest.mock import Mock
 
 import pytest
@@ -67,6 +68,42 @@ def create_model_submission_state(
             }
         },
         "structured_constraints": [],
+        "unsupported_constraints": [],
+        "constraint_mapping_errors": [],
+        "review_confirmed": False,
+    }
+
+
+def create_eoq_model_submission_state(
+    constraints: list[dict] | None = None,
+) -> dict:
+    return {
+        "control": {
+            "event": EVENT_MODEL_INPUTS_SUBMITTED,
+        },
+        "selected_model_family": "eoq",
+        "selected_model_variant": "basic_eoq",
+        "requirements": {
+            "decision": "order_quantity",
+            "objective": "minimize_cost",
+            "demand_type": "known",
+            "product_scope": "single_product",
+            "planning_horizon": "repeated_cycles",
+            "constraints": [],
+            "raw_description": "",
+        },
+        "model_specific_inputs": {
+            "eoq": {
+                "basic_eoq": {
+                    "annual_demand": 3500.0,
+                    "ordering_cost": 120.0,
+                    "holding_cost": 12.0,
+                },
+            }
+        },
+        "structured_constraints": (
+            constraints or []
+        ),
         "unsupported_constraints": [],
         "constraint_mapping_errors": [],
         "review_confirmed": False,
@@ -246,3 +283,128 @@ def test_optimization_without_confirmation_returns_error_result(
         in error
         for error in result["optimization_errors"]
     )
+
+
+def test_basic_eoq_review_and_optimization_flow(
+    graph,
+) -> None:
+    state = create_eoq_model_submission_state()
+
+    review_state = graph.invoke(state)
+
+    assert (
+        get_workflow_status(review_state)
+        == WORKFLOW_READY_FOR_REVIEW
+    )
+
+    assert review_state[
+        "ready_for_optimization"
+    ] is True
+
+    optimization_state = {
+        **review_state,
+        "control": {
+            **review_state.get("control", {}),
+            "event": EVENT_OPTIMIZATION_REQUESTED,
+        },
+        "review_confirmed": True,
+    }
+
+    result = graph.invoke(
+        optimization_state
+    )
+
+    assert (
+        get_workflow_status(result)
+        == WORKFLOW_READY_FOR_RESULT
+    )
+
+    optimization_result = result[
+        "optimization_result"
+    ]
+
+    assert optimization_result is not None
+
+    assert (
+        optimization_result["solver_status"]
+        == "Optimal"
+    )
+
+    assert optimization_result[
+        "order_quantity"
+    ] == pytest.approx(
+        math.sqrt(70000)
+    )
+
+    assert result["optimization_errors"] == []
+
+    assert result["result"][
+        "selected_model"
+    ] == {
+        "family_id": "eoq",
+        "family_name": "EOQ",
+        "variant_id": "basic_eoq",
+        "variant_name": "Basic EOQ",
+    }
+
+
+def test_basic_eoq_minimum_quantity_affects_result(
+    graph,
+) -> None:
+    constraints = [
+        {
+            "type": "minimum_order_quantity",
+            "parameters": {
+                "quantity": 300.0,
+            },
+            "source_text": None,
+        }
+    ]
+
+    state = create_eoq_model_submission_state(
+        constraints
+    )
+
+    review_state = graph.invoke(state)
+
+    assert (
+        get_workflow_status(review_state)
+        == WORKFLOW_READY_FOR_REVIEW
+    )
+
+    optimization_state = {
+        **review_state,
+        "control": {
+            **review_state.get("control", {}),
+            "event": EVENT_OPTIMIZATION_REQUESTED,
+        },
+        "review_confirmed": True,
+    }
+
+    result = graph.invoke(
+        optimization_state
+    )
+
+    assert (
+        get_workflow_status(result)
+        == WORKFLOW_READY_FOR_RESULT
+    )
+
+    optimization_result = result[
+        "optimization_result"
+    ]
+
+    assert optimization_result is not None
+    assert (
+        optimization_result["order_quantity"]
+        == 300.0
+    )
+    assert optimization_result[
+        "annual_ordering_cost"
+    ] == pytest.approx(1400.0)
+    assert optimization_result[
+        "annual_holding_cost"
+    ] == pytest.approx(1800.0)
+    assert optimization_result[
+        "annual_relevant_cost"
+    ] == pytest.approx(3200.0)
