@@ -24,6 +24,10 @@ from agentic_optimization.ui.field_renderer import (
     parse_input_value,
     render_input_field,
 )
+from agentic_optimization.agents.document_extraction_agent import (   
+    extract_document_parameters,                                      
+    format_parameter_display,                                         
+)
 from agentic_optimization.ui.pdf_input import (
     extract_text_from_pdf,
 )
@@ -127,6 +131,9 @@ if "description_input_mode" not in st.session_state:
     st.session_state.description_input_mode = "freitext"
 if "pdf_extraction_signature" not in st.session_state:
     st.session_state.pdf_extraction_signature = None
+if "pdf_extracted_parameters" not in st.session_state:      
+    st.session_state.pdf_extracted_parameters = []          
+
 
 DESCRIPTION_INPUT_MODE_LABELS = {
     "freitext": "✏️ Freitext eingeben",
@@ -399,6 +406,7 @@ elif st.session_state.step == "freitext":
 
                 if extraction_result.error:
                     st.error(extraction_result.error)
+                    st.session_state.pdf_extracted_parameters = []  
                 else:
                     st.session_state.raw_problem_description = (
                         extraction_result.text
@@ -410,17 +418,86 @@ elif st.session_state.step == "freitext":
                         "unten noch anpassen."
                     )
 
+                    llm = st.session_state.get("llm")
+
+                    if llm is None:
+                        try:
+                            llm_config = (
+                                load_llm_configuration()
+                            )
+                            llm = create_chat_model(
+                                llm_config
+                            )
+                            st.session_state.llm = llm
+                        except Exception as error:
+                            st.warning(
+                                "Automatische Werterkennung "
+                                f"nicht möglich: {error}"
+                            )
+                            llm = None
+
+                    if llm is not None:
+                        with st.spinner(
+                            "Dokument wird auf konkrete "
+                            "Werte durchsucht …"
+                        ):
+                            st.session_state.pdf_extracted_parameters = (
+                                extract_document_parameters(
+                                    llm,
+                                    extraction_result.text,
+                                )
+                            )
+                    
                 st.session_state.pdf_extraction_signature = (
                     file_signature
                 )
         else:
             st.session_state.pdf_extraction_signature = None
-
         st.caption(
             "Der extrahierte Text erscheint editierbar im "
             "Textfeld unten und wird genauso analysiert wie "
             "eine manuell eingegebene Beschreibung."
         )
+
+    if input_mode == "pdf" and st.session_state.pdf_extracted_parameters:
+        st.markdown("**Erkannte Werte aus dem Dokument**")
+        st.caption(
+            "Diese Werte hat die KI im Dokument gefunden. Prüfen "
+            "Sie sie und übernehmen Sie nur, was korrekt ist."
+        )
+
+        selected_lines = []
+
+        for index, parameter in enumerate(
+            st.session_state.pdf_extracted_parameters
+        ):
+            include = st.checkbox(
+                format_parameter_display(parameter),
+                value=True,
+                key=f"pdf_param_include_{index}",
+                help=parameter.get("evidence"),
+            )
+
+            if include:
+                selected_lines.append(
+                    format_parameter_display(parameter)
+                )
+
+        if st.button(
+            "Ausgewählte Werte in die Beschreibung übernehmen",
+            key="apply_pdf_parameters",
+        ):
+            if selected_lines:
+                current_text = (
+                    st.session_state.raw_problem_description
+                )
+                appended = "\n".join(selected_lines)
+                st.session_state.raw_problem_description = (
+                    f"{current_text}\n\nErkannte Werte:\n"
+                    f"{appended}"
+                ).strip()
+
+            st.rerun()
 
     # ---------------------------------------------------------
     # Editierbarer Beschreibungstext (gemeinsame Grundlage für
@@ -1756,6 +1833,7 @@ elif st.session_state.step == "result":
             "description_input_mode_choice",
             "pdf_extraction_signature",
             "pdf_uploader",
+            "pdf_extracted_parameters",
             "confirm_review_problem",
             "confirm_review_parameters",
             "confirm_review_constraints",
