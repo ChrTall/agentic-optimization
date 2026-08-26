@@ -105,6 +105,11 @@ PlanningHorizon = Literal[
     "multiple_periods",
 ]
 
+ReviewType = Literal[
+    "continuous_review",
+    "periodic_review",
+]
+
 
 # Konflikte entstehen, wenn Formular und Freitext zwei
 # unterschiedliche, grundsätzlich unterstützte Werte liefern.
@@ -130,6 +135,7 @@ class Requirements(TypedDict, total=False):
     demand_type: DemandType | None
     product_scope: ProductScope | None
     planning_horizon: PlanningHorizon | None
+    review_type: ReviewType | None
     constraints: list[str]
     raw_description: str
 

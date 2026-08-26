@@ -31,6 +31,19 @@ def create_number_list_field() -> dict:
     }
 
 
+def create_integer_field() -> dict:
+    return {
+        "name": "reorder_point",
+        "label": "Meldebestand",
+        "type": "integer",
+        "required": True,
+        "help": None,
+        "min_value": 0,
+        "step": 1,
+        "unit": "Einheiten",
+    }
+
+
 def test_parses_number() -> None:
     result = parse_input_value(
         create_number_field(),
@@ -47,6 +60,27 @@ def test_returns_none_for_empty_number() -> None:
     )
 
     assert result is None
+
+
+def test_parses_integer_units() -> None:
+    result = parse_input_value(
+        create_integer_field(),
+        42.0,
+    )
+
+    assert result == 42
+    assert isinstance(result, int)
+
+
+def test_rejects_fractional_integer_units() -> None:
+    with pytest.raises(
+        ValueError,
+        match="ganzen Einheiten",
+    ):
+        parse_input_value(
+            create_integer_field(),
+            42.5,
+        )
 
 
 def test_rejects_number_below_minimum() -> None:

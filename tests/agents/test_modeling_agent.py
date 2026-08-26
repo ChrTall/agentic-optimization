@@ -101,6 +101,53 @@ def test_returns_unsupported_for_unregistered_combination(
     assert result["ready_for_optimization"] is False
 
 
+def test_selects_q_r_for_continuous_multi_period_review() -> None:
+    requirements = {
+        "decision": "order_quantity",
+        "objective": "minimize_cost",
+        "demand_type": "uncertain",
+        "product_scope": "single_product",
+        "planning_horizon": "multiple_periods",
+        "review_type": "continuous_review",
+        "constraints": [],
+        "raw_description": "",
+    }
+
+    result = modeling_agent(
+        {"requirements": requirements}
+    )
+
+    assert (
+        get_workflow_status(result)
+        == WORKFLOW_MODEL_SELECTED
+    )
+    assert result["selected_model_family"] == "reorder_point"
+    assert result["selected_model_variant"] == "q_r_policy"
+
+
+def test_periodic_review_is_reserved_but_not_implemented() -> None:
+    requirements = {
+        "decision": "order_quantity",
+        "objective": "minimize_cost",
+        "demand_type": "uncertain",
+        "product_scope": "single_product",
+        "planning_horizon": "multiple_periods",
+        "review_type": "periodic_review",
+        "constraints": [],
+        "raw_description": "",
+    }
+
+    result = modeling_agent(
+        {"requirements": requirements}
+    )
+
+    assert (
+        get_workflow_status(result)
+        == WORKFLOW_MODEL_UNSUPPORTED
+    )
+    assert result["selected_model_family"] is None
+
+
 def test_registry_returns_no_match_for_incomplete_requirements() -> None:
     requirements = create_supported_requirements()
     requirements["planning_horizon"] = None

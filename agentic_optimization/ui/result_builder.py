@@ -24,6 +24,7 @@ class ResultData(TypedDict):
     status_label: str
     status_message: str
     metrics: list[ResultMetric]
+    technical_metrics: list[ResultMetric]
     detail_title: str | None
     detail_rows: list[dict[str, str]]
     constraints: list[ReviewItem]
@@ -123,6 +124,7 @@ def build_result_data(
     )
 
     metrics: list[ResultMetric] = []
+    technical_metrics: list[ResultMetric] = []
     detail_title: str | None = None
     detail_rows: list[dict[str, str]] = []
 
@@ -135,6 +137,9 @@ def build_result_data(
         )
 
         metrics = variant_result["metrics"]
+        technical_metrics = variant_result[
+            "technical_metrics"
+        ]
         detail_title = variant_result[
             "detail_title"
         ]
@@ -189,6 +194,7 @@ def build_result_data(
         "status_label": status_label,
         "status_message": status_message,
         "metrics": metrics,
+        "technical_metrics": technical_metrics,
         "detail_title": detail_title,
         "detail_rows": detail_rows,
         "constraints": constraints,

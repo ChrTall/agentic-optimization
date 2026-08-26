@@ -109,6 +109,7 @@ def test_builds_successful_newsvendor_result() -> None:
             "value": "840,00 €",
         },
     ]
+    assert result_data["technical_metrics"] == []
 
 
 def test_builds_newsvendor_scenario_details() -> None:
@@ -253,6 +254,7 @@ def test_variant_registers_result_builder() -> None:
             "value": "840,00 €",
         },
     ]
+    assert presentation["technical_metrics"] == []
 
     assert (
         presentation["detail_title"]

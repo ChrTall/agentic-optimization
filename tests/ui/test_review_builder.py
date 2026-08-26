@@ -86,14 +86,29 @@ def test_builds_problem_review_items() -> None:
             "value": "Unsicher",
         },
         {
-            "label": "Produktumfang",
-            "value": "Ein Produkt",
-        },
-        {
             "label": "Planungszeitraum",
             "value": "Einmalige Entscheidung",
         },
     ]
+
+
+def test_adds_review_type_only_when_present() -> None:
+    state = create_review_state()
+    state["requirements"] = {
+        **state["requirements"],
+        "planning_horizon": "multiple_periods",
+        "review_type": "continuous_review",
+    }
+
+    review_data = build_review_data(
+        state,
+        VARIANT_DEFINITION,
+    )
+
+    assert review_data["problem"][-1] == {
+        "label": "Bestandsüberprüfung",
+        "value": "Kontinuierliche Überprüfung",
+    }
 
 
 def test_builds_parameters_from_registry_metadata() -> None:

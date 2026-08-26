@@ -43,14 +43,14 @@ DEMAND_TYPE_LABELS = {
     "historical_estimate": "Historisch geschätzt",
 }
 
-PRODUCT_SCOPE_LABELS = {
-    "single_product": "Ein Produkt",
-    "multiple_products": "Mehrere Produkte",
-}
-
 PLANNING_HORIZON_LABELS = {
     "single_period": "Einmalige Entscheidung",
     "multiple_periods": "Mehrere Zeiträume",
+}
+
+REVIEW_TYPE_LABELS = {
+    "continuous_review": "Kontinuierliche Überprüfung",
+    "periodic_review": "Periodische Überprüfung",
 }
 
 
@@ -114,16 +114,20 @@ def _build_problem_items(
             DEMAND_TYPE_LABELS,
         ),
         (
-            "Produktumfang",
-            "product_scope",
-            PRODUCT_SCOPE_LABELS,
-        ),
-        (
             "Planungszeitraum",
             "planning_horizon",
             PLANNING_HORIZON_LABELS,
         ),
     ]
+
+    if requirements.get("review_type") is not None:
+        definitions.append(
+            (
+                "Bestandsüberprüfung",
+                "review_type",
+                REVIEW_TYPE_LABELS,
+            )
+        )
 
     return [
         {

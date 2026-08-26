@@ -39,8 +39,8 @@ def modeling_agent(state: GraphState) -> GraphState:
                 "model_selection_error": (
                     "Die aktuelle Version unterstützt diese "
                     "Kombination aus Entscheidung, Ziel, "
-                    "Nachfrageart, Produktumfang und "
-                    "Planungshorizont noch nicht."
+                    "Nachfrageart, Planungshorizont und Art "
+                    "der Bestandsüberprüfung noch nicht."
                 ),
                 "ready_for_optimization": False,
             },

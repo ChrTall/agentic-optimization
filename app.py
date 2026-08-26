@@ -48,15 +48,19 @@ DEMAND_TYPE_LABELS = {
     "historical_estimate": "Historisch geschätzt",
 }
 
-PRODUCT_SCOPE_LABELS = {
-    "single_product": "Für ein Produkt",
-    "multiple_products": "Für mehrere Produkte",
-}
-
 PLANNING_HORIZON_LABELS = {
     "single_period": "Für eine einmalige Entscheidung",
     "multiple_periods": (
         "Für mehrere aufeinanderfolgende Zeiträume"
+    ),
+}
+
+REVIEW_TYPE_LABELS = {
+    "continuous_review": (
+        "Kontinuierlich – Bestand laufend überwachen"
+    ),
+    "periodic_review": (
+        "Periodisch – Bestand in festen Abständen prüfen"
     ),
 }
 
@@ -77,14 +81,14 @@ FORM_SUMMARY_FIELDS = (
         DEMAND_TYPE_LABELS,
     ),
     (
-        "Produktumfang",
-        "product_scope",
-        PRODUCT_SCOPE_LABELS,
-    ),
-    (
         "Planungszeitraum",
         "planning_horizon",
         PLANNING_HORIZON_LABELS,
+    ),
+    (
+        "Bestandsüberprüfung",
+        "review_type",
+        REVIEW_TYPE_LABELS,
     ),
 )
 
@@ -217,19 +221,6 @@ if st.session_state.step == "form":
         key="form_demand_type",
     )
 
-    product_scope = st.selectbox(
-        (
-            "Für wie viele Produkte soll eine Entscheidung "
-            "getroffen werden?"
-        ),
-        options=[None, *PRODUCT_SCOPE_LABELS],
-        format_func=lambda value: format_selectbox_value(
-            value,
-            PRODUCT_SCOPE_LABELS,
-        ),
-        key="form_product_scope",
-    )
-
     planning_horizon = st.selectbox(
         "Für welchen Zeitraum soll geplant werden?",
         options=[None, *PLANNING_HORIZON_LABELS],
@@ -239,6 +230,25 @@ if st.session_state.step == "form":
         ),
         key="form_planning_horizon",
     )
+
+    review_type = None
+
+    if planning_horizon == "multiple_periods":
+        review_type = st.selectbox(
+            "Wie wird der Lagerbestand überprüft?",
+            options=[None, *REVIEW_TYPE_LABELS],
+            format_func=lambda value: format_selectbox_value(
+                value,
+                REVIEW_TYPE_LABELS,
+            ),
+            key="form_review_type",
+            help=(
+                "Bei kontinuierlicher Überprüfung wird der Bestand "
+                "laufend beobachtet. Bei periodischer Überprüfung "
+                "wird er beispielsweise wöchentlich oder monatlich "
+                "geprüft."
+            ),
+        )
 
     submitted = st.button(
         "Weiter →",
@@ -252,8 +262,8 @@ if st.session_state.step == "form":
             "decision": decision,
             "objective": objective,
             "demand_type": demand_type,
-            "product_scope": product_scope,
             "planning_horizon": planning_horizon,
+            "review_type": review_type,
         }
 
         # Eine Änderung der grundlegenden Angaben macht
@@ -429,15 +439,30 @@ elif st.session_state.step == "model_unsupported":
         or {}
     )
 
-    st.warning(
-        graph_state.get(
-            "model_selection_error",
-            (
-                "Für diese Problemstruktur ist derzeit "
-                "keine Berechnungsmethode verfügbar."
-            ),
+    selected_review_type = graph_state.get(
+        "requirements",
+        {},
+    ).get("review_type")
+
+    if selected_review_type == "periodic_review":
+        st.success(
+            "**Periodische Bestandsüberprüfung erkannt.**"
         )
-    )
+        st.info(
+            "Dieser Anwendungsfall ist für eine zukünftige "
+            "(s, S)-Politik vorgesehen. Das Berechnungsmodell "
+            "ist noch nicht implementiert."
+        )
+    else:
+        st.warning(
+            graph_state.get(
+                "model_selection_error",
+                (
+                    "Für diese Problemstruktur ist derzeit "
+                    "keine Berechnungsmethode verfügbar."
+                ),
+            )
+        )
 
     st.info(
         "Passen Sie die grundlegenden Angaben oder die "
@@ -1538,19 +1563,29 @@ elif st.session_state.step == "result":
     # ---------------------------------------------------------
 
     if result_data["metrics"]:
-        metric_columns = st.columns(
-            len(result_data["metrics"])
-        )
+        metrics_per_row = 2
 
-        for column, metric in zip(
-            metric_columns,
-            result_data["metrics"],
+        for row_start in range(
+            0,
+            len(result_data["metrics"]),
+            metrics_per_row,
         ):
-            with column:
-                st.metric(
-                    metric["label"],
-                    metric["value"],
-                )
+            row_metrics = result_data["metrics"][
+                row_start:row_start + metrics_per_row
+            ]
+            metric_columns = st.columns(
+                metrics_per_row
+            )
+
+            for column, metric in zip(
+                metric_columns,
+                row_metrics,
+            ):
+                with column:
+                    st.metric(
+                        metric["label"],
+                        metric["value"],
+                    )
 
     # ---------------------------------------------------------
     # Variantenspezifische Ergebnisdetails
@@ -1613,6 +1648,14 @@ elif st.session_state.step == "result":
             f"{result_data['solver_status']}"
         )
 
+        for metric in result_data[
+            "technical_metrics"
+        ]:
+            st.markdown(
+                f"**{metric['label']}**  \n"
+                f"{metric['value']}"
+            )
+
         model_representation = result_data[
             "model_representation"
         ]
@@ -1658,8 +1701,8 @@ elif st.session_state.step == "result":
             "form_decision",
             "form_objective",
             "form_demand_type",
-            "form_product_scope",
             "form_planning_horizon",
+            "form_review_type",
             "submit_general_form",
             "confirm_review_problem",
             "confirm_review_parameters",

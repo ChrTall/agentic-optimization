@@ -10,6 +10,9 @@ from typing import Any
 from agentic_optimization.models.newsvendor.single_product_single_period import (
     VARIANT_DEFINITION as SINGLE_PRODUCT_SINGLE_PERIOD,
 )
+from agentic_optimization.models.reorder_point.q_r_policy import (
+    VARIANT_DEFINITION as Q_R_POLICY,
+)
 from agentic_optimization.models.types import (
     ConstraintDefinition,
     ModelFamilyDefinition,
@@ -23,6 +26,13 @@ MODEL_REGISTRY: dict[str, ModelFamilyDefinition] = {
         "variants": {
             SINGLE_PRODUCT_SINGLE_PERIOD["variant_id"]:
                 SINGLE_PRODUCT_SINGLE_PERIOD,
+        },
+    },
+    "reorder_point": {
+        "family_id": "reorder_point",
+        "family_name": "Reorder Point Policies",
+        "variants": {
+            Q_R_POLICY["variant_id"]: Q_R_POLICY,
         },
     },
 }

@@ -85,6 +85,61 @@ def create_model_submission_state(
     }
 
 
+def create_q_r_submission_state() -> dict:
+    return {
+        "control": {
+            "event": EVENT_MODEL_INPUTS_SUBMITTED,
+        },
+        "selected_model_family": "reorder_point",
+        "selected_model_variant": "q_r_policy",
+        "model_config": {
+            "family_id": "reorder_point",
+            "family_name": "Reorder Point Policies",
+            "variant_id": "q_r_policy",
+            "variant_name": "Q-R Policy",
+            "decision": "order_quantity",
+            "objective": "minimize_cost",
+        },
+        "requirements": {
+            "decision": "order_quantity",
+            "objective": "minimize_cost",
+            "demand_type": "uncertain",
+            "product_scope": "single_product",
+            "planning_horizon": "multiple_periods",
+            "review_type": "continuous_review",
+            "constraints": [],
+            "raw_description": "",
+        },
+        "model_specific_inputs": {
+            "reorder_point": {
+                "q_r_policy": {
+                    "annual_demand": 10_000.0,
+                    "fixed_order_cost": 100.0,
+                    "holding_cost": 5.0,
+                    "penalty_cost": 25.0,
+                    "lead_time_demand_mean": 400.0,
+                    "lead_time_demand_std": 50.0,
+                },
+            },
+        },
+        "structured_constraints": [
+            {
+                "type": "storage_capacity",
+                "parameters": {
+                    "capacity": 2_000.0,
+                },
+                "source_text": (
+                    "Die Bestandsposition darf 2000 "
+                    "Einheiten nicht überschreiten."
+                ),
+            }
+        ],
+        "unsupported_constraints": [],
+        "constraint_mapping_errors": [],
+        "review_confirmed": False,
+    }
+
+
 def test_model_submission_stops_at_review(
     graph,
     valid_inputs: dict,
@@ -105,6 +160,41 @@ def test_model_submission_stops_at_review(
 
     assert result.get("optimization_result") is None
     assert result.get("result") is None
+
+
+def test_q_r_submission_reaches_review_and_result(
+    graph,
+) -> None:
+    review_state = graph.invoke(
+        create_q_r_submission_state()
+    )
+
+    assert (
+        get_workflow_status(review_state)
+        == WORKFLOW_READY_FOR_REVIEW
+    )
+    assert review_state["ready_for_optimization"] is True
+
+    optimization_state = {
+        **review_state,
+        "control": {
+            **review_state.get("control", {}),
+            "event": EVENT_OPTIMIZATION_REQUESTED,
+        },
+        "review_confirmed": True,
+    }
+
+    result = graph.invoke(optimization_state)
+
+    assert (
+        get_workflow_status(result)
+        == WORKFLOW_READY_FOR_RESULT
+    )
+    assert result["optimization_errors"] == []
+    assert result["optimization_result"]["solver_status"] == "Optimal"
+    assert isinstance(result["optimization_result"]["order_quantity"], int)
+    assert isinstance(result["optimization_result"]["reorder_point"], int)
+    assert isinstance(result["optimization_result"]["safety_stock"], int)
 
 
 def test_confirmed_review_starts_optimization(
