@@ -65,6 +65,55 @@ def test_rounds_operational_outputs_with_fractional_statistics(
     )
 
 
+def test_matches_cornell_q_r_reference_example() -> None:
+    inputs = {
+        "annual_demand": 7_300.0,
+        "fixed_order_cost": 250.0,
+        "holding_cost": 50.0,
+        "penalty_cost": 10.0,
+        "lead_time_demand_mean": 60.0,
+        "lead_time_demand_std": 6.928,
+    }
+    constraints = [
+        {
+            "type": "minimum_order_quantity",
+            "parameters": {"quantity": 250},
+            "source_text": None,
+        },
+        {
+            "type": "maximum_order_quantity",
+            "parameters": {"quantity": 300},
+            "source_text": None,
+        },
+        {
+            "type": "minimum_reorder_point",
+            "parameters": {"reorder_point": 60},
+            "source_text": None,
+        },
+        {
+            "type": "maximum_reorder_point",
+            "parameters": {"reorder_point": 80},
+            "source_text": None,
+        },
+        {
+            "type": "storage_capacity",
+            "parameters": {"capacity": 400},
+            "source_text": None,
+        },
+    ]
+
+    result = optimize_q_r_policy(inputs, constraints)
+
+    assert result["solver_status"] == "Optimal"
+    assert result["converged"] is True
+    assert result["order_quantity"] == 274
+    assert result["reorder_point"] == 67
+    assert result["safety_stock"] == 7
+    assert result["expected_annual_cost"] == pytest.approx(14_011.35, abs=0.01)
+    assert result["iterations"] == 5
+    assert "1 - h Q/(p λ)" in result["model_representation"]
+
+
 @pytest.mark.parametrize(
     ("field_name", "value"),
     [

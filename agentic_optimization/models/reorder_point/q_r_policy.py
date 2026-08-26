@@ -467,12 +467,13 @@ def _model_representation(specification: QRPolicySpecification) -> str:
         "Q-R-Politik (kontinuierliche Überprüfung)\n"
         "Annahme: Lieferzeitnachfrage X_L ~ Normal(μ, σ²).\n"
         "Start: Q₀ = sqrt(2 λ K / h).\n"
-        "Iteration: P(X_L ≤ R) = 1 - Q/(p λ), "
+        "Iteration: P(X_L ≤ R) = 1 - h Q/(p λ), "
         "R = μ + σ Φ⁻¹(P),\n"
         "n(R) = σ[φ(z) - z(1 - Φ(z))],\n"
         "Q_neu = sqrt(2 λ (K + p n(R)) / h).\n"
         "Kosten: G = h(Q/2 + R - μ) + Kλ/Q + pλn(R)/Q.\n"
-        "Operative Rundung: Q auf die nächste ganze Einheit, "
+        "Die Fixpunktiteration rechnet mit ungerundeten Werten. "
+        "Operative Rundung am Ende: Q auf die nächste ganze Einheit, "
         "R und der Sicherheitsbestand werden aufgerundet.\n"
         "Numerik: Servicewahrscheinlichkeit wird auf [1e-9, 1-1e-9] begrenzt.\n"
         f"Grenzen: min_Q={specification.minimum_order_quantity}, "
@@ -493,22 +494,30 @@ def solve_q_r_policy(specification: QRPolicySpecification) -> QRPolicyResult:
         * specification.fixed_order_cost
         / specification.holding_cost
     )
-    order_quantity = _round_order_quantity(
-        order_quantity,
-        specification.minimum_order_quantity,
-        specification.maximum_order_quantity,
+    order_quantity = max(
+        1.0,
+        _apply_bounds(
+            order_quantity,
+            specification.minimum_order_quantity,
+            specification.maximum_order_quantity,
+        ),
     )
-    previous_reorder_point: int | None = None
-    reorder_point = _round_reorder_point(
-        specification.lead_time_demand_mean,
-        specification.minimum_reorder_point,
-        specification.maximum_reorder_point,
+    previous_reorder_point: float | None = None
+    reorder_point = max(
+        0.0,
+        _apply_bounds(
+            specification.lead_time_demand_mean,
+            specification.minimum_reorder_point,
+            specification.maximum_reorder_point,
+        ),
     )
     iterations = 0
     converged = False
 
     for iterations in range(1, specification.max_iterations + 1):
-        service_probability = 1.0 - order_quantity / (
+        service_probability = 1.0 - (
+            specification.holding_cost * order_quantity
+        ) / (
             specification.penalty_cost * specification.annual_demand
         )
         service_probability = min(max(service_probability, 1e-9), 1.0 - 1e-9)
@@ -517,10 +526,13 @@ def solve_q_r_policy(specification: QRPolicySpecification) -> QRPolicyResult:
             specification.lead_time_demand_mean
             + z_score * specification.lead_time_demand_std
         )
-        reorder_point = _round_reorder_point(
-            reorder_point,
-            specification.minimum_reorder_point,
-            specification.maximum_reorder_point,
+        reorder_point = max(
+            0.0,
+            _apply_bounds(
+                reorder_point,
+                specification.minimum_reorder_point,
+                specification.maximum_reorder_point,
+            ),
         )
         shortage = _expected_shortage(
             reorder_point,
@@ -533,30 +545,14 @@ def solve_q_r_policy(specification: QRPolicySpecification) -> QRPolicyResult:
             * (specification.fixed_order_cost + specification.penalty_cost * shortage)
             / specification.holding_cost
         )
-        new_order_quantity = _round_order_quantity(
-            new_order_quantity,
-            specification.minimum_order_quantity,
-            specification.maximum_order_quantity,
+        new_order_quantity = max(
+            1.0,
+            _apply_bounds(
+                new_order_quantity,
+                specification.minimum_order_quantity,
+                specification.maximum_order_quantity,
+            ),
         )
-
-        if (
-            specification.storage_capacity is not None
-            and new_order_quantity + reorder_point > specification.storage_capacity
-        ):
-            return QRPolicyResult(
-                solver_status="Infeasible",
-                order_quantity=None,
-                reorder_point=None,
-                safety_stock=None,
-                expected_annual_cost=None,
-                iterations=iterations,
-                converged=False,
-                model_representation=(
-                    representation
-                    + "\nNicht erfüllbar: Die berechnete Summe Q + R "
-                    "überschreitet die Lagerkapazität."
-                ),
-            )
 
         q_change = abs(new_order_quantity - order_quantity)
         r_change = (
@@ -570,33 +566,64 @@ def solve_q_r_policy(specification: QRPolicySpecification) -> QRPolicyResult:
             break
         previous_reorder_point = reorder_point
 
-    shortage = _expected_shortage(
+    rounded_order_quantity = _round_order_quantity(
+        order_quantity,
+        specification.minimum_order_quantity,
+        specification.maximum_order_quantity,
+    )
+    rounded_reorder_point = _round_reorder_point(
         reorder_point,
+        specification.minimum_reorder_point,
+        specification.maximum_reorder_point,
+    )
+
+    if (
+        specification.storage_capacity is not None
+        and rounded_order_quantity + rounded_reorder_point
+        > specification.storage_capacity
+    ):
+        return QRPolicyResult(
+            solver_status="Infeasible",
+            order_quantity=None,
+            reorder_point=None,
+            safety_stock=None,
+            expected_annual_cost=None,
+            iterations=iterations,
+            converged=False,
+            model_representation=(
+                representation
+                + "\nNicht erfüllbar: Die berechnete Summe Q + R "
+                "überschreitet die Lagerkapazität."
+            ),
+        )
+
+    shortage = _expected_shortage(
+        rounded_reorder_point,
         specification.lead_time_demand_mean,
         specification.lead_time_demand_std,
     )
     expected_annual_cost = (
         specification.holding_cost
         * (
-            order_quantity / 2
-            + reorder_point
+            rounded_order_quantity / 2
+            + rounded_reorder_point
             - specification.lead_time_demand_mean
         )
         + specification.fixed_order_cost
         * specification.annual_demand
-        / order_quantity
+        / rounded_order_quantity
         + specification.penalty_cost
         * specification.annual_demand
         * shortage
-        / order_quantity
+        / rounded_order_quantity
     )
 
     return QRPolicyResult(
         solver_status="Optimal" if converged else "IterationLimit",
-        order_quantity=order_quantity,
-        reorder_point=reorder_point,
+        order_quantity=rounded_order_quantity,
+        reorder_point=rounded_reorder_point,
         safety_stock=math.ceil(
-            reorder_point - specification.lead_time_demand_mean
+            rounded_reorder_point - specification.lead_time_demand_mean
         ),
         expected_annual_cost=expected_annual_cost,
         iterations=iterations,

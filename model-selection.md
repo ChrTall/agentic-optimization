@@ -231,33 +231,26 @@ Die Grenzen für \(Q\), \(R\) und \(Q+R\) sind plausible
 der WebUI unterstützten Q–R-Nebenbedingungen ab und sind für die unten
 genannten Ergebnisse nicht bindend.
 
-### Referenzergebnis und aktuelles WebUI-Ergebnis
+### Erwartetes Ergebnis
 
 Die Cornell-Musterrechnung liefert vor der operativen Ganzzahlrundung ungefähr
 \(Q = 274{,}012\) und \(R = 66{,}142\) T-Shirts. Nach der in diesem Repository
-beschriebenen Rundungsregel entspräche das einer Bestellmenge von 274, einem
-Meldebestand von 67 und einem Sicherheitsbestand von 7 T-Shirts.
+beschriebenen Rundungsregel und allen fünf nichtbindenden
+Demo-Nebenbedingungen liefert die WebUI:
 
-Mit den oben angegebenen Werten und allen fünf Demo-Nebenbedingungen liefert
-der aktuelle Stand dieses Repositories dagegen:
-
-- **Empfohlene Bestellmenge Q:** 270 Einheiten
-- **Meldebestand R:** 79 Einheiten
-- **Sicherheitsbestand:** 19 Einheiten
-- **Erwartete jährliche Kosten:** 14.460,99 €
+- **Empfohlene Bestellmenge Q:** 274 Einheiten
+- **Meldebestand R:** 67 Einheiten
+- **Sicherheitsbestand:** 7 Einheiten
+- **Erwartete jährliche Kosten:** 14.011,35 €
 - **Solverstatus:** Optimal
-- **Iterationen:** 2
+- **Iterationen:** 5
 
-Die verbleibende Abweichung ist kein Unterschied des Anwendungsfalls. Die
-Cornell-Musterrechnung verwendet für ihre Iteration
+Der Solver verwendet wie die Cornell-Musterrechnung
 \(F(R) = 1 - hQ/(pD)\). Dieselbe Näherung wird auch im
 [LINDO-Kapitel zum Q–R-Modell](https://www.lindo.com/downloads/LINGO_text/Chapter17.pdf)
-angegeben. Die aktuelle Implementierung verwendet dagegen
-\(F(R) = 1 - Q/(pD)\). Dadurch wird der Lagerkostensatz \(h\) bei der
-Servicewahrscheinlichkeit nicht berücksichtigt und der Meldebestand zu hoch
-berechnet. Das neue Beispiel passt daher sehr gut zur Vorführung von
-**Modellauswahl, Eingabefeldern und Nebenbedingungen**, macht aber zugleich
-die noch zu korrigierende Ergebnislogik sichtbar.
+angegeben. Die Fixpunktiteration rechnet intern mit ungerundeten Werten und
+rundet erst die operative Empfehlung. Dadurch stimmt das WebUI-Ergebnis bis
+auf diese dokumentierte Ganzzahlrundung mit der Referenz überein.
 
 ## Alternativtext für die (s, S)-Route
 
