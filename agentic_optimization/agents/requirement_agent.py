@@ -460,3 +460,27 @@ def _extract_rule_based(
         "constraints": [],
         "unsupported_requirements": [],
     }
+
+
+
+def identify_requirements_from_text(
+    llm: BaseChatModel,
+    raw_text: str,
+) -> dict:
+    """
+    Öffentlicher Wrapper um die LLM-Extraktion der Problemstruktur
+    (decision/objective/demand_type/...).
+
+    Wird für eine frühe „Decision-first"-Vorschau direkt nach einem
+    Dokument-Upload verwendet, bevor der eigentliche Graph läuft.
+    Das Ergebnis hier ist nur eine Vorab-Einschätzung; die spätere,
+    maßgebliche Extraktion läuft weiterhin unverändert über den
+    bestehenden Graph-Knoten `create_requirement_agent`.
+    """
+
+    try:
+        return _extract_with_llm(
+            llm, _build_user_message(raw_text)
+        )
+    except (json.JSONDecodeError, TypeError):
+        return {}

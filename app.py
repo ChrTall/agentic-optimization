@@ -24,9 +24,13 @@ from agentic_optimization.ui.field_renderer import (
     parse_input_value,
     render_input_field,
 )
-from agentic_optimization.agents.document_extraction_agent import (   
-    extract_document_parameters,                                      
-    format_parameter_display,                                         
+from agentic_optimization.agents.document_extraction_agent import (
+    format_parameter_display,
+    run_decision_first_extraction,
+)
+from agentic_optimization.ui.review_builder import (
+    DECISION_LABELS,
+    OBJECTIVE_LABELS,
 )
 from agentic_optimization.ui.pdf_input import (
     extract_text_from_pdf,
@@ -132,7 +136,9 @@ if "description_input_mode" not in st.session_state:
 if "pdf_extraction_signature" not in st.session_state:
     st.session_state.pdf_extraction_signature = None
 if "pdf_extracted_parameters" not in st.session_state:      
-    st.session_state.pdf_extracted_parameters = []          
+    st.session_state.pdf_extracted_parameters = []   
+if "pdf_decision_first_result" not in st.session_state:      
+    st.session_state.pdf_decision_first_result = None       
 
 
 DESCRIPTION_INPUT_MODE_LABELS = {
@@ -438,16 +444,22 @@ elif st.session_state.step == "freitext":
 
                     if llm is not None:
                         with st.spinner(
-                            "Dokument wird auf konkrete "
-                            "Werte durchsucht …"
+                            "Problem wird erkannt und Dokument "
+                            "gezielt durchsucht …"
                         ):
-                            st.session_state.pdf_extracted_parameters = (
-                                extract_document_parameters(
+                            decision_first_result = (
+                                run_decision_first_extraction(
                                     llm,
                                     extraction_result.text,
                                 )
                             )
-                    
+
+                        st.session_state.pdf_decision_first_result = (
+                            decision_first_result
+                        )
+                        st.session_state.pdf_extracted_parameters = (
+                            decision_first_result["parameters"]
+                        )
                 st.session_state.pdf_extraction_signature = (
                     file_signature
                 )
@@ -458,6 +470,35 @@ elif st.session_state.step == "freitext":
             "Textfeld unten und wird genauso analysiert wie "
             "eine manuell eingegebene Beschreibung."
         )
+
+        decision_first_result = st.session_state.pdf_decision_first_result
+
+    if input_mode == "pdf" and decision_first_result:
+        decision_label = DECISION_LABELS.get(
+            decision_first_result["decision"],
+            "nicht eindeutig erkannt",
+        )
+        objective_label = OBJECTIVE_LABELS.get(
+            decision_first_result["objective"],
+            "nicht eindeutig erkannt",
+        )
+
+        if decision_first_result["matched_variant_name"]:
+            st.info(
+                "**Erkanntes Problem:** "
+                f"{decision_label}, {objective_label}\n\n"
+                "Passendes Berechnungsmodell gefunden: "
+                f"**{decision_first_result['matched_variant_name']}**. "
+                "Es wird gezielt nach dessen Parametern gesucht."
+            )
+        else:
+            st.info(
+                "**Erkanntes Problem:** "
+                f"{decision_label}, {objective_label}\n\n"
+                "Es konnte noch kein passendes Berechnungsmodell "
+                "eindeutig zugeordnet werden — es wird allgemein "
+                "nach Werten gesucht."
+            )
 
     if input_mode == "pdf" and st.session_state.pdf_extracted_parameters:
         st.markdown("**Erkannte Werte aus dem Dokument**")
@@ -1834,6 +1875,7 @@ elif st.session_state.step == "result":
             "pdf_extraction_signature",
             "pdf_uploader",
             "pdf_extracted_parameters",
+            "pdf_decision_first_result",
             "confirm_review_problem",
             "confirm_review_parameters",
             "confirm_review_constraints",
