@@ -74,14 +74,13 @@ soll deshalb nicht nur die Modellstruktur, sondern auch alle in
 Rahmenbedingungen enthalten. Die daraus erzeugte Eingabemaske dient dann zur
 Kontrolle und Korrektur der erkannten Werte.
 
-> **Hinweis zum aktuellen Implementierungsstand:** Die Werte optionaler
-> Rahmenbedingungen werden bereits als vorausgefüllte Kandidaten aus dem
-> Freitext übernommen. Die Extraktion der modellspezifischen
-> `REQUIRED_FIELDS` in `model_specific_inputs` ist im aktuellen Workflow noch
-> nicht angeschlossen. Diese Felder müssen daher momentan in **Angaben zur
-> Berechnung** noch einmal eingetragen werden. Die Texte unten enthalten
-> trotzdem bereits alle Werte und dokumentieren damit zugleich das erwartete
-> Zielverhalten der Vorbefüllung.
+> **Hinweis zur Vorbefüllung:** Sowohl die Werte optionaler
+> Rahmenbedingungen als auch die in `REQUIRED_FIELDS` definierten
+> Modellparameter werden aus dem Freitext als unbestätigte Kandidaten
+> übernommen. In **Angaben zur Berechnung** müssen alle erkannten Werte
+> geprüft und mit **Eingaben prüfen** bestätigt werden. Fehlende oder nicht
+> eindeutig erkannte Werte bleiben leer und können dort manuell ergänzt
+> werden.
 
 Für eine vollständige Vorführung eignet sich besonders das folgende
 Newsvendor-Beispiel, weil die Quelldaten und das Soll-Ergebnis kompakt und
@@ -119,9 +118,9 @@ Folgenden Text vollständig in das Freitextfeld kopieren:
 Nach **Problem analysieren** sollte die Anwendung das **Newsvendor-Modell –
 Single Product, Single Period** erkennen und zu **Angaben zur Berechnung**
 wechseln. Die fünf Pflichtfelder sollten aus dem Text mit den unten gezeigten
-Werten vorbefüllt werden; beim aktuellen Implementierungsstand sind sie noch
-manuell zu übernehmen. Zusätzlich sollte eine **Höchstbestellmenge von 7**
-als vorausgewählte Rahmenbedingung erkannt werden.
+Werten vorbefüllt werden. Zusätzlich sollte eine **Höchstbestellmenge von 7**
+als vorausgewählte Rahmenbedingung erkannt werden. Vor der Berechnung müssen
+die vorausgefüllten Angaben noch geprüft und bestätigt werden.
 
 ### Angaben zur Berechnung
 
@@ -198,8 +197,9 @@ Folgenden Text vollständig in das Freitextfeld kopieren:
 Zusammen mit den oben beschriebenen Q–R-Auswahlen in Formular 1 sollte die
 Anwendung die **Q–R Policy** erkennen und zu **Angaben zur Berechnung**
 wechseln. Die sechs Pflichtfelder sollten aus dem Text mit den folgenden
-Werten vorbefüllt werden; beim aktuellen Implementierungsstand sind sie noch
-manuell zu übernehmen.
+Werten vorbefüllt werden. Auch die fünf Rahmenbedingungen sollten
+vorausgewählt und mit ihren Zahlenwerten befüllt sein. Vor der Berechnung
+müssen alle erkannten Angaben noch geprüft und bestätigt werden.
 
 ### Angaben zur Berechnung
 

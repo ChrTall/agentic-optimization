@@ -211,6 +211,12 @@ class GraphState(TypedDict, total=False):
     # Modellspezifische Eingaben:
     # family -> variant -> inputs
     model_specific_inputs: dict[str, dict[str, dict[str, Any]]]
+
+    # Aus dem Freitext erkannte, noch nicht vom Nutzer bestätigte Werte:
+    # family -> variant -> input candidates
+    model_input_candidates: dict[str, dict[str, dict[str, Any]]]
+    model_input_extraction_errors: list[str]
+
     required_model_inputs: list[dict[str, Any]]
     missing_model_input_fields: list[str]
     model_input_validation_errors: list[str]

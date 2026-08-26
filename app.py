@@ -554,6 +554,11 @@ elif st.session_state.step == "model_input_form":
         [],
     )
 
+    model_input_extraction_errors = graph_state.get(
+        "model_input_extraction_errors",
+        [],
+    )
+
     constraint_validation_errors = graph_state.get(
         "constraint_validation_errors",
         [],
@@ -611,11 +616,23 @@ elif st.session_state.step == "model_input_form":
         "supported_constraints"
     ]
 
-    existing_model_inputs = (
+    confirmed_model_inputs = (
         graph_state.get("model_specific_inputs", {})
         .get(selected_family, {})
         .get(selected_variant, {})
     )
+
+    model_input_candidates = (
+        graph_state.get("model_input_candidates", {})
+        .get(selected_family, {})
+        .get(selected_variant, {})
+    )
+
+    # Bereits bestätigte Eingaben haben Vorrang vor LLM-Kandidaten.
+    existing_model_inputs = {
+        **model_input_candidates,
+        **confirmed_model_inputs,
+    }
 
     constraint_candidates = graph_state.get(
         "constraint_candidates",
@@ -684,6 +701,23 @@ elif st.session_state.step == "model_input_form":
     model_input_error_area = st.container()
 
     with model_input_error_area:
+        if model_input_extraction_errors:
+            st.warning(
+                "Die Modellparameter konnten nicht automatisch "
+                "vorbefüllt werden. Bitte tragen Sie die Werte "
+                "manuell ein."
+            )
+
+            for error in model_input_extraction_errors:
+                st.caption(error)
+
+        elif model_input_candidates:
+            st.info(
+                "Werte aus Ihrer Problembeschreibung wurden "
+                "vorbefüllt. Bitte prüfen und bestätigen Sie "
+                "alle Angaben."
+            )
+
         if model_input_errors:
             st.error(
                 "Bitte korrigieren Sie die folgenden "
