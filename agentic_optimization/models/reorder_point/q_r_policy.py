@@ -281,7 +281,9 @@ def validate_q_r_policy_constraints(
         minimum = 0 if "reorder_point" in constraint_type else 0
         permits_zero = "reorder_point" in constraint_type
         if value < minimum or (value == 0 and not permits_zero):
-            comparator = "darf nicht negativ sein" if permits_zero else "muss größer als 0 sein"
+            comparator = (
+                "darf nicht negativ sein" if permits_zero else "muss größer als 0 sein"
+            )
             errors.append(f"{labels[constraint_type]} {comparator}.")
 
     minimum_q = values.get("minimum_order_quantity")
@@ -384,12 +386,8 @@ def create_q_r_policy_specification(
         penalty_cost=float(inputs["penalty_cost"]),
         lead_time_demand_mean=float(inputs["lead_time_demand_mean"]),
         lead_time_demand_std=float(inputs["lead_time_demand_std"]),
-        minimum_order_quantity=optional_parameter(
-            "minimum_order_quantity", "quantity"
-        ),
-        maximum_order_quantity=optional_parameter(
-            "maximum_order_quantity", "quantity"
-        ),
+        minimum_order_quantity=optional_parameter("minimum_order_quantity", "quantity"),
+        maximum_order_quantity=optional_parameter("maximum_order_quantity", "quantity"),
         minimum_reorder_point=optional_parameter(
             "minimum_reorder_point", "reorder_point"
         ),
@@ -484,103 +482,36 @@ def _model_representation(specification: QRPolicySpecification) -> str:
     )
 
 
-def solve_q_r_policy(specification: QRPolicySpecification) -> QRPolicyResult:
-    """Löst die klassischen Q-R-Optimalitätsbedingungen iterativ."""
+def solve_q_r_policy(
+    specification: QRPolicySpecification,
+) -> QRPolicyResult:
+    """Findet die kostenminimale zulässige ganzzahlige Q-R-Politik."""
 
-    representation = _model_representation(specification)
-    order_quantity = math.sqrt(
-        2
-        * specification.annual_demand
-        * specification.fixed_order_cost
-        / specification.holding_cost
+    representation = (
+        "Ganzzahlige Q-R-Politik mit vollständiger Berücksichtigung "
+        "aller betrieblichen Nebenbedingungen."
     )
-    order_quantity = max(
-        1.0,
-        _apply_bounds(
-            order_quantity,
-            specification.minimum_order_quantity,
-            specification.maximum_order_quantity,
-        ),
-    )
-    previous_reorder_point: float | None = None
-    reorder_point = max(
-        0.0,
-        _apply_bounds(
-            specification.lead_time_demand_mean,
-            specification.minimum_reorder_point,
-            specification.maximum_reorder_point,
-        ),
-    )
-    iterations = 0
-    converged = False
 
-    for iterations in range(1, specification.max_iterations + 1):
-        service_probability = 1.0 - (
-            specification.holding_cost * order_quantity
-        ) / (
-            specification.penalty_cost * specification.annual_demand
-        )
-        service_probability = min(max(service_probability, 1e-9), 1.0 - 1e-9)
-        z_score = _STANDARD_NORMAL.inv_cdf(service_probability)
-        reorder_point = (
-            specification.lead_time_demand_mean
-            + z_score * specification.lead_time_demand_std
-        )
-        reorder_point = max(
-            0.0,
-            _apply_bounds(
-                reorder_point,
-                specification.minimum_reorder_point,
-                specification.maximum_reorder_point,
-            ),
-        )
-        shortage = _expected_shortage(
-            reorder_point,
-            specification.lead_time_demand_mean,
-            specification.lead_time_demand_std,
-        )
-        new_order_quantity = math.sqrt(
-            2
-            * specification.annual_demand
-            * (specification.fixed_order_cost + specification.penalty_cost * shortage)
-            / specification.holding_cost
-        )
-        new_order_quantity = max(
-            1.0,
-            _apply_bounds(
-                new_order_quantity,
-                specification.minimum_order_quantity,
-                specification.maximum_order_quantity,
-            ),
-        )
-
-        q_change = abs(new_order_quantity - order_quantity)
-        r_change = (
-            math.inf
-            if previous_reorder_point is None
-            else abs(reorder_point - previous_reorder_point)
-        )
-        order_quantity = new_order_quantity
-        if q_change < specification.tolerance and r_change < specification.tolerance:
-            converged = True
-            break
-        previous_reorder_point = reorder_point
-
-    rounded_order_quantity = _round_order_quantity(
-        order_quantity,
-        specification.minimum_order_quantity,
-        specification.maximum_order_quantity,
+    q_min = max(
+        1,
+        specification.minimum_order_quantity or 1,
     )
-    rounded_reorder_point = _round_reorder_point(
-        reorder_point,
-        specification.minimum_reorder_point,
-        specification.maximum_reorder_point,
+    r_min = max(
+        0,
+        specification.minimum_reorder_point or 0,
     )
+
+    q_upper_bounds: list[int] = []
+
+    if specification.maximum_order_quantity is not None:
+        q_upper_bounds.append(specification.maximum_order_quantity)
+
+    if specification.storage_capacity is not None:
+        q_upper_bounds.append(specification.storage_capacity - r_min)
 
     if (
-        specification.storage_capacity is not None
-        and rounded_order_quantity + rounded_reorder_point
-        > specification.storage_capacity
+        specification.maximum_reorder_point is not None
+        and specification.maximum_reorder_point < r_min
     ):
         return QRPolicyResult(
             solver_status="Infeasible",
@@ -588,46 +519,112 @@ def solve_q_r_policy(specification: QRPolicySpecification) -> QRPolicyResult:
             reorder_point=None,
             safety_stock=None,
             expected_annual_cost=None,
-            iterations=iterations,
+            iterations=0,
             converged=False,
-            model_representation=(
-                representation
-                + "\nNicht erfüllbar: Die berechnete Summe Q + R "
-                "überschreitet die Lagerkapazität."
+            model_representation=representation,
+        )
+
+    if q_upper_bounds:
+        q_max = min(q_upper_bounds)
+
+        if q_max < q_min:
+            return QRPolicyResult(
+                solver_status="Infeasible",
+                order_quantity=None,
+                reorder_point=None,
+                safety_stock=None,
+                expected_annual_cost=None,
+                iterations=0,
+                converged=False,
+                model_representation=representation,
+            )
+    else:
+        # Sichere endliche Suchgrenze, wenn keine Obergrenze angegeben wurde.
+        eoq = math.sqrt(
+            2
+            * specification.annual_demand
+            * specification.fixed_order_cost
+            / specification.holding_cost
+        )
+        q_seed = max(q_min, math.floor(eoq + 0.5))
+
+        seed_candidates = _reorder_point_candidates(
+            specification,
+            q_seed,
+            r_min,
+            specification.maximum_reorder_point,
+        )
+
+        seed_cost = min(_annual_cost(specification, q_seed, r) for r in seed_candidates)
+
+        # G(Q,R) >= h * (Q/2 + r_min - μ)
+        q_max = max(
+            q_seed,
+            math.ceil(
+                2
+                * (
+                    seed_cost / specification.holding_cost
+                    - r_min
+                    + specification.lead_time_demand_mean
+                )
             ),
         )
 
-    shortage = _expected_shortage(
-        rounded_reorder_point,
-        specification.lead_time_demand_mean,
-        specification.lead_time_demand_std,
-    )
-    expected_annual_cost = (
-        specification.holding_cost
-        * (
-            rounded_order_quantity / 2
-            + rounded_reorder_point
-            - specification.lead_time_demand_mean
+    best_cost: float | None = None
+    best_q: int | None = None
+    best_r: int | None = None
+    evaluated_candidates = 0
+
+    for q in range(q_min, q_max + 1):
+        r_upper_bounds: list[int] = []
+
+        if specification.maximum_reorder_point is not None:
+            r_upper_bounds.append(specification.maximum_reorder_point)
+
+        if specification.storage_capacity is not None:
+            r_upper_bounds.append(specification.storage_capacity - q)
+
+        r_max = min(r_upper_bounds) if r_upper_bounds else None
+
+        if r_max is not None and r_max < r_min:
+            continue
+
+        candidates = _reorder_point_candidates(
+            specification,
+            q,
+            r_min,
+            r_max,
         )
-        + specification.fixed_order_cost
-        * specification.annual_demand
-        / rounded_order_quantity
-        + specification.penalty_cost
-        * specification.annual_demand
-        * shortage
-        / rounded_order_quantity
-    )
+
+        for r in candidates:
+            cost = _annual_cost(specification, q, r)
+            evaluated_candidates += 1
+
+            if best_cost is None or cost < best_cost:
+                best_cost = cost
+                best_q = q
+                best_r = r
+
+    if best_q is None or best_r is None or best_cost is None:
+        return QRPolicyResult(
+            solver_status="Infeasible",
+            order_quantity=None,
+            reorder_point=None,
+            safety_stock=None,
+            expected_annual_cost=None,
+            iterations=evaluated_candidates,
+            converged=False,
+            model_representation=representation,
+        )
 
     return QRPolicyResult(
-        solver_status="Optimal" if converged else "IterationLimit",
-        order_quantity=rounded_order_quantity,
-        reorder_point=rounded_reorder_point,
-        safety_stock=math.ceil(
-            rounded_reorder_point - specification.lead_time_demand_mean
-        ),
-        expected_annual_cost=expected_annual_cost,
-        iterations=iterations,
-        converged=converged,
+        solver_status="Optimal",
+        order_quantity=best_q,
+        reorder_point=best_r,
+        safety_stock=math.ceil(best_r - specification.lead_time_demand_mean),
+        expected_annual_cost=best_cost,
+        iterations=evaluated_candidates,
+        converged=True,
         model_representation=representation,
     )
 
@@ -646,13 +643,17 @@ def _format_result_number(value: float | None) -> str:
     if value is None:
         return "–"
     numeric_value = float(value)
-    return str(int(numeric_value)) if numeric_value.is_integer() else f"{numeric_value:g}"
+    return (
+        str(int(numeric_value)) if numeric_value.is_integer() else f"{numeric_value:g}"
+    )
 
 
 def _format_result_currency(value: float | None) -> str:
     if value is None:
         return "–"
-    formatted = f"{float(value):,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+    formatted = (
+        f"{float(value):,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+    )
     return f"{formatted} €"
 
 
@@ -693,9 +694,7 @@ def build_q_r_policy_result_presentation(
     technical_metrics: list[ResultMetric] = [
         {
             "label": "Iterationen",
-            "value": _format_result_number(
-                optimization_result.get("iterations")
-            ),
+            "value": _format_result_number(optimization_result.get("iterations")),
         },
     ]
     return {
@@ -725,3 +724,72 @@ VARIANT_DEFINITION: ModelVariantDefinition = {
     "optimizer": optimize_q_r_policy,
     "result_builder": build_q_r_policy_result_presentation,
 }
+
+
+def _annual_cost(
+    specification: QRPolicySpecification,
+    order_quantity: int,
+    reorder_point: int,
+) -> float:
+    shortage = _expected_shortage(
+        reorder_point,
+        specification.lead_time_demand_mean,
+        specification.lead_time_demand_std,
+    )
+
+    return (
+        specification.holding_cost
+        * (order_quantity / 2 + reorder_point - specification.lead_time_demand_mean)
+        + specification.fixed_order_cost * specification.annual_demand / order_quantity
+        + specification.penalty_cost
+        * specification.annual_demand
+        * shortage
+        / order_quantity
+    )
+
+
+def _reorder_point_candidates(
+    specification: QRPolicySpecification,
+    order_quantity: int,
+    minimum: int,
+    maximum: int | None,
+) -> list[int]:
+    """Ermittelt die relevanten ganzzahligen R-Kandidaten für ein gegebenes Q."""
+
+    demand = specification.annual_demand
+    holding_cost = specification.holding_cost
+    penalty_cost = specification.penalty_cost
+    mean = specification.lead_time_demand_mean
+    std = specification.lead_time_demand_std
+
+    if std == 0:
+        if penalty_cost * demand / order_quantity > holding_cost:
+            continuous_r = mean
+        else:
+            continuous_r = float(minimum)
+    else:
+        tail_probability = holding_cost * order_quantity / (penalty_cost * demand)
+
+        if tail_probability >= 1:
+            continuous_r = float(minimum)
+        else:
+            service_probability = 1 - tail_probability
+            continuous_r = mean + std * _STANDARD_NORMAL.inv_cdf(service_probability)
+
+    continuous_r = max(continuous_r, minimum)
+
+    if maximum is not None:
+        continuous_r = min(continuous_r, maximum)
+
+    candidates = {
+        minimum,
+        math.floor(continuous_r),
+        math.ceil(continuous_r),
+    }
+
+    if maximum is not None:
+        candidates.add(maximum)
+
+    return sorted(
+        r for r in candidates if r >= minimum and (maximum is None or r <= maximum)
+    )
