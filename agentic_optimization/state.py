@@ -227,8 +227,9 @@ class GraphState(TypedDict, total=False):
     constraint_candidates: list[StructuredConstraint]
     structured_constraints: list[StructuredConstraint]
 
-    # Im Freitext erkannte Rahmenbedingungen, die von der
-    # ausgewählten Modellvariante nicht unterstützt werden.
+    # Im Freitext erkannte Rahmenbedingungen, die von der ausgewählten
+    # Modellvariante nicht unterstützt und daher nur informativ angezeigt
+    # werden. Sie werden nicht an den Solver übergeben.
     unsupported_constraints: list[str]
 
     # Fehler bei der Zuordnung von Freitext-Constraints.

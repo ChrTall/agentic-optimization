@@ -53,6 +53,27 @@ gerundet; \(R\) und der Sicherheitsbestand werden vorsichtshalber
 aufgerundet. Statistische Eingaben und erwartete Kosten dürfen weiterhin
 Dezimalwerte enthalten.
 
+## Nicht unterstützte Nebenbedingungen
+
+Nicht unterstützte oder nicht eindeutig zuordenbare Nebenbedingungen werden
+in **Angaben zur Berechnung** als Hinweis angezeigt. Sie verhindern die
+Berechnung nicht:
+
+- Unterstützte und vom Nutzer aktivierte Rahmenbedingungen werden weiterhin
+  an den Solver übergeben.
+- Nicht unterstützte Vorgaben werden nicht an den Solver übergeben und haben
+  daher keinen Einfluss auf das Ergebnis.
+- Die ignorierten Vorgaben bleiben in der Überprüfung und beim Ergebnis
+  sichtbar.
+- Ist eine ignorierte Vorgabe zwingend einzuhalten, sollte der Nutzer zur
+  Problembeschreibung zurückkehren und das Solverergebnis nicht als
+  Entscheidungsgrundlage verwenden.
+
+Formulierungen, die lediglich die Modellstruktur beschreiben, sollen nicht als
+Nebenbedingungen extrahiert werden. Beispielsweise beschreibt „Während der
+Saison kann nicht nachbestellt werden“ beim Newsvendor den
+`single_period`-Planungshorizont und keine zusätzliche Solver-Nebenbedingung.
+
 ## (s, S)-Politik
 
 - **Entscheidung:** Bestellmenge

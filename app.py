@@ -782,11 +782,38 @@ elif st.session_state.step == "model_input_form":
         st.warning(
             "Einige beschriebene Rahmenbedingungen werden "
             "von der ausgewählten Berechnungsmethode nicht "
-            "unterstützt:"
+            "unterstützt und deshalb nicht in der Berechnung "
+            "berücksichtigt:"
         )
 
         for unsupported in unsupported_constraints:
             st.markdown(f"- {unsupported}")
+
+        st.caption(
+            "Die unterstützten Rahmenbedingungen können trotzdem "
+            "verwendet werden. Falls eine der ignorierten Vorgaben "
+            "zwingend eingehalten werden muss, sollten Sie die "
+            "Berechnung nicht als Entscheidungsgrundlage verwenden."
+        )
+
+        if st.button(
+            "← Problembeschreibung anpassen",
+            key="edit_unsupported_constraints",
+        ):
+            model_form_prefixes = (
+                "model_input_",
+                "constraint_choice_",
+                "constraint_include_",
+                "constraint_parameter_",
+                "submit_model_inputs_",
+            )
+
+            for key in list(st.session_state):
+                if key.startswith(model_form_prefixes):
+                    del st.session_state[key]
+
+            st.session_state.step = "freitext"
+            st.rerun()
 
     constraint_choice_key = (
         f"constraint_choice_"
@@ -1054,26 +1081,6 @@ elif st.session_state.step == "model_input_form":
 
                 st.stop()
 
-            if unsupported_constraints:
-                with constraint_error_area:
-                    st.error(
-                        "Mindestens eine beschriebene "
-                        "Rahmenbedingung wird nicht unterstützt. "
-                        "Wählen Sie „Nein“, wenn keine "
-                        "zusätzlichen Rahmenbedingungen "
-                        "berücksichtigt werden sollen, oder "
-                        "bearbeiten Sie die "
-                        "Problembeschreibung."
-                    )
-
-                with submission_error_area:
-                    st.error(
-                        "Die Eingaben enthalten Fehler. Bitte prüfen "
-                        "Sie die markierten Bereiche."
-        )
-
-                st.stop()
-
             try:
                 for constraint_type in (
                     selected_constraint_types
@@ -1174,13 +1181,9 @@ elif st.session_state.step == "model_input_form":
 
                 st.stop()
 
-        # Bei "Nein" werden Kandidaten und unsupported Angaben
-        # bewusst nicht als aktive Constraints übernommen.
-        final_unsupported_constraints = (
-            unsupported_constraints
-            if constraints_enabled
-            else []
-        )
+        # Bei "Nein" werden keine unterstützten Kandidaten aktiviert.
+        # Nicht unterstützte Vorgaben bleiben unabhängig davon sichtbar.
+        final_unsupported_constraints = unsupported_constraints
 
         previous_state = (
             st.session_state.graph_state or {}
@@ -1436,6 +1439,17 @@ elif st.session_state.step == "review":
         else:
             st.info("Es werden keine zusätzlichen betrieblichen Rahmenbedingungen berücksichtigt.")
 
+        if review_data["unsupported_constraints"]:
+            st.warning(
+                "Folgende Vorgaben werden vom Solver nicht "
+                "berücksichtigt:"
+            )
+
+            for unsupported in review_data[
+                "unsupported_constraints"
+            ]:
+                st.markdown(f"- {unsupported}")
+
         if review_sections["constraints"]:
             st.success("Dieser Bereich wurde bestätigt.")
 
@@ -1645,9 +1659,16 @@ elif st.session_state.step == "result":
     # Berücksichtigte betriebliche Rahmenbedingungen
     # ---------------------------------------------------------
 
+    if result_data["unsupported_constraints"]:
+        st.warning(
+            "Das Ergebnis berücksichtigt nicht alle beschriebenen "
+            "Vorgaben. Einzelheiten finden Sie unter "
+            "„Betriebliche Rahmenbedingungen“."
+        )
+
     with st.expander(
-    "Berücksichtigte betriebliche Rahmenbedingungen"
-):
+        "Betriebliche Rahmenbedingungen"
+    ):
         if result_data["constraints"]:
             for constraint in result_data[
                 "constraints"
@@ -1661,6 +1682,17 @@ elif st.session_state.step == "result":
                 "Es wurden keine zusätzlichen betrieblichen "
                 "Rahmenbedingungen berücksichtigt."
             )
+
+        if result_data["unsupported_constraints"]:
+            st.warning(
+                "Folgende beschriebene Vorgaben wurden bei "
+                "diesem Ergebnis nicht berücksichtigt:"
+            )
+
+            for unsupported in result_data[
+                "unsupported_constraints"
+            ]:
+                st.markdown(f"- {unsupported}")
 
     # ---------------------------------------------------------
     # Technische Details

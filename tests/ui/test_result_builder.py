@@ -166,6 +166,19 @@ def test_allows_result_without_constraints() -> None:
     assert result_data["constraints"] == []
 
 
+def test_lists_constraints_ignored_by_solver() -> None:
+    state = create_result_state()
+    state["unsupported_constraints"] = [
+        "Während der Saison kann nicht nachbestellt werden.",
+    ]
+
+    result_data = build_result_data(state)
+
+    assert result_data["unsupported_constraints"] == [
+        "Während der Saison kann nicht nachbestellt werden.",
+    ]
+
+
 def test_does_not_show_metrics_for_infeasible_result() -> None:
     state = create_result_state()
 

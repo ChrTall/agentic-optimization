@@ -175,6 +175,22 @@ def test_allows_review_without_constraints() -> None:
     assert review_data["constraints"] == []
 
 
+def test_lists_unsupported_constraints_as_information() -> None:
+    state = create_review_state()
+    state["unsupported_constraints"] = [
+        "Während der Saison kann nicht nachbestellt werden.",
+    ]
+
+    review_data = build_review_data(
+        state,
+        VARIANT_DEFINITION,
+    )
+
+    assert review_data["unsupported_constraints"] == [
+        "Während der Saison kann nicht nachbestellt werden.",
+    ]
+
+
 def test_uses_registered_variant_name_as_fallback() -> None:
     state = create_review_state()
     state["model_config"] = {}

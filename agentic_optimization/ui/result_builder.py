@@ -28,6 +28,7 @@ class ResultData(TypedDict):
     detail_title: str | None
     detail_rows: list[dict[str, str]]
     constraints: list[ReviewItem]
+    unsupported_constraints: list[str]
     family_name: str
     variant_name: str
     solver_status: str
@@ -180,6 +181,7 @@ def build_result_data(
         )
 
     constraints: list[ReviewItem] = []
+    unsupported_constraints: list[str] = []
 
     # Aktive Constraints verwenden dieselben Labels und Einheiten wie im Review.
     if variant_definition is not None:
@@ -188,6 +190,9 @@ def build_result_data(
             variant_definition,
         )
         constraints = review_data["constraints"]
+        unsupported_constraints = review_data[
+            "unsupported_constraints"
+        ]
 
     return {
         "successful": successful,
@@ -198,6 +203,7 @@ def build_result_data(
         "detail_title": detail_title,
         "detail_rows": detail_rows,
         "constraints": constraints,
+        "unsupported_constraints": unsupported_constraints,
         "family_name": family_name,
         "variant_name": variant_name,
         "solver_status": solver_status,

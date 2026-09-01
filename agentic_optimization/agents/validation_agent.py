@@ -362,16 +362,14 @@ def validate_structured_constraints(
         unsupported_constraints = []
 
     # ---------------------------------------------------------------
-    # 3. Unsupported Constraints als Fehler übernehmen
+    # 3. Unsupported Constraints als nicht blockierende Hinweise prüfen
     # ---------------------------------------------------------------
 
     for unsupported in unsupported_constraints:
-        if isinstance(unsupported, str) and unsupported.strip():
-            errors.append(
-                "Nicht unterstützte Nebenbedingung: "
-                f"{unsupported.strip()}"
-            )
-        else:
+        # Inhaltlich nicht unterstützte Freitext-Constraints werden vom
+        # Solver ignoriert. Nur ein technisch ungültiges State-Format ist
+        # weiterhin ein Validierungsfehler.
+        if not isinstance(unsupported, str) or not unsupported.strip():
             errors.append(
                 "Eine nicht unterstützte Nebenbedingung besitzt "
                 "kein gültiges Textformat."

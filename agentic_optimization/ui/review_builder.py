@@ -22,6 +22,7 @@ class ReviewData(TypedDict):
     problem: list[ReviewItem]
     parameters: list[ReviewItem]
     constraints: list[ReviewItem]
+    unsupported_constraints: list[str]
     model_name: str
 
 
@@ -252,6 +253,15 @@ def build_review_data(
         "structured_constraints",
         [],
     )
+    unsupported_constraints = [
+        constraint.strip()
+        for constraint in state.get(
+            "unsupported_constraints",
+            [],
+        )
+        if isinstance(constraint, str)
+        and constraint.strip()
+    ]
 
     model_config = state.get("model_config", {})
 
@@ -272,5 +282,6 @@ def build_review_data(
             constraints,
             variant_definition,
         ),
+        "unsupported_constraints": unsupported_constraints,
         "model_name": str(model_name),
     }

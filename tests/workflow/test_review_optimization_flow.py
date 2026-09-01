@@ -162,6 +162,61 @@ def test_model_submission_stops_at_review(
     assert result.get("result") is None
 
 
+def test_unsupported_constraint_does_not_block_review_or_solver(
+    graph,
+    valid_inputs: dict,
+) -> None:
+    state = create_model_submission_state(
+        valid_inputs
+    )
+    state["structured_constraints"] = [
+        {
+            "type": "maximum_order_quantity",
+            "parameters": {
+                "quantity": 110.0,
+            },
+            "source_text": (
+                "Höchstens 110 Einheiten bestellen."
+            ),
+        }
+    ]
+    state["unsupported_constraints"] = [
+        "Während der Saison kann nicht nachbestellt werden.",
+    ]
+
+    review_state = graph.invoke(state)
+
+    assert (
+        get_workflow_status(review_state)
+        == WORKFLOW_READY_FOR_REVIEW
+    )
+    assert review_state["constraint_validation_errors"] == []
+    assert review_state["ready_for_optimization"] is True
+
+    result = graph.invoke(
+        {
+            **review_state,
+            "control": {
+                **review_state.get("control", {}),
+                "event": EVENT_OPTIMIZATION_REQUESTED,
+            },
+            "review_confirmed": True,
+        }
+    )
+
+    assert (
+        get_workflow_status(result)
+        == WORKFLOW_READY_FOR_RESULT
+    )
+    assert result["optimization_errors"] == []
+    assert result["unsupported_constraints"] == [
+        "Während der Saison kann nicht nachbestellt werden.",
+    ]
+    assert result["optimization_result"][
+        "order_quantity"
+    ] == pytest.approx(100.0)
+
+
 def test_q_r_submission_reaches_review_and_result(
     graph,
 ) -> None:

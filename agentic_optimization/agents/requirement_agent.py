@@ -107,6 +107,10 @@ Keine Constraints sind:
 - der Planungshorizont
 - das Optimierungsziel
 - eine allgemeine Beschreibung des Produkts
+- eine einmalige Bestellung ohne Möglichkeit zur Nachbestellung; das
+  beschreibt einen single_period-Planungshorizont
+- die laufende Bestandsüberwachung und das Nachbestellen beim Erreichen eines
+  Meldebestands; das beschreibt einen continuous_review-Prozess
 
 Übernimm einen Text nur in constraints, wenn darin tatsächlich eine konkrete
 Vorgabe oder Grenze beschrieben wird. Merkmale der Problemstruktur gehören
