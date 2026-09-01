@@ -1,3 +1,6 @@
+from agentic_optimization.models.eoq.basic_eoq import (
+    optimize_basic_eoq,
+)
 from agentic_optimization.models.newsvendor.single_product_single_period import (
     VARIANT_DEFINITION,
 )
@@ -277,3 +280,114 @@ def test_variant_registers_result_builder() -> None:
     assert len(
         presentation["detail_rows"]
     ) == 3
+
+
+def create_eoq_result_state() -> dict:
+    constraints = [
+        {
+            "type": "minimum_order_quantity",
+            "parameters": {
+                "quantity": 300.0,
+            },
+            "source_text": None,
+        }
+    ]
+
+    inputs = {
+        "annual_demand": 3500.0,
+        "ordering_cost": 120.0,
+        "holding_cost": 12.0,
+    }
+
+    return {
+        "selected_model_family": "eoq",
+        "selected_model_variant": "basic_eoq",
+        "requirements": {
+            "decision": "order_quantity",
+            "objective": "minimize_cost",
+            "demand_type": "known",
+            "product_scope": "single_product",
+            "planning_horizon": "repeated_cycles",
+        },
+        "model_specific_inputs": {
+            "eoq": {
+                "basic_eoq": inputs,
+            },
+        },
+        "structured_constraints": constraints,
+        "optimization_result": optimize_basic_eoq(
+            inputs=inputs,
+            constraints=constraints,
+        ),
+        "optimization_errors": [],
+    }
+
+
+def test_builds_successful_basic_eoq_result() -> None:
+    result_data = build_result_data(
+        create_eoq_result_state()
+    )
+
+    assert result_data["successful"] is True
+    assert result_data["family_name"] == "EOQ"
+    assert result_data["variant_name"] == "Basic EOQ"
+
+    assert result_data["metrics"] == [
+        {
+            "label": "Empfohlene Bestellmenge",
+            "value": "300,00 Einheiten",
+        },
+        {
+            "label": (
+                "Jährliche relevante Gesamtkosten"
+            ),
+            "value": "3.200,00 €",
+        },
+    ]
+
+    assert result_data["constraints"] == [
+        {
+            "label": "Mindestbestellmenge",
+            "value": "300 Einheiten",
+        }
+    ]
+
+
+def test_builds_basic_eoq_result_details() -> None:
+    result_data = build_result_data(
+        create_eoq_result_state()
+    )
+
+    assert (
+        result_data["detail_title"]
+        == "EOQ-Berechnungsdetails"
+    )
+
+    assert result_data["detail_rows"] == [
+        {
+            "Kennzahl": "Bestellungen pro Jahr",
+            "Wert": "11,67",
+        },
+        {
+            "Kennzahl": (
+                "Durchschnittlicher Lagerbestand"
+            ),
+            "Wert": "150,00 Einheiten",
+        },
+        {
+            "Kennzahl": (
+                "Durchschnittliche Zyklusdauer"
+            ),
+            "Wert": "31,29 Tage",
+        },
+        {
+            "Kennzahl": "Jährliche Bestellkosten",
+            "Wert": "1.400,00 €",
+        },
+        {
+            "Kennzahl": (
+                "Jährliche Lagerhaltungskosten"
+            ),
+            "Wert": "1.800,00 €",
+        },
+    ]

@@ -7,6 +7,9 @@ Moduldateien definiert und hier lediglich registriert.
 
 from typing import Any
 
+from agentic_optimization.models.eoq.basic_eoq import (
+    VARIANT_DEFINITION as BASIC_EOQ,
+)
 from agentic_optimization.models.newsvendor.single_product_single_period import (
     VARIANT_DEFINITION as SINGLE_PRODUCT_SINGLE_PERIOD,
 )
@@ -20,6 +23,13 @@ from agentic_optimization.models.types import (
 )
 
 MODEL_REGISTRY: dict[str, ModelFamilyDefinition] = {
+    "eoq": {
+        "family_id": "eoq",
+        "family_name": "EOQ",
+        "variants": {
+            BASIC_EOQ["variant_id"]: BASIC_EOQ,
+        },
+    },
     "newsvendor": {
         "family_id": "newsvendor",
         "family_name": "Newsvendor",

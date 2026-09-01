@@ -1,8 +1,10 @@
 from agentic_optimization.agents.validation_agent import (
+    detect_model_specific_inputs,
     validate_structured_constraints,
 )
 from agentic_optimization.state import (
     WORKFLOW_MODEL_INPUTS_INVALID,
+    WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS,
     WORKFLOW_READY_FOR_REVIEW,
     get_workflow_status,
 )
@@ -127,4 +129,33 @@ def test_unsupported_constraint_is_informational() -> None:
     assert (
         get_workflow_status(result)
         == WORKFLOW_READY_FOR_REVIEW
+    )
+
+
+def test_derives_required_inputs_from_field_definitions() -> None:
+    state = {
+        "selected_model_family": "newsvendor",
+        "selected_model_variant": (
+            "single_product_single_period"
+        ),
+        "model_specific_inputs": {
+            "newsvendor": {
+                "single_product_single_period": {},
+            },
+        },
+    }
+
+    result = detect_model_specific_inputs(state)
+
+    assert result["missing_model_input_fields"] == [
+        "selling_price",
+        "purchase_cost",
+        "salvage_value",
+        "demand_scenarios",
+        "scenario_probabilities",
+    ]
+
+    assert (
+        get_workflow_status(result)
+        == WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS
     )

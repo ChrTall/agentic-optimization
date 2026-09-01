@@ -122,7 +122,6 @@ class ModelVariantDefinition(TypedDict):
     variant_id: str
     variant_name: str
     selection_criteria: ModelSelectionCriteria
-    required_fields: list[str]
     input_fields: list[ModelInputField]
     supported_constraints: dict[str, ConstraintDefinition]
     input_validator: InputValidator

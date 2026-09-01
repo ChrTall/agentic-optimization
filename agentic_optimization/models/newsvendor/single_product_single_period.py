@@ -20,15 +20,6 @@ from agentic_optimization.models.types import (
     VariantResultPresentation,
 )
 
-REQUIRED_FIELDS = [
-    "selling_price",
-    "purchase_cost",
-    "salvage_value",
-    "demand_scenarios",
-    "scenario_probabilities",
-]
-
-
 INPUT_FIELDS: list[ModelInputField] = [
     {
         "name": "selling_price",
@@ -844,7 +835,6 @@ VARIANT_DEFINITION: ModelVariantDefinition = {
         "product_scope": "single_product",
         "planning_horizon": "single_period",
     },
-    "required_fields": REQUIRED_FIELDS,
     "input_fields": INPUT_FIELDS,
     "supported_constraints": SUPPORTED_CONSTRAINTS,
     "input_validator": validate_single_product_single_period_inputs,

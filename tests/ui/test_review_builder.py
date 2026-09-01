@@ -204,3 +204,93 @@ def test_uses_registered_variant_name_as_fallback() -> None:
         review_data["model_name"]
         == VARIANT_DEFINITION["variant_name"]
     )
+
+
+def create_eoq_review_state() -> dict:
+    return {
+        "selected_model_family": "eoq",
+        "selected_model_variant": "basic_eoq",
+        "requirements": {
+            "decision": "order_quantity",
+            "objective": "minimize_cost",
+            "demand_type": "known",
+            "product_scope": "single_product",
+            "planning_horizon": "repeated_cycles",
+        },
+        "model_specific_inputs": {
+            "eoq": {
+                "basic_eoq": {
+                    "annual_demand": 3500.0,
+                    "ordering_cost": 120.0,
+                    "holding_cost": 12.0,
+                },
+            },
+        },
+        "structured_constraints": [
+            {
+                "type": "minimum_order_quantity",
+                "parameters": {
+                    "quantity": 300.0,
+                },
+                "source_text": None,
+            }
+        ],
+    }
+
+
+def test_builds_basic_eoq_review_data() -> None:
+    review_data = build_review_data(
+        create_eoq_review_state(),
+        EOQ_VARIANT_DEFINITION,
+    )
+
+    assert review_data["model_name"] == "Basic EOQ"
+
+    assert review_data["problem"] == [
+        {
+            "label": "Entscheidung",
+            "value": "Bestellmenge bestimmen",
+        },
+        {
+            "label": "Ziel",
+            "value": "Kosten minimieren",
+        },
+        {
+            "label": "Nachfrage",
+            "value": "Sicher oder bekannt",
+        },
+        {
+            "label": "Produktumfang",
+            "value": "Ein Produkt",
+        },
+        {
+            "label": "Planungszeitraum",
+            "value": (
+                "Wiederkehrende Bestellzyklen"
+            ),
+        },
+    ]
+
+    assert review_data["parameters"] == [
+        {
+            "label": "Erwarteter Jahresbedarf",
+            "value": "3500 Einheiten pro Jahr",
+        },
+        {
+            "label": "Bestellkosten pro Bestellung",
+            "value": "120 € pro Bestellung",
+        },
+        {
+            "label": "Lagerhaltungskosten",
+            "value": (
+                "12 € pro Einheit und Jahr"
+            ),
+        },
+    ]
+
+    assert review_data["constraints"] == [
+        {
+            "label": "Mindestbestellmenge",
+            "value": "300 Einheiten",
+        }
+    ]

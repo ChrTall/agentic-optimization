@@ -5,7 +5,6 @@ from agentic_optimization.state import (
     WORKFLOW_MODEL_SELECTED,
     WORKFLOW_MODEL_UNSUPPORTED,
     GraphState,
-    ModelConfig,
     with_control,
 )
 
@@ -28,14 +27,6 @@ def modeling_agent(state: GraphState) -> GraphState:
                 **state,
                 "selected_model_family": None,
                 "selected_model_variant": None,
-                "model_config": {
-                    "explanation": (
-                        "Für diese Problemstruktur ist derzeit "
-                        "keine Modellvariante verfügbar."
-                    ),
-                    "objective": requirements.get("objective"),
-                    "decision": requirements.get("decision"),
-                },
                 "model_selection_error": (
                     "Die aktuelle Version unterstützt diese "
                     "Kombination aus Entscheidung, Ziel, "
@@ -53,27 +44,11 @@ def modeling_agent(state: GraphState) -> GraphState:
     family_id = family_definition["family_id"]
     variant_id = variant_definition["variant_id"]
 
-    model_config: ModelConfig = {
-        "family_id": family_id,
-        "family_name": family_definition["family_name"],
-        "variant_id": variant_id,
-        "variant_name": variant_definition["variant_name"],
-        "explanation": (
-            "Die strukturierte Problemdefinition entspricht "
-            f"der Modellfamilie "
-            f"'{family_definition['family_name']}' und der "
-            f"Variante '{variant_definition['variant_name']}'."
-        ),
-        "objective": requirements.get("objective"),
-        "decision": requirements.get("decision"),
-    }
-
     return with_control(
         {
             **state,
             "selected_model_family": family_id,
             "selected_model_variant": variant_id,
-            "model_config": model_config,
             "model_selection_error": None,
             "ready_for_optimization": False,
         },

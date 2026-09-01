@@ -4,6 +4,7 @@ from agentic_optimization.configuration.llm_config import load_llm_configuration
 from agentic_optimization.graph import build_graph
 from agentic_optimization.llm.factory import create_chat_model
 from agentic_optimization.models.registry import (
+    get_model_family_definition,
     get_model_variant_definition,
 )
 from agentic_optimization.state import (
@@ -50,6 +51,9 @@ DEMAND_TYPE_LABELS = {
 
 PLANNING_HORIZON_LABELS = {
     "single_period": "Für eine einmalige Entscheidung",
+    "repeated_cycles": (
+        "Für wiederkehrende Bestellungen"
+    ),
     "multiple_periods": (
         "Für mehrere aufeinanderfolgende Zeiträume"
     ),
@@ -412,7 +416,6 @@ elif st.session_state.step == "freitext":
                 "form_data": (
                     st.session_state.form_data
                 ),
-                "messages": [],
             }
 
             st.session_state.graph_state = (
@@ -568,17 +571,17 @@ elif st.session_state.step == "model_input_form":
     # UI-Daten der ausgewählten Modellvariante laden
     # ---------------------------------------------------------
 
-    model_config = graph_state.get("model_config", {})
-
-    family_name = model_config.get(
-        "family_name",
-        selected_family,
+    family_definition = get_model_family_definition(
+        selected_family
     )
 
-    variant_name = model_config.get(
-        "variant_name",
-        selected_variant,
+    family_name = (
+        family_definition["family_name"]
+        if family_definition is not None
+        else selected_family
     )
+
+    variant_name = variant_definition["variant_name"]
 
     message_column, info_column = st.columns(
         [12, 1]
@@ -1219,7 +1222,6 @@ elif st.session_state.step == "model_input_form":
                 final_unsupported_constraints
             ),
             "constraint_validation_errors": [],
-            "required_constraint_inputs": [],
         }
 
         # Neue Formular-3-Daten verwerfen Review-Bestätigung und alte Ergebnisse.
@@ -1646,9 +1648,8 @@ elif st.session_state.step == "result":
             expanded=True,
         ):
             st.caption(
-                "Die Tabelle zeigt, wie sich die Empfehlung "
-                "in den betrachteten Nachfragesituationen "
-                "auswirkt."
+                "Die Tabelle zeigt weitere Kennzahlen und "
+                "Details der Berechnung."
             )
 
             st.table(
@@ -1710,7 +1711,7 @@ elif st.session_state.step == "result":
         )
 
         st.markdown(
-            f"**Solverstatus**  \n"
+            f"**Berechnungsstatus**  \n"
             f"{result_data['solver_status']}"
         )
 
@@ -1728,14 +1729,13 @@ elif st.session_state.step == "result":
 
         if model_representation:
             st.markdown(
-                "**Tatsächlich berechnetes "
-                "Optimierungsmodell**"
+                "**Technische Darstellung der Berechnung**"
             )
 
             st.caption(
-                "Diese Darstellung entspricht dem "
-                "PuLP-Modell, das an den Solver "
-                "übergeben wurde."
+                "Diese Darstellung zeigt die verwendete "
+                "mathematische Berechnung beziehungsweise "
+                "das Optimierungsmodell."
             )
 
             st.code(

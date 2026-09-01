@@ -42,7 +42,7 @@ Format:
   "objective": "maximize_profit | minimize_cost | reach_service_level | null",
   "demand_type": "known | uncertain | historical_estimate | null",
   "product_scope": "single_product | multiple_products | null",
-  "planning_horizon": "single_period | multiple_periods | null",
+  "planning_horizon": "single_period | repeated_cycles | multiple_periods | null",
   "review_type": "continuous_review | periodic_review | null",
   "constraints": ["...", "..."],
   "unsupported_requirements": [

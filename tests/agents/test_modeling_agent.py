@@ -26,6 +26,17 @@ def create_supported_requirements() -> dict:
     }
 
 
+def create_supported_eoq_requirements() -> dict:
+    return {
+        "decision": "order_quantity",
+        "objective": "minimize_cost",
+        "demand_type": "known",
+        "product_scope": "single_product",
+        "planning_horizon": "repeated_cycles",
+        "constraints": [],
+        "raw_description": "",
+    }
+
 def test_selects_registered_newsvendor_variant() -> None:
     result = modeling_agent(
         {
@@ -43,6 +54,53 @@ def test_selects_registered_newsvendor_variant() -> None:
         == "single_product_single_period"
     )
     assert result["model_selection_error"] is None
+    assert "model_config" not in result
+
+
+def test_selects_registered_basic_eoq_variant() -> None:
+    result = modeling_agent(
+        {
+            "requirements": (
+                create_supported_eoq_requirements()
+            ),
+        }
+    )
+
+    assert (
+        get_workflow_status(result)
+        == WORKFLOW_MODEL_SELECTED
+    )
+
+    assert (
+        result["selected_model_family"]
+        == "eoq"
+    )
+
+    assert (
+        result["selected_model_variant"]
+        == "basic_eoq"
+    )
+
+    assert result["model_selection_error"] is None
+
+
+def test_registry_contains_basic_eoq_variant() -> None:
+    family = MODEL_REGISTRY["eoq"]
+
+    assert family["family_id"] == "eoq"
+    assert family["family_name"] == "EOQ"
+
+    variant = family["variants"]["basic_eoq"]
+
+    assert variant["variant_id"] == "basic_eoq"
+
+    assert variant["selection_criteria"] == {
+        "decision": "order_quantity",
+        "objective": "minimize_cost",
+        "demand_type": "known",
+        "product_scope": "single_product",
+        "planning_horizon": "repeated_cycles",
+    }
 
 
 def test_constraints_do_not_affect_model_selection() -> None:
@@ -99,6 +157,7 @@ def test_returns_unsupported_for_unregistered_combination(
     assert result["selected_model_variant"] is None
     assert result["model_selection_error"]
     assert result["ready_for_optimization"] is False
+    assert "model_config" not in result
 
 
 def test_selects_q_r_for_continuous_multi_period_review() -> None:
