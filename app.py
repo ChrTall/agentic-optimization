@@ -49,11 +49,6 @@ DEMAND_TYPE_LABELS = {
     "historical_estimate": "Historisch geschätzt",
 }
 
-PRODUCT_SCOPE_LABELS = {
-    "single_product": "Für ein Produkt",
-    "multiple_products": "Für mehrere Produkte",
-}
-
 PLANNING_HORIZON_LABELS = {
     "single_period": "Für eine einmalige Entscheidung",
     "repeated_cycles": (
@@ -61,6 +56,15 @@ PLANNING_HORIZON_LABELS = {
     ),
     "multiple_periods": (
         "Für mehrere aufeinanderfolgende Zeiträume"
+    ),
+}
+
+REVIEW_TYPE_LABELS = {
+    "continuous_review": (
+        "Kontinuierlich – Bestand laufend überwachen"
+    ),
+    "periodic_review": (
+        "Periodisch – Bestand in festen Abständen prüfen"
     ),
 }
 
@@ -81,14 +85,14 @@ FORM_SUMMARY_FIELDS = (
         DEMAND_TYPE_LABELS,
     ),
     (
-        "Produktumfang",
-        "product_scope",
-        PRODUCT_SCOPE_LABELS,
-    ),
-    (
         "Planungszeitraum",
         "planning_horizon",
         PLANNING_HORIZON_LABELS,
+    ),
+    (
+        "Bestandsüberprüfung",
+        "review_type",
+        REVIEW_TYPE_LABELS,
     ),
 )
 
@@ -221,19 +225,6 @@ if st.session_state.step == "form":
         key="form_demand_type",
     )
 
-    product_scope = st.selectbox(
-        (
-            "Für wie viele Produkte soll eine Entscheidung "
-            "getroffen werden?"
-        ),
-        options=[None, *PRODUCT_SCOPE_LABELS],
-        format_func=lambda value: format_selectbox_value(
-            value,
-            PRODUCT_SCOPE_LABELS,
-        ),
-        key="form_product_scope",
-    )
-
     planning_horizon = st.selectbox(
         "Für welchen Zeitraum soll geplant werden?",
         options=[None, *PLANNING_HORIZON_LABELS],
@@ -243,6 +234,25 @@ if st.session_state.step == "form":
         ),
         key="form_planning_horizon",
     )
+
+    review_type = None
+
+    if planning_horizon == "multiple_periods":
+        review_type = st.selectbox(
+            "Wie wird der Lagerbestand überprüft?",
+            options=[None, *REVIEW_TYPE_LABELS],
+            format_func=lambda value: format_selectbox_value(
+                value,
+                REVIEW_TYPE_LABELS,
+            ),
+            key="form_review_type",
+            help=(
+                "Bei kontinuierlicher Überprüfung wird der Bestand "
+                "laufend beobachtet. Bei periodischer Überprüfung "
+                "wird er beispielsweise wöchentlich oder monatlich "
+                "geprüft."
+            ),
+        )
 
     submitted = st.button(
         "Weiter →",
@@ -256,8 +266,8 @@ if st.session_state.step == "form":
             "decision": decision,
             "objective": objective,
             "demand_type": demand_type,
-            "product_scope": product_scope,
             "planning_horizon": planning_horizon,
+            "review_type": review_type,
         }
 
         # Eine Änderung der grundlegenden Angaben macht
@@ -432,15 +442,30 @@ elif st.session_state.step == "model_unsupported":
         or {}
     )
 
-    st.warning(
-        graph_state.get(
-            "model_selection_error",
-            (
-                "Für diese Problemstruktur ist derzeit "
-                "keine Berechnungsmethode verfügbar."
-            ),
+    selected_review_type = graph_state.get(
+        "requirements",
+        {},
+    ).get("review_type")
+
+    if selected_review_type == "periodic_review":
+        st.success(
+            "**Periodische Bestandsüberprüfung erkannt.**"
         )
-    )
+        st.info(
+            "Dieser Anwendungsfall ist für eine zukünftige "
+            "(s, S)-Politik vorgesehen. Das Berechnungsmodell "
+            "ist noch nicht implementiert."
+        )
+    else:
+        st.warning(
+            graph_state.get(
+                "model_selection_error",
+                (
+                    "Für diese Problemstruktur ist derzeit "
+                    "keine Berechnungsmethode verfügbar."
+                ),
+            )
+        )
 
     st.info(
         "Passen Sie die grundlegenden Angaben oder die "
@@ -532,6 +557,11 @@ elif st.session_state.step == "model_input_form":
         [],
     )
 
+    model_input_extraction_errors = graph_state.get(
+        "model_input_extraction_errors",
+        [],
+    )
+
     constraint_validation_errors = graph_state.get(
         "constraint_validation_errors",
         [],
@@ -589,11 +619,23 @@ elif st.session_state.step == "model_input_form":
         "supported_constraints"
     ]
 
-    existing_model_inputs = (
+    confirmed_model_inputs = (
         graph_state.get("model_specific_inputs", {})
         .get(selected_family, {})
         .get(selected_variant, {})
     )
+
+    model_input_candidates = (
+        graph_state.get("model_input_candidates", {})
+        .get(selected_family, {})
+        .get(selected_variant, {})
+    )
+
+    # Bereits bestätigte Eingaben haben Vorrang vor LLM-Kandidaten.
+    existing_model_inputs = {
+        **model_input_candidates,
+        **confirmed_model_inputs,
+    }
 
     constraint_candidates = graph_state.get(
         "constraint_candidates",
@@ -662,6 +704,23 @@ elif st.session_state.step == "model_input_form":
     model_input_error_area = st.container()
 
     with model_input_error_area:
+        if model_input_extraction_errors:
+            st.warning(
+                "Die Modellparameter konnten nicht automatisch "
+                "vorbefüllt werden. Bitte tragen Sie die Werte "
+                "manuell ein."
+            )
+
+            for error in model_input_extraction_errors:
+                st.caption(error)
+
+        elif model_input_candidates:
+            st.info(
+                "Werte aus Ihrer Problembeschreibung wurden "
+                "vorbefüllt. Bitte prüfen und bestätigen Sie "
+                "alle Angaben."
+            )
+
         if model_input_errors:
             st.error(
                 "Bitte korrigieren Sie die folgenden "
@@ -726,11 +785,38 @@ elif st.session_state.step == "model_input_form":
         st.warning(
             "Einige beschriebene Rahmenbedingungen werden "
             "von der ausgewählten Berechnungsmethode nicht "
-            "unterstützt:"
+            "unterstützt und deshalb nicht in der Berechnung "
+            "berücksichtigt:"
         )
 
         for unsupported in unsupported_constraints:
             st.markdown(f"- {unsupported}")
+
+        st.caption(
+            "Die unterstützten Rahmenbedingungen können trotzdem "
+            "verwendet werden. Falls eine der ignorierten Vorgaben "
+            "zwingend eingehalten werden muss, sollten Sie die "
+            "Berechnung nicht als Entscheidungsgrundlage verwenden."
+        )
+
+        if st.button(
+            "← Problembeschreibung anpassen",
+            key="edit_unsupported_constraints",
+        ):
+            model_form_prefixes = (
+                "model_input_",
+                "constraint_choice_",
+                "constraint_include_",
+                "constraint_parameter_",
+                "submit_model_inputs_",
+            )
+
+            for key in list(st.session_state):
+                if key.startswith(model_form_prefixes):
+                    del st.session_state[key]
+
+            st.session_state.step = "freitext"
+            st.rerun()
 
     constraint_choice_key = (
         f"constraint_choice_"
@@ -998,26 +1084,6 @@ elif st.session_state.step == "model_input_form":
 
                 st.stop()
 
-            if unsupported_constraints:
-                with constraint_error_area:
-                    st.error(
-                        "Mindestens eine beschriebene "
-                        "Rahmenbedingung wird nicht unterstützt. "
-                        "Wählen Sie „Nein“, wenn keine "
-                        "zusätzlichen Rahmenbedingungen "
-                        "berücksichtigt werden sollen, oder "
-                        "bearbeiten Sie die "
-                        "Problembeschreibung."
-                    )
-
-                with submission_error_area:
-                    st.error(
-                        "Die Eingaben enthalten Fehler. Bitte prüfen "
-                        "Sie die markierten Bereiche."
-        )
-
-                st.stop()
-
             try:
                 for constraint_type in (
                     selected_constraint_types
@@ -1118,13 +1184,9 @@ elif st.session_state.step == "model_input_form":
 
                 st.stop()
 
-        # Bei "Nein" werden Kandidaten und unsupported Angaben
-        # bewusst nicht als aktive Constraints übernommen.
-        final_unsupported_constraints = (
-            unsupported_constraints
-            if constraints_enabled
-            else []
-        )
+        # Bei "Nein" werden keine unterstützten Kandidaten aktiviert.
+        # Nicht unterstützte Vorgaben bleiben unabhängig davon sichtbar.
+        final_unsupported_constraints = unsupported_constraints
 
         previous_state = (
             st.session_state.graph_state or {}
@@ -1379,6 +1441,17 @@ elif st.session_state.step == "review":
         else:
             st.info("Es werden keine zusätzlichen betrieblichen Rahmenbedingungen berücksichtigt.")
 
+        if review_data["unsupported_constraints"]:
+            st.warning(
+                "Folgende Vorgaben werden vom Solver nicht "
+                "berücksichtigt:"
+            )
+
+            for unsupported in review_data[
+                "unsupported_constraints"
+            ]:
+                st.markdown(f"- {unsupported}")
+
         if review_sections["constraints"]:
             st.success("Dieser Bereich wurde bestätigt.")
 
@@ -1540,19 +1613,29 @@ elif st.session_state.step == "result":
     # ---------------------------------------------------------
 
     if result_data["metrics"]:
-        metric_columns = st.columns(
-            len(result_data["metrics"])
-        )
+        metrics_per_row = 2
 
-        for column, metric in zip(
-            metric_columns,
-            result_data["metrics"],
+        for row_start in range(
+            0,
+            len(result_data["metrics"]),
+            metrics_per_row,
         ):
-            with column:
-                st.metric(
-                    metric["label"],
-                    metric["value"],
-                )
+            row_metrics = result_data["metrics"][
+                row_start:row_start + metrics_per_row
+            ]
+            metric_columns = st.columns(
+                metrics_per_row
+            )
+
+            for column, metric in zip(
+                metric_columns,
+                row_metrics,
+            ):
+                with column:
+                    st.metric(
+                        metric["label"],
+                        metric["value"],
+                    )
 
     # ---------------------------------------------------------
     # Variantenspezifische Ergebnisdetails
@@ -1577,9 +1660,16 @@ elif st.session_state.step == "result":
     # Berücksichtigte betriebliche Rahmenbedingungen
     # ---------------------------------------------------------
 
+    if result_data["unsupported_constraints"]:
+        st.warning(
+            "Das Ergebnis berücksichtigt nicht alle beschriebenen "
+            "Vorgaben. Einzelheiten finden Sie unter "
+            "„Betriebliche Rahmenbedingungen“."
+        )
+
     with st.expander(
-    "Berücksichtigte betriebliche Rahmenbedingungen"
-):
+        "Betriebliche Rahmenbedingungen"
+    ):
         if result_data["constraints"]:
             for constraint in result_data[
                 "constraints"
@@ -1593,6 +1683,17 @@ elif st.session_state.step == "result":
                 "Es wurden keine zusätzlichen betrieblichen "
                 "Rahmenbedingungen berücksichtigt."
             )
+
+        if result_data["unsupported_constraints"]:
+            st.warning(
+                "Folgende beschriebene Vorgaben wurden bei "
+                "diesem Ergebnis nicht berücksichtigt:"
+            )
+
+            for unsupported in result_data[
+                "unsupported_constraints"
+            ]:
+                st.markdown(f"- {unsupported}")
 
     # ---------------------------------------------------------
     # Technische Details
@@ -1613,6 +1714,14 @@ elif st.session_state.step == "result":
             f"**Berechnungsstatus**  \n"
             f"{result_data['solver_status']}"
         )
+
+        for metric in result_data[
+            "technical_metrics"
+        ]:
+            st.markdown(
+                f"**{metric['label']}**  \n"
+                f"{metric['value']}"
+            )
 
         model_representation = result_data[
             "model_representation"
@@ -1658,8 +1767,8 @@ elif st.session_state.step == "result":
             "form_decision",
             "form_objective",
             "form_demand_type",
-            "form_product_scope",
             "form_planning_horizon",
+            "form_review_type",
             "submit_general_form",
             "confirm_review_problem",
             "confirm_review_parameters",

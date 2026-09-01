@@ -817,6 +817,7 @@ def build_single_product_single_period_result_presentation(
 
     return {
         "metrics": metrics,
+        "technical_metrics": [],
         "detail_title": (
             "Ergebnis nach Nachfrageszenario"
         ),

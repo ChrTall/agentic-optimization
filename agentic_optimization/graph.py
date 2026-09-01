@@ -7,6 +7,9 @@ from agentic_optimization.agents.constraint_mapping_agent import (
     create_constraint_mapping_agent,
 )
 from agentic_optimization.agents.modeling_agent import modeling_agent
+from agentic_optimization.agents.model_input_extraction_agent import (
+    create_model_input_extraction_agent,
+)
 from agentic_optimization.agents.requirement_agent import create_requirement_agent
 from agentic_optimization.agents.result_node import result_node
 from agentic_optimization.agents.validation_agent import (
@@ -200,6 +203,10 @@ def build_graph(llm: BaseChatModel):
         "constraint_mapping_agent",
         create_constraint_mapping_agent(llm),
     )
+    graph.add_node(
+        "model_input_extraction_agent",
+        create_model_input_extraction_agent(llm),
+    )
 
     # Der Result-Node bündelt Solverausgabe und Workflowdaten zu
     # einem UI-unabhängigen finalen Ergebnisobjekt.
@@ -247,16 +254,20 @@ def build_graph(llm: BaseChatModel):
         },
     )
 
-    # Das LLM erzeugt ausschließlich unbestätigte Constraint-Kandidaten.
-    # Mappingfehler stoppen den Graph; erfolgreiche Kandidaten werden
-    # anschließend zusammen mit den Modellinputs verarbeitet.
+    # Das LLM erzeugt zunächst unbestätigte Constraint-Kandidaten.
+    # Mappingfehler stoppen den Graph; danach werden ebenfalls unbestätigte
+    # Kandidaten für die registrierten Modellfelder aus dem Freitext gelesen.
     graph.add_conditional_edges(
         "constraint_mapping_agent",
         route_after_constraint_mapping,
         {
             "mapping_failed": END,
-            "continue": "detect_model_specific_inputs",
+            "continue": "model_input_extraction_agent",
         },
+    )
+    graph.add_edge(
+        "model_input_extraction_agent",
+        "detect_model_specific_inputs",
     )
 
     # Fehlen Eingaben, endet der Graph und die UI zeigt das Modellformular.

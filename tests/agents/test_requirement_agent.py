@@ -38,6 +38,7 @@ def create_llm_response(
         "demand_type": None,
         "product_scope": None,
         "planning_horizon": None,
+        "review_type": None,
         "constraints": [],
         "unsupported_requirements": [],
     }
@@ -50,7 +51,6 @@ def create_complete_form_data() -> dict:
         "decision": "order_quantity",
         "objective": "maximize_profit",
         "demand_type": "uncertain",
-        "product_scope": "single_product",
         "planning_horizon": "single_period",
     }
 
@@ -79,8 +79,56 @@ def test_uses_canonical_form_values() -> None:
         == "single_period"
     )
     assert requirements["constraints"] == []
+    assert requirements["review_type"] is None
     assert result["missing_fields"] == []
     assert result["requirement_conflicts"] == []
+
+
+def test_requires_review_type_for_multiple_periods() -> None:
+    llm = create_mock_llm(
+        create_llm_response()
+    )
+    agent = create_requirement_agent(llm)
+    form_data = {
+        **create_complete_form_data(),
+        "planning_horizon": "multiple_periods",
+        "review_type": None,
+    }
+
+    result = agent(
+        {
+            "form_data": form_data,
+            "raw_input": "",
+        }
+    )
+
+    assert result["requirements"]["review_type"] is None
+    assert "review_type" in result["missing_fields"]
+
+
+def test_preserves_continuous_review_for_multiple_periods() -> None:
+    llm = create_mock_llm(
+        create_llm_response()
+    )
+    agent = create_requirement_agent(llm)
+    form_data = {
+        **create_complete_form_data(),
+        "planning_horizon": "multiple_periods",
+        "review_type": "continuous_review",
+    }
+
+    result = agent(
+        {
+            "form_data": form_data,
+            "raw_input": "",
+        }
+    )
+
+    assert (
+        result["requirements"]["review_type"]
+        == "continuous_review"
+    )
+    assert result["missing_fields"] == []
 
 
 def test_accepts_repeated_cycles_planning_horizon() -> None:
@@ -134,14 +182,12 @@ def test_accepts_repeated_cycles_planning_horizon() -> None:
 def test_llm_fills_missing_form_values() -> None:
     llm = create_mock_llm(
         create_llm_response(
-            product_scope="single_product",
             planning_horizon="single_period",
         )
     )
     agent = create_requirement_agent(llm)
 
     form_data = create_complete_form_data()
-    form_data["product_scope"] = None
     form_data["planning_horizon"] = None
 
     result = agent(
@@ -183,7 +229,7 @@ def test_handles_non_string_raw_input() -> None:
     assert result["missing_fields"] == []
 
 
-def test_detects_conflict_between_form_and_raw_input() -> None:
+def test_rejects_multiple_products_as_unsupported() -> None:
     llm = create_mock_llm(
         create_llm_response(
             product_scope="multiple_products",
@@ -206,20 +252,21 @@ def test_detects_conflict_between_form_and_raw_input() -> None:
         == "single_product"
     )
 
-    assert result["requirement_conflicts"] == [
+    assert result["requirement_conflicts"] == []
+    assert result["unsupported_requirements"] == [
         {
             "field": "product_scope",
-            "form_value": "single_product",
-            "raw_input_value": "multiple_products",
+            "user_value": "mehrere Produkte",
             "message": (
-                "Die Angaben zu 'product_scope' widersprechen "
-                "sich zwischen Formular und Freitext."
+                "Die aktuelle Version unterstützt "
+                "ausschließlich Optimierungen für ein "
+                "einzelnes Produkt."
             ),
         }
     ]
 
 
-def test_conflict_requires_clarification() -> None:
+def test_multiple_products_require_clarification() -> None:
     llm = create_mock_llm(
         create_llm_response(
             product_scope="multiple_products",
@@ -251,7 +298,7 @@ def test_conflict_requires_clarification() -> None:
     )
 
     assert (
-        "widersprechen"
+        "ausschließlich Optimierungen für ein einzelnes Produkt"
         in clarification_state["clarification_question"]
     )
 
@@ -283,7 +330,7 @@ def test_extracts_constraints_from_raw_input() -> None:
     ]
 
 
-def test_missing_product_scope_requires_clarification() -> None:
+def test_product_scope_is_added_as_system_assumption() -> None:
     state = {
         "requirements": {
             "decision": "order_quantity",
@@ -302,9 +349,10 @@ def test_missing_product_scope_requires_clarification() -> None:
 
     assert (
         get_workflow_status(result)
-        == WORKFLOW_NEEDS_GENERAL_CLARIFICATION
+        == WORKFLOW_GENERAL_INPUTS_VALID
     )
-    assert "product_scope" in result["missing_fields"]
+    assert result["requirements"]["product_scope"] == "single_product"
+    assert result["missing_fields"] == []
 
 
 def test_complete_requirements_are_valid() -> None:
@@ -402,7 +450,6 @@ def test_separates_problem_structure_from_constraints() -> None:
         create_llm_response(
             decision="order_quantity",
             demand_type="uncertain",
-            product_scope="single_product",
             planning_horizon="single_period",
             constraints=[
                 "Mindestbestellmenge von 30 Stück",

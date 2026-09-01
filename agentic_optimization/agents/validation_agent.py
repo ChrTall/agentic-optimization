@@ -20,15 +20,15 @@ from agentic_optimization.state import (
     GraphState,
     ObjectiveType,
     PlanningHorizon,
-    ProductScope,
+    ReviewType,
     with_control,
 )
 
 ALLOWED_DECISION_TYPES = set(get_args(DecisionType))
 ALLOWED_OBJECTIVE_TYPES = set(get_args(ObjectiveType))
 ALLOWED_DEMAND_TYPES = set(get_args(DemandType))
-ALLOWED_PRODUCT_SCOPES = set(get_args(ProductScope))
 ALLOWED_PLANNING_HORIZONS = set(get_args(PlanningHorizon))
+ALLOWED_REVIEW_TYPES = set(get_args(ReviewType))
 
 
 def validate_general_requirements(
@@ -41,10 +41,19 @@ def validate_general_requirements(
     Freitext sowie unsupported Requirements verhindern die Modellauswahl.
     """
 
-    requirements = state.get("requirements", {})
+    requirements = {
+        **state.get("requirements", {}),
+        # Der Produktumfang ist keine Nutzerauswahl mehr. Alle aktuell
+        # registrierten Modellvarianten gelten für genau ein Produkt.
+        "product_scope": "single_product",
+    }
 
     errors: list[str] = []
-    missing_fields = list(state.get("missing_fields", []))
+    missing_fields = [
+        field
+        for field in state.get("missing_fields", [])
+        if field != "product_scope"
+    ]
     requirement_conflicts = state.get("requirement_conflicts", [])
     unsupported_requirements = state.get("unsupported_requirements",[],)
 
@@ -64,17 +73,19 @@ def validate_general_requirements(
             ALLOWED_DEMAND_TYPES,
             "Die Nachfrageart besitzt einen ungültigen Wert.",
         ),
-        "product_scope": (
-            requirements.get("product_scope"),
-            ALLOWED_PRODUCT_SCOPES,
-            "Der Produktumfang besitzt einen ungültigen Wert.",
-        ),
         "planning_horizon": (
             requirements.get("planning_horizon"),
             ALLOWED_PLANNING_HORIZONS,
             "Der Planungshorizont besitzt einen ungültigen Wert.",
         ),
     }
+
+    if requirements.get("planning_horizon") == "multiple_periods":
+        fields_to_validate["review_type"] = (
+            requirements.get("review_type"),
+            ALLOWED_REVIEW_TYPES,
+            "Die Art der Bestandsüberprüfung besitzt einen ungültigen Wert.",
+        )
 
     for field_name, (
         value,
@@ -101,6 +112,7 @@ def validate_general_requirements(
     return with_control(
         {
             **state,
+            "requirements": requirements,
             "missing_fields": missing_fields,
             "general_validation_errors": errors,
         },
@@ -337,16 +349,14 @@ def validate_structured_constraints(
         unsupported_constraints = []
 
     # ---------------------------------------------------------------
-    # 3. Unsupported Constraints als Fehler übernehmen
+    # 3. Unsupported Constraints als nicht blockierende Hinweise prüfen
     # ---------------------------------------------------------------
 
     for unsupported in unsupported_constraints:
-        if isinstance(unsupported, str) and unsupported.strip():
-            errors.append(
-                "Nicht unterstützte Nebenbedingung: "
-                f"{unsupported.strip()}"
-            )
-        else:
+        # Inhaltlich nicht unterstützte Freitext-Constraints werden vom
+        # Solver ignoriert. Nur ein technisch ungültiges State-Format ist
+        # weiterhin ein Validierungsfehler.
+        if not isinstance(unsupported, str) or not unsupported.strip():
             errors.append(
                 "Eine nicht unterstützte Nebenbedingung besitzt "
                 "kein gültiges Textformat."

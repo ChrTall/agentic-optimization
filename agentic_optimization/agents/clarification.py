@@ -12,15 +12,15 @@ FIELD_QUESTIONS = {
     "constraints": "Welche betrieblichen Rahmenbedingungen oder Limits müssen berücksichtigt werden? Zum Beispiel Budget, Kapazität, Lagerplatz, Mindestmengen oder Lieferzeiten.",
     "product_scope": "Für wie viele Produkte soll eine Entscheidung getroffen werden: für ein Produkt oder für mehrere Produkte?",
     "planning_horizon": "Geht es um eine einmalige Entscheidung, um wiederkehrende gleichartige Bestellzyklen oder um mehrere aufeinanderfolgende Planungszeiträume?",
+    "review_type": "Wird der Bestand laufend oder in festen Zeitabständen überprüft?",
 }
-
 
 FIELD_LABELS = {
     "decision": "Art der Entscheidung",
     "objective": "Optimierungsziel",
     "demand_type": "Nachfrage",
-    "product_scope": "Produktumfang",
     "planning_horizon": "Planungszeitraum",
+    "review_type": "Art der Bestandsüberprüfung",
 }
 
 VALUE_LABELS = {
@@ -35,11 +35,10 @@ VALUE_LABELS = {
     "historical_estimate": (
         "historisch geschätzte Nachfrage"
     ),
-    "single_product": "ein Produkt",
-    "multiple_products": "mehrere Produkte",
     "single_period": "eine einmalige Entscheidung",
-    "repeated_cycles": "wiederkehrende Bestellzyklen",
     "multiple_periods": "mehrere Zeiträume",
+    "continuous_review": "laufende Bestandsüberprüfung",
+    "periodic_review": "Bestandsüberprüfung in festen Zeitabständen",
 }
 
 def clarification_node(state: GraphState) -> GraphState:

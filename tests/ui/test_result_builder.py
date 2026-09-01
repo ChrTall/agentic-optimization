@@ -15,6 +15,12 @@ def create_result_state() -> dict:
         "selected_model_variant": (
             "single_product_single_period"
         ),
+        "model_config": {
+            "family_name": "Newsvendor",
+            "variant_name": (
+                "Single Product, Single Period"
+            ),
+        },
         "requirements": {
             "decision": "order_quantity",
             "objective": "maximize_profit",
@@ -106,6 +112,7 @@ def test_builds_successful_newsvendor_result() -> None:
             "value": "840,00 €",
         },
     ]
+    assert result_data["technical_metrics"] == []
 
 
 def test_builds_newsvendor_scenario_details() -> None:
@@ -160,6 +167,19 @@ def test_allows_result_without_constraints() -> None:
     result_data = build_result_data(state)
 
     assert result_data["constraints"] == []
+
+
+def test_lists_constraints_ignored_by_solver() -> None:
+    state = create_result_state()
+    state["unsupported_constraints"] = [
+        "Während der Saison kann nicht nachbestellt werden.",
+    ]
+
+    result_data = build_result_data(state)
+
+    assert result_data["unsupported_constraints"] == [
+        "Während der Saison kann nicht nachbestellt werden.",
+    ]
 
 
 def test_does_not_show_metrics_for_infeasible_result() -> None:
@@ -250,6 +270,7 @@ def test_variant_registers_result_builder() -> None:
             "value": "840,00 €",
         },
     ]
+    assert presentation["technical_metrics"] == []
 
     assert (
         presentation["detail_title"]

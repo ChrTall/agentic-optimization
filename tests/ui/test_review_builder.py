@@ -1,6 +1,3 @@
-from agentic_optimization.models.eoq.basic_eoq import (
-    VARIANT_DEFINITION as EOQ_VARIANT_DEFINITION,
-)
 from agentic_optimization.models.newsvendor.single_product_single_period import (
     VARIANT_DEFINITION,
 )
@@ -15,6 +12,11 @@ def create_review_state() -> dict:
         "selected_model_variant": (
             "single_product_single_period"
         ),
+        "model_config": {
+            "variant_name": (
+                "Ein Produkt, eine Periode"
+            ),
+        },
         "requirements": {
             "decision": "order_quantity",
             "objective": "maximize_profit",
@@ -84,14 +86,29 @@ def test_builds_problem_review_items() -> None:
             "value": "Unsicher",
         },
         {
-            "label": "Produktumfang",
-            "value": "Ein Produkt",
-        },
-        {
             "label": "Planungszeitraum",
             "value": "Einmalige Entscheidung",
         },
     ]
+
+
+def test_adds_review_type_only_when_present() -> None:
+    state = create_review_state()
+    state["requirements"] = {
+        **state["requirements"],
+        "planning_horizon": "multiple_periods",
+        "review_type": "continuous_review",
+    }
+
+    review_data = build_review_data(
+        state,
+        VARIANT_DEFINITION,
+    )
+
+    assert review_data["problem"][-1] == {
+        "label": "Bestandsüberprüfung",
+        "value": "Kontinuierliche Überprüfung",
+    }
 
 
 def test_builds_parameters_from_registry_metadata() -> None:
@@ -158,9 +175,28 @@ def test_allows_review_without_constraints() -> None:
     assert review_data["constraints"] == []
 
 
-def test_uses_registered_variant_name() -> None:
+def test_lists_unsupported_constraints_as_information() -> None:
+    state = create_review_state()
+    state["unsupported_constraints"] = [
+        "Während der Saison kann nicht nachbestellt werden.",
+    ]
+
     review_data = build_review_data(
-        create_review_state(),
+        state,
+        VARIANT_DEFINITION,
+    )
+
+    assert review_data["unsupported_constraints"] == [
+        "Während der Saison kann nicht nachbestellt werden.",
+    ]
+
+
+def test_uses_registered_variant_name_as_fallback() -> None:
+    state = create_review_state()
+    state["model_config"] = {}
+
+    review_data = build_review_data(
+        state,
         VARIANT_DEFINITION,
     )
 

@@ -14,6 +14,7 @@ from agentic_optimization.state import (
     ObjectiveType,
     PlanningHorizon,
     ProductScope,
+    ReviewType,
     RequirementConflict,
     UnsupportedRequirement,
     with_control,
@@ -24,8 +25,10 @@ ALLOWED_OBJECTIVE_TYPES = set(get_args(ObjectiveType))
 ALLOWED_DEMAND_TYPES = set(get_args(DemandType))
 ALLOWED_PRODUCT_SCOPES = set(get_args(ProductScope))
 ALLOWED_PLANNING_HORIZONS = set(get_args(PlanningHorizon))
+ALLOWED_REVIEW_TYPES = set(get_args(ReviewType))
 
-REQUIRED_FIELDS = ["decision", "objective", "demand_type", "product_scope", "planning_horizon"]
+REQUIRED_FIELDS = ["decision", "objective", "demand_type", "planning_horizon"]
+STRUCTURAL_FIELDS = [*REQUIRED_FIELDS, "product_scope", "review_type"]
 
 SYSTEM_PROMPT = """Du analysierst ausschließlich die freie Beschreibung
 eines Optimierungsproblems.
@@ -40,6 +43,7 @@ Format:
   "demand_type": "known | uncertain | historical_estimate | null",
   "product_scope": "single_product | multiple_products | null",
   "planning_horizon": "single_period | repeated_cycles | multiple_periods | null",
+  "review_type": "continuous_review | periodic_review | null",
   "constraints": ["...", "..."],
   "unsupported_requirements": [
     {
@@ -68,13 +72,21 @@ demand_type:
 - historical_estimate: aus historischen Daten geschätzte Nachfrage
 
 product_scope:
-- single_product: genau ein Produkt
-- multiple_products: mehrere Produkte
+- single_product: genau ein Produkt; dies ist die feste Systemannahme
+- multiple_products: mehrere Produkte; diese Problemstruktur wird derzeit
+  nicht unterstützt
 
 planning_horizon:
 - single_period: eine einmalige Entscheidung
-- repeated_cycles: eine dauerhaft wiederkehrende Entscheidung in gleichartigen Zyklen
-- multiple_periods: mehrere explizit aufeinanderfolgende Zeiträume mit zeitabhängiger Planung
+- multiple_periods: mehrere aufeinanderfolgende Zeiträume
+
+review_type:
+- continuous_review: der Bestand wird laufend überwacht und bei Erreichen
+  eines Meldebestands wird bestellt
+- periodic_review: der Bestand wird in festen Zeitabständen überprüft
+
+review_type ist nur relevant, wenn planning_horizon multiple_periods ist.
+Bei single_period muss review_type null sein.
 
 
 constraints enthält ausschließlich konkrete betriebliche Vorgaben oder
@@ -95,6 +107,10 @@ Keine Constraints sind:
 - der Planungshorizont
 - das Optimierungsziel
 - eine allgemeine Beschreibung des Produkts
+- eine einmalige Bestellung ohne Möglichkeit zur Nachbestellung; das
+  beschreibt einen single_period-Planungshorizont
+- die laufende Bestandsüberwachung und das Nachbestellen beim Erreichen eines
+  Meldebestands; das beschreibt einen continuous_review-Prozess
 
 Übernimm einen Text nur in constraints, wenn darin tatsächlich eine konkrete
 Vorgabe oder Grenze beschrieben wird. Merkmale der Problemstruktur gehören
@@ -109,11 +125,13 @@ Betroffen sind ausschließlich:
 - demand_type
 - product_scope
 - planning_horizon
+- review_type
 
 Beispiele:
-- "Bestellzeitpunkt optimieren" ist eine nicht unterstützte decision.
-- "Meldebestand bestimmen" ist eine nicht unterstützte decision.
-- "Sicherheitsbestand bestimmen" ist eine nicht unterstützte decision.
+- "Bestellmenge und Meldebestand bestimmen" kann als order_quantity mit
+  continuous_review eingeordnet werden.
+- Eine ausdrücklich genannte, andere Überprüfungsart ist ein nicht
+  unterstütztes review_type.
 
 Wenn eine solche Anforderung ausdrücklich genannt wird:
 - setze das entsprechende strukturierte Feld auf null,
@@ -165,7 +183,7 @@ def _normalize_unsupported_requirements(
     if not isinstance(value, list):
         return []
 
-    allowed_fields = set(REQUIRED_FIELDS)
+    allowed_fields = set(STRUCTURAL_FIELDS)
     normalized_requirements: list[UnsupportedRequirement] = []
 
     for item in value:
@@ -260,6 +278,7 @@ def create_requirement_agent(llm: BaseChatModel) -> Callable[[GraphState], Graph
             )
         )
 
+        requirement_warnings: list[str] = []
         requirement_conflicts: list[RequirementConflict] = []
 
         decision = _resolve_structured_field(
@@ -286,13 +305,32 @@ def create_requirement_agent(llm: BaseChatModel) -> Callable[[GraphState], Graph
             conflicts=requirement_conflicts,
         )
 
-        product_scope = _resolve_structured_field(
-            field_name="product_scope",
-            form_data=form_data,
-            extracted=extracted,
-            allowed_values=ALLOWED_PRODUCT_SCOPES,
-            conflicts=requirement_conflicts,
+        extracted_product_scope = _normalize_choice(
+            extracted.get("product_scope"),
+            ALLOWED_PRODUCT_SCOPES,
         )
+
+        if (
+            extracted_product_scope == "multiple_products"
+            and not any(
+                requirement.get("field") == "product_scope"
+                for requirement in unsupported_requirements
+            )
+        ):
+            unsupported_requirements.append(
+                {
+                    "field": "product_scope",
+                    "user_value": "mehrere Produkte",
+                    "message": (
+                        "Die aktuelle Version unterstützt "
+                        "ausschließlich Optimierungen für ein "
+                        "einzelnes Produkt."
+                    ),
+                }
+            )
+
+        # Alle aktuell registrierten Modellvarianten sind Einproduktmodelle.
+        product_scope = "single_product"
 
         planning_horizon = _resolve_structured_field(
             field_name="planning_horizon",
@@ -302,12 +340,24 @@ def create_requirement_agent(llm: BaseChatModel) -> Callable[[GraphState], Graph
             conflicts=requirement_conflicts,
         )
 
+        review_type = _resolve_structured_field(
+            field_name="review_type",
+            form_data=form_data,
+            extracted=extracted,
+            allowed_values=ALLOWED_REVIEW_TYPES,
+            conflicts=requirement_conflicts,
+        )
+
+        if planning_horizon != "multiple_periods":
+            review_type = None
+
         requirements = {
             "decision": decision,
             "objective": objective,
             "demand_type": demand_type,
             "product_scope": product_scope,
             "planning_horizon": planning_horizon,
+            "review_type": review_type,
             "constraints": constraints,
             "raw_description": raw_input,
         }
@@ -318,6 +368,12 @@ def create_requirement_agent(llm: BaseChatModel) -> Callable[[GraphState], Graph
             if not requirements.get(field)
         ]
 
+        if (
+            planning_horizon == "multiple_periods"
+            and not review_type
+        ):
+            missing_fields.append("review_type")
+
         missing_fields = list(dict.fromkeys(missing_fields))
 
         return with_control(
@@ -327,6 +383,8 @@ def create_requirement_agent(llm: BaseChatModel) -> Callable[[GraphState], Graph
                 "missing_fields": missing_fields,
                 "clarification_question": "",
                 "general_validation_errors": [],
+                "consistency_warnings": [],
+                "requirement_warnings": requirement_warnings,
                 "requirement_conflicts": requirement_conflicts,
                 "unsupported_requirements": unsupported_requirements,
             },
@@ -458,6 +516,7 @@ def _extract_rule_based(
         "demand_type": None,
         "product_scope": None,
         "planning_horizon": None,
+        "review_type": None,
         "constraints": [],
         "unsupported_requirements": [],
     }

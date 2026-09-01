@@ -30,6 +30,7 @@ class VariantResultPresentation(TypedDict):
     """
 
     metrics: list[ResultMetric]
+    technical_metrics: list[ResultMetric]
     detail_title: str | None
     detail_rows: list[dict[str, str]]
 
@@ -112,6 +113,7 @@ class ModelSelectionCriteria(TypedDict):
     demand_type: str
     product_scope: str
     planning_horizon: str
+    review_type: NotRequired[str]
 
 
 class ModelVariantDefinition(TypedDict):
@@ -134,4 +136,3 @@ class ModelFamilyDefinition(TypedDict):
     family_id: str
     family_name: str
     variants: dict[str, ModelVariantDefinition]
-

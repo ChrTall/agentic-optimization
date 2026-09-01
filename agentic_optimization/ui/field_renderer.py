@@ -63,9 +63,18 @@ def render_input_field(
     help_text = field_definition.get("help")
     placeholder = field_definition.get("placeholder")
 
-    if field_type == "number":
+    if field_type in {"number", "integer"}:
+        is_integer_field = field_type == "integer"
+
         initial_value = (
-            float(existing_value)
+            int(existing_value)
+            if (
+                is_integer_field
+                and isinstance(existing_value, (int, float))
+                and not isinstance(existing_value, bool)
+                and float(existing_value).is_integer()
+            )
+            else float(existing_value)
             if isinstance(existing_value, (int, float))
             and not isinstance(existing_value, bool)
             else None
@@ -91,17 +100,25 @@ def render_input_field(
         step = field_definition.get("step")
 
         if min_value is not None:
-            number_input_arguments["min_value"] = float(
-                min_value
+            number_input_arguments["min_value"] = (
+                int(min_value)
+                if is_integer_field
+                else float(min_value)
             )
 
         if max_value is not None:
-            number_input_arguments["max_value"] = float(
-                max_value
+            number_input_arguments["max_value"] = (
+                int(max_value)
+                if is_integer_field
+                else float(max_value)
             )
 
         if step is not None:
-            number_input_arguments["step"] = float(step)
+            number_input_arguments["step"] = (
+                int(step)
+                if is_integer_field
+                else float(step)
+            )
 
         if placeholder:
             number_input_arguments["placeholder"] = placeholder
@@ -156,7 +173,7 @@ def _validate_numeric_bounds(
 def parse_input_value(
     field_definition: FieldDefinition,
     raw_value: Any,
-) -> float | list[float] | None:
+) -> int | float | list[float] | None:
     """
     Konvertiert einen Widgetwert in den internen Modellwert.
 
@@ -166,7 +183,7 @@ def parse_input_value(
 
     field_type = field_definition["type"]
 
-    if field_type == "number":
+    if field_type in {"number", "integer"}:
         if raw_value in (None, ""):
             return None
 
@@ -184,6 +201,15 @@ def parse_input_value(
             field_definition=field_definition,
             values=[parsed_value],
         )
+
+        if field_type == "integer":
+            if not parsed_value.is_integer():
+                raise ValueError(
+                    f"'{field_definition['label']}' muss in "
+                    "ganzen Einheiten angegeben werden."
+                )
+
+            return int(parsed_value)
 
         return parsed_value
 

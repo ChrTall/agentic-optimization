@@ -22,6 +22,7 @@ class ReviewData(TypedDict):
     problem: list[ReviewItem]
     parameters: list[ReviewItem]
     constraints: list[ReviewItem]
+    unsupported_constraints: list[str]
     model_name: str
 
 
@@ -43,15 +44,14 @@ DEMAND_TYPE_LABELS = {
     "historical_estimate": "Historisch geschätzt",
 }
 
-PRODUCT_SCOPE_LABELS = {
-    "single_product": "Ein Produkt",
-    "multiple_products": "Mehrere Produkte",
-}
-
 PLANNING_HORIZON_LABELS = {
     "single_period": "Einmalige Entscheidung",
-    "repeated_cycles": "Wiederkehrende Bestellzyklen",
     "multiple_periods": "Mehrere Zeiträume",
+}
+
+REVIEW_TYPE_LABELS = {
+    "continuous_review": "Kontinuierliche Überprüfung",
+    "periodic_review": "Periodische Überprüfung",
 }
 
 
@@ -115,16 +115,20 @@ def _build_problem_items(
             DEMAND_TYPE_LABELS,
         ),
         (
-            "Produktumfang",
-            "product_scope",
-            PRODUCT_SCOPE_LABELS,
-        ),
-        (
             "Planungszeitraum",
             "planning_horizon",
             PLANNING_HORIZON_LABELS,
         ),
     ]
+
+    if requirements.get("review_type") is not None:
+        definitions.append(
+            (
+                "Bestandsüberprüfung",
+                "review_type",
+                REVIEW_TYPE_LABELS,
+            )
+        )
 
     return [
         {
@@ -249,6 +253,22 @@ def build_review_data(
         "structured_constraints",
         [],
     )
+    unsupported_constraints = [
+        constraint.strip()
+        for constraint in state.get(
+            "unsupported_constraints",
+            [],
+        )
+        if isinstance(constraint, str)
+        and constraint.strip()
+    ]
+
+    model_config = state.get("model_config", {})
+
+    model_name = model_config.get(
+        "variant_name",
+        variant_definition["variant_name"],
+    )
 
     return {
         "problem": _build_problem_items(
@@ -262,5 +282,6 @@ def build_review_data(
             constraints,
             variant_definition,
         ),
-        "model_name": variant_definition["variant_name"],
+        "unsupported_constraints": unsupported_constraints,
+        "model_name": str(model_name),
     }
