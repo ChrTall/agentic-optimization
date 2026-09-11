@@ -1,0 +1,83 @@
+import json
+
+import pytest
+
+from agentic_optimization.models.component_catalog import (
+    build_component_catalog,
+)
+from agentic_optimization.models.component_registry import (
+    OBJECTIVE_COMPONENTS,
+)
+
+
+def test_builds_newsvendor_component_catalog() -> None:
+    catalog = build_component_catalog(
+        "single_period_newsvendor"
+    )
+
+    assert catalog["core"]["core_id"] == (
+        "single_period_newsvendor"
+    )
+
+    objective_ids = {
+        component["component_id"]
+        for component in catalog["objective_components"]
+    }
+    constraint_ids = {
+        component["component_id"]
+        for component in catalog["constraint_components"]
+    }
+
+    assert objective_ids == {
+        "sales_revenue",
+        "salvage_revenue",
+        "purchase_cost",
+        "shortage_cost",
+    }
+    assert constraint_ids == {
+        "minimum_order_quantity",
+        "maximum_order_quantity",
+        "budget_limit",
+        "storage_capacity",
+    }
+
+
+def test_catalog_is_json_serializable() -> None:
+    catalog = build_component_catalog(
+        "single_period_newsvendor"
+    )
+
+    serialized_catalog = json.dumps(catalog)
+
+    assert "single_period_newsvendor" in serialized_catalog
+    assert "builder" not in serialized_catalog
+
+
+def test_catalog_does_not_expose_mutable_registry_data() -> None:
+    catalog = build_component_catalog(
+        "single_period_newsvendor"
+    )
+
+    sales_component = next(
+        component
+        for component in catalog["objective_components"]
+        if component["component_id"] == "sales_revenue"
+    )
+
+    sales_component["required_product_facts"][0][
+        "label"
+    ] = "Changed"
+
+    registry_label = OBJECTIVE_COMPONENTS[
+        "sales_revenue"
+    ]["required_product_facts"][0]["label"]
+
+    assert registry_label != "Changed"
+
+
+def test_rejects_unknown_core() -> None:
+    with pytest.raises(
+        ValueError,
+        match="unknown_core",
+    ):
+        build_component_catalog("unknown_core")

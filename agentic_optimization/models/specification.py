@@ -77,6 +77,12 @@ class ProposedConstraint(TypedDict):
     product_id: NotRequired[str]
 
 
+class SelectionEvidence(TypedDict):
+    """Eine für die Bausteinauswahl verfügbare Informationsquelle."""
+
+    source_id: str
+    content: str
+
 class ComponentSelectionProposal(TypedDict):
     """Nachvollziehbarer Vorschlag des Component-Selection-Agents."""
 

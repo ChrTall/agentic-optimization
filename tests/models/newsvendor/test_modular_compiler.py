@@ -327,7 +327,26 @@ def test_executes_model_with_common_result_contract() -> None:
             "value": pytest.approx(100.0),
         }
     ]
-    assert result["metrics"] == []
+    assert result["metrics"] == [
+        {
+            "metric_id": "sold_quantity",
+            "product_id": "product_1",
+            "aggregation": "expected_value",
+            "value": pytest.approx(91.0),
+        },
+        {
+            "metric_id": "leftover_quantity",
+            "product_id": "product_1",
+            "aggregation": "expected_value",
+            "value": pytest.approx(9.0),
+        },
+        {
+            "metric_id": "shortage_quantity",
+            "product_id": "product_1",
+            "aggregation": "expected_value",
+            "value": pytest.approx(12.0),
+        },
+    ]
     assert result["errors"] == []
     assert result["technical_representation"] is not None
 
