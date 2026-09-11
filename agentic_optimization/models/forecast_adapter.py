@@ -2,10 +2,12 @@
 Aufbereitung von Nachfrageprognosen für Optimierungsmodelle.
 """
 
-from typing import TypedDict
 import math
+from typing import TypedDict
+
 from agentic_optimization.models.specification import (
     DemandForecast,
+    ForecastQuantile,
 )
 
 
@@ -34,10 +36,10 @@ def _is_number(value: object) -> bool:
     ):
         return False
 
-    if isinstance(value, float):
-        return math.isfinite(value)
-
-    return True
+    try:
+        return math.isfinite(float(value))
+    except OverflowError:
+        return False
 
 
 def prepare_demand_forecast(
@@ -51,14 +53,19 @@ def prepare_demand_forecast(
     zusätzlich die nicht abgedeckten Randbereiche.
     """
 
-    expected_value = forecast["expected_value"]
-    horizon_days = forecast["horizon_days"]
-    quantiles = forecast["quantiles"]
+    if not isinstance(forecast, dict):
+        raise ValueError(
+            "Die Nachfrageprognose muss als Objekt vorliegen."
+        )
+
+    expected_value = forecast.get("expected_value")
+    horizon_days = forecast.get("horizon_days")
+    quantiles = forecast.get("quantiles")
 
     if not _is_number(expected_value) or expected_value < 0:
         raise ValueError(
             "Der Erwartungswert der Nachfrage muss "
-            "eine nicht negative Zahl sein."
+            "eine endliche, nicht negative Zahl sein."
         )
 
     if (
@@ -71,14 +78,55 @@ def prepare_demand_forecast(
             "ganze Zahl sein."
         )
 
-    if not quantiles:
+    if not isinstance(quantiles, list) or not quantiles:
         raise ValueError(
-            "Für die Nachfrageprognose muss mindestens "
-            "ein Quantil vorhanden sein."
+            "Die Nachfragequantile müssen als "
+            "nicht leere Liste vorliegen."
+        )
+
+    normalized_quantiles: list[ForecastQuantile] = []
+
+    for index, quantile in enumerate(quantiles):
+        if not isinstance(quantile, dict):
+            raise ValueError(
+                f"Das Nachfragequantil an Position "
+                f"{index} muss als Objekt vorliegen."
+            )
+
+        if "level" not in quantile or "value" not in quantile:
+            raise ValueError(
+                f"Beim Nachfragequantil an Position "
+                f"{index} fehlen Quantilsniveau "
+                "oder Nachfragewert."
+            )
+
+        level = quantile["level"]
+        value = quantile["value"]
+
+        if (
+            not _is_number(level)
+            or not 0 < level < 1
+        ):
+            raise ValueError(
+                "Quantilsniveaus müssen endliche Zahlen "
+                "zwischen 0 und 1 sein."
+            )
+
+        if not _is_number(value) or value < 0:
+            raise ValueError(
+                "Quantilswerte müssen endliche, "
+                "nicht negative Zahlen sein."
+            )
+
+        normalized_quantiles.append(
+            {
+                "level": float(level),
+                "value": float(value),
+            }
         )
 
     sorted_quantiles = sorted(
-        quantiles,
+        normalized_quantiles,
         key=lambda quantile: quantile["level"],
     )
 
@@ -88,19 +136,6 @@ def prepare_demand_forecast(
     for quantile in sorted_quantiles:
         level = quantile["level"]
         value = quantile["value"]
-
-        if (
-            not _is_number(level)
-            or not 0 < level < 1
-        ):
-            raise ValueError(
-                "Quantilsniveaus müssen zwischen 0 und 1 liegen."
-            )
-
-        if not _is_number(value) or value < 0:
-            raise ValueError(
-                "Quantilswerte müssen nicht negative Zahlen sein."
-            )
 
         if previous_level is not None and level == previous_level:
             raise ValueError(
@@ -113,8 +148,8 @@ def prepare_demand_forecast(
                 "Quantilsniveau monoton steigen."
             )
 
-        previous_level = float(level)
-        previous_value = float(value)
+        previous_level = level
+        previous_value = value
 
     levels = [
         float(quantile["level"])

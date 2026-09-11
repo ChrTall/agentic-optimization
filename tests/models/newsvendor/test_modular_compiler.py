@@ -8,7 +8,9 @@ from agentic_optimization.models.specification import (
     ModelSpecification,
     ProductSpecification,
 )
-
+from agentic_optimization.models.execution import (
+    execute_model_specification,
+)
 
 def create_product(
     product_id: str,
@@ -302,3 +304,62 @@ def test_global_storage_capacity_couples_products() -> None:
 
     assert used_capacity <= 210.0 + 1e-6
     assert used_capacity == pytest.approx(210.0)
+
+
+def test_executes_model_with_common_result_contract() -> None:
+    specification = create_specification(
+        [
+            create_product("product_1"),
+        ]
+    )
+
+    result = execute_model_specification(
+        specification
+    )
+
+    assert result["status"] == "optimal"
+    assert result["solution_method"] == "linear_programming"
+    assert result["objective_value"] == pytest.approx(592.0)
+    assert result["decisions"] == [
+        {
+            "quantity_id": "order_quantity",
+            "product_id": "product_1",
+            "value": pytest.approx(100.0),
+        }
+    ]
+    assert result["metrics"] == []
+    assert result["errors"] == []
+    assert result["technical_representation"] is not None
+
+
+def test_reports_infeasible_linear_model() -> None:
+    specification = create_specification(
+        [
+            create_product("product_1"),
+        ]
+    )
+    specification["constraints"] = [
+        {
+            "component_id": "minimum_order_quantity",
+            "product_id": "product_1",
+            "parameters": {
+                "quantity": 110.0,
+            },
+        },
+        {
+            "component_id": "budget_limit",
+            "parameters": {
+                "budget": 0.0,
+            },
+        },
+    ]
+
+    result = execute_model_specification(
+        specification
+    )
+
+    assert result["status"] == "infeasible"
+    assert result["solution_method"] == "linear_programming"
+    assert result["objective_value"] is None
+    assert result["decisions"] == []
+    assert result["errors"]

@@ -459,3 +459,241 @@ def test_rejects_non_finite_product_fact(
         and "muss eine endliche Zahl sein" in error
         for error in result["errors"]
     )
+
+
+def test_rejects_non_object_forecast() -> None:
+    specification = create_complete_specification()
+    specification["products"][0]["forecast"] = "invalid"
+
+    result = validate_model_specification(specification)
+
+    assert result["is_valid"] is False
+    assert any(
+        "product_1" in error
+        and "muss als Objekt vorliegen" in error
+        for error in result["errors"]
+    )
+
+
+def test_rejects_non_object_specification() -> None:
+    result = validate_model_specification("invalid")
+
+    assert result["is_valid"] is False
+    assert result["errors"] == [
+        "Die Modellspezifikation muss als Objekt vorliegen."
+    ]
+    assert result["missing_inputs"] == []
+
+
+def test_rejects_non_list_products() -> None:
+    specification = create_complete_specification()
+    specification["products"] = {}
+
+    result = validate_model_specification(specification)
+
+    assert result["is_valid"] is False
+    assert any(
+        "Produkte müssen als Liste vorliegen" in error
+        for error in result["errors"]
+    )
+
+
+def test_rejects_non_object_product() -> None:
+    specification = create_complete_specification()
+    specification["products"] = ["invalid"]
+
+    result = validate_model_specification(specification)
+
+    assert result["is_valid"] is False
+    assert any(
+        "Produkt an Position 0" in error
+        and "muss als Objekt vorliegen" in error
+        for error in result["errors"]
+    )
+
+
+def test_rejects_non_object_product_facts() -> None:
+    specification = create_complete_specification()
+    specification["products"][0]["facts"] = []
+
+    result = validate_model_specification(specification)
+
+    assert result["is_valid"] is False
+    assert any(
+        "Produktangaben" in error
+        and "müssen als Objekt vorliegen" in error
+        for error in result["errors"]
+    )
+
+
+def test_rejects_non_list_objective_components() -> None:
+    specification = create_complete_specification()
+    specification["objective"]["component_ids"] = (
+        "sales_revenue"
+    )
+
+    result = validate_model_specification(specification)
+
+    assert result["is_valid"] is False
+    assert any(
+        "Zielfunktionsbausteine müssen als Liste vorliegen"
+        in error
+        for error in result["errors"]
+    )
+
+
+def test_rejects_non_object_constraint_parameters() -> None:
+    specification = create_complete_specification()
+    specification["constraints"][0]["parameters"] = []
+
+    result = validate_model_specification(specification)
+
+    assert result["is_valid"] is False
+    assert any(
+        "Parameter des Constraints" in error
+        and "müssen als Objekt vorliegen" in error
+        for error in result["errors"]
+    )
+
+
+def test_rejects_non_string_objective_sense() -> None:
+    specification = create_complete_specification()
+    specification["objective"]["sense"] = []
+
+    result = validate_model_specification(specification)
+
+    assert result["is_valid"] is False
+    assert any(
+        "Zielrichtung muss als Zeichenkette vorliegen"
+        in error
+        for error in result["errors"]
+    )
+
+
+def test_rejects_constraint_number_too_large_for_float() -> None:
+    specification = create_complete_specification()
+    specification["constraints"][0]["parameters"][
+        "quantity"
+    ] = 10**1000
+
+    result = validate_model_specification(specification)
+
+    assert result["is_valid"] is False
+    assert any(
+        "Mindestbestellmenge" in error
+        and "muss eine endliche Zahl sein" in error
+        for error in result["errors"]
+    )
+
+
+def test_rejects_non_object_objective() -> None:
+    specification = create_complete_specification()
+    specification["objective"] = []
+
+    result = validate_model_specification(specification)
+
+    assert result["is_valid"] is False
+    assert any(
+        "Zielfunktion muss als Objekt vorliegen" in error
+        for error in result["errors"]
+    )
+
+
+def test_rejects_salvage_value_not_below_purchase_cost() -> None:
+    specification = create_complete_specification()
+
+    specification["objective"]["component_ids"].append(
+        "salvage_revenue"
+    )
+    specification["products"][0]["facts"][
+        "salvage_value"
+    ] = 5.0
+
+    result = validate_model_specification(specification)
+
+    assert result["is_valid"] is False
+    assert any(
+        "product_1" in error
+        and "Restwert" in error
+        and "kleiner als die Einkaufskosten" in error
+        for error in result["errors"]
+    )
+
+
+def test_accepts_salvage_value_below_purchase_cost() -> None:
+    specification = create_complete_specification()
+
+    specification["objective"]["component_ids"].append(
+        "salvage_revenue"
+    )
+    specification["products"][0]["facts"][
+        "salvage_value"
+    ] = 4.0
+
+    result = validate_model_specification(specification)
+
+    assert result["is_valid"] is True
+    assert result["errors"] == []
+
+
+def test_rejects_objective_without_fulfillment_incentive() -> None:
+    specification = create_complete_specification()
+    specification["objective"]["component_ids"] = [
+        "purchase_cost",
+    ]
+
+    result = validate_model_specification(specification)
+
+    assert result["is_valid"] is False
+    assert any(
+        "keinen positiven Anreiz zur Deckung der Nachfrage"
+        in error
+        for error in result["errors"]
+    )
+
+
+def test_rejects_salvage_value_that_discourages_sales() -> None:
+    specification = create_complete_specification()
+
+    specification["objective"]["component_ids"].append(
+        "salvage_revenue"
+    )
+    specification["products"][0]["facts"][
+        "selling_price"
+    ] = 4.0
+    specification["products"][0]["facts"][
+        "salvage_value"
+    ] = 4.0
+
+    result = validate_model_specification(specification)
+
+    assert result["is_valid"] is False
+    assert any(
+        "keinen positiven Anreiz zur Deckung der Nachfrage"
+        in error
+        for error in result["errors"]
+    )
+
+
+def test_accepts_combined_sales_and_shortage_incentive() -> None:
+    specification = create_complete_specification()
+
+    specification["objective"]["component_ids"] = [
+        "sales_revenue",
+        "salvage_revenue",
+        "purchase_cost",
+        "shortage_cost",
+    ]
+    specification["products"][0]["facts"].update(
+        {
+            "selling_price": 1.0,
+            "salvage_value": 4.0,
+            "purchase_cost": 5.0,
+            "shortage_cost": 4.0,
+        }
+    )
+
+    result = validate_model_specification(specification)
+
+    assert result["is_valid"] is True
+    assert result["errors"] == []

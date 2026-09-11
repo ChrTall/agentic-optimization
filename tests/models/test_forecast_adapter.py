@@ -157,3 +157,58 @@ def test_rejects_non_finite_quantile_value(
         match="Quantilswerte",
     ):
         prepare_demand_forecast(forecast)
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    [
+        "expected_value",
+        "horizon_days",
+        "quantiles",
+    ],
+)
+def test_rejects_missing_forecast_field(
+    missing_field: str,
+) -> None:
+    forecast = create_forecast()
+    del forecast[missing_field]
+
+    with pytest.raises(ValueError):
+        prepare_demand_forecast(forecast)
+
+
+def test_rejects_non_object_quantile() -> None:
+    forecast = create_forecast()
+    forecast["quantiles"] = [100.0]
+
+    with pytest.raises(
+        ValueError,
+        match="muss als Objekt vorliegen",
+    ):
+        prepare_demand_forecast(forecast)
+
+
+def test_rejects_quantile_with_missing_value() -> None:
+    forecast = create_forecast()
+    forecast["quantiles"] = [
+        {
+            "level": 0.5,
+        }
+    ]
+
+    with pytest.raises(
+        ValueError,
+        match="fehlen Quantilsniveau oder Nachfragewert",
+    ):
+        prepare_demand_forecast(forecast)
+
+
+def test_rejects_number_too_large_for_float() -> None:
+    forecast = create_forecast()
+    forecast["expected_value"] = 10**1000
+
+    with pytest.raises(
+        ValueError,
+        match="Erwartungswert",
+    ):
+        prepare_demand_forecast(forecast)

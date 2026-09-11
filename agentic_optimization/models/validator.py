@@ -55,6 +55,195 @@ class SpecificationValidationResult(TypedDict):
     missing_inputs: list[MissingInput]
 
 
+def _validate_specification_structure(
+    specification: object,
+) -> list[str]:
+    """Prüft die Containerstruktur einer Modellspezifikation."""
+
+    if not isinstance(specification, dict):
+        return [
+            "Die Modellspezifikation muss als Objekt vorliegen."
+        ]
+
+    errors: list[str] = []
+
+    core_id = specification.get("core_id")
+
+    if (
+        core_id is not None
+        and (
+            not isinstance(core_id, str)
+            or not core_id.strip()
+        )
+    ):
+        errors.append(
+            "Die ID des Grundmodells muss eine "
+            "nicht leere Zeichenkette sein."
+        )
+
+    products = specification.get("products", [])
+
+    if not isinstance(products, list):
+        errors.append(
+            "Die Produkte müssen als Liste vorliegen."
+        )
+    else:
+        for index, product in enumerate(products):
+            if not isinstance(product, dict):
+                errors.append(
+                    f"Das Produkt an Position {index} "
+                    "muss als Objekt vorliegen."
+                )
+                continue
+
+            product_id = product.get("product_id")
+
+            product_reference = (
+                f"'{product_id}'"
+                if (
+                    isinstance(product_id, str)
+                    and product_id.strip()
+                )
+                else f"an Position {index}"
+            )
+
+            if (
+                product_id is not None
+                and not isinstance(product_id, str)
+            ):
+                errors.append(
+                    f"Die Produkt-ID an Position {index} "
+                    "muss eine Zeichenkette sein."
+                )
+
+            forecast = product.get("forecast", {})
+
+            if not isinstance(forecast, dict):
+                errors.append(
+                    f"Die Nachfrageprognose für Produkt "
+                    f"{product_reference} muss als Objekt vorliegen."
+                )
+
+            facts = product.get("facts", {})
+
+            if not isinstance(facts, dict):
+                errors.append(
+                    f"Die Produktangaben des Produkts "
+                    f"{product_reference} müssen als Objekt "
+                    "vorliegen."
+                )
+
+    global_facts = specification.get(
+        "global_facts",
+        {},
+    )
+
+    if not isinstance(global_facts, dict):
+        errors.append(
+            "Die globalen Angaben müssen als Objekt vorliegen."
+        )
+
+    objective = specification.get("objective", {})
+
+    if not isinstance(objective, dict):
+        errors.append(
+            "Die Zielfunktion muss als Objekt vorliegen."
+        )
+    else:
+        objective_sense = objective.get("sense")
+
+        if (
+            objective_sense is not None
+            and not isinstance(objective_sense, str)
+        ):
+            errors.append(
+                "Die Zielrichtung muss als Zeichenkette vorliegen."
+            )
+
+        component_ids = objective.get(
+            "component_ids",
+            [],
+        )
+
+        if not isinstance(component_ids, list):
+            errors.append(
+                "Die Zielfunktionsbausteine müssen "
+                "als Liste vorliegen."
+            )
+        else:
+            for index, component_id in enumerate(
+                component_ids
+            ):
+                if (
+                    not isinstance(component_id, str)
+                    or not component_id.strip()
+                ):
+                    errors.append(
+                        f"Die ID des Zielfunktionsbausteins "
+                        f"an Position {index} muss eine "
+                        "nicht leere Zeichenkette sein."
+                    )
+
+    constraints = specification.get(
+        "constraints",
+        [],
+    )
+
+    if not isinstance(constraints, list):
+        errors.append(
+            "Die Constraints müssen als Liste vorliegen."
+        )
+    else:
+        for index, constraint in enumerate(constraints):
+            if not isinstance(constraint, dict):
+                errors.append(
+                    f"Der Constraint an Position {index} "
+                    "muss als Objekt vorliegen."
+                )
+                continue
+
+            component_id = constraint.get("component_id")
+
+            if (
+                component_id is not None
+                and (
+                    not isinstance(component_id, str)
+                    or not component_id.strip()
+                )
+            ):
+                errors.append(
+                    f"Die ID des Constraints an Position "
+                    f"{index} muss eine nicht leere "
+                    "Zeichenkette sein."
+                )
+
+            parameters = constraint.get(
+                "parameters",
+                {},
+            )
+
+            if not isinstance(parameters, dict):
+                errors.append(
+                    f"Die Parameter des Constraints an "
+                    f"Position {index} müssen als Objekt "
+                    "vorliegen."
+                )
+
+            product_id = constraint.get("product_id")
+
+            if (
+                product_id is not None
+                and not isinstance(product_id, str)
+            ):
+                errors.append(
+                    f"Die Produkt-ID des Constraints an "
+                    f"Position {index} muss eine "
+                    "Zeichenkette sein."
+                )
+
+    return errors
+
+
 def _has_value(values: dict, name: str) -> bool:
     """Prüft, ob ein verwendbarer Wert vorhanden ist."""
 
@@ -70,6 +259,28 @@ def _has_value(values: dict, name: str) -> bool:
         return False
 
     return not (isinstance(value, (list, dict)) and not value)
+
+
+def _to_finite_number(
+    value: object,
+) -> float | None:
+    """Konvertiert einen numerischen Wert in einen endlichen Float."""
+
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+    ):
+        return None
+
+    try:
+        numeric_value = float(value)
+    except (OverflowError, ValueError):
+        return None
+
+    if not math.isfinite(numeric_value):
+        return None
+
+    return numeric_value
 
 
 def _validate_field_value(
@@ -88,6 +299,8 @@ def _validate_field_value(
         and not isinstance(value, bool)
     )
 
+    finite_number = _to_finite_number(value)
+
     if field_type == "number":
         if not is_number:
             return [
@@ -95,10 +308,7 @@ def _validate_field_value(
                 "muss eine Zahl sein.")
             ]
 
-        if (
-            isinstance(value, float)
-            and not math.isfinite(value)
-        ):
+        if finite_number is None:
             return [
                 (f"Das Feld '{label}' {location} "
                 "muss eine endliche Zahl sein.")
@@ -183,6 +393,16 @@ def validate_model_specification(
 ) -> SpecificationValidationResult:
     """Prüft Vollständigkeit und Kompatibilität der Spezifikation."""
 
+    structure_errors = _validate_specification_structure(
+        specification
+    )
+
+    if structure_errors:
+        return {
+            "is_valid": False,
+            "errors": structure_errors,
+            "missing_inputs": [],
+        }
     errors: list[str] = []
     missing_inputs: list[MissingInput] = []
 
@@ -266,7 +486,7 @@ def validate_model_specification(
         ):
             try:
                 prepare_demand_forecast(forecast)
-            except (KeyError, TypeError, ValueError) as error:
+            except ValueError as error:
                 errors.append(
                     f"Die Nachfrageprognose für Produkt "
                     f"'{product_id}' ist ungültig: {error}"
@@ -555,6 +775,8 @@ def validate_model_specification(
             {},
         ).get("quantity")
 
+        quantity_value = _to_finite_number(quantity)
+
         if (
             component_id
             not in {
@@ -562,15 +784,14 @@ def validate_model_specification(
                 "maximum_order_quantity",
             }
             or not product_id
-            or not isinstance(quantity, (int, float))
-            or isinstance(quantity, bool)
+            or quantity_value is None
         ):
             continue
 
         order_bounds_by_product.setdefault(
             product_id,
             {},
-        )[component_id] = float(quantity)
+        )[component_id] = quantity_value
 
     for product_id, bounds in order_bounds_by_product.items():
         minimum = bounds.get("minimum_order_quantity")
@@ -587,8 +808,18 @@ def validate_model_specification(
                 "nicht überschreiten."
             )
 
-    missing_inputs = _deduplicate_missing_inputs(missing_inputs)
+    missing_inputs = _deduplicate_missing_inputs(
+        missing_inputs
+    )
     errors = list(dict.fromkeys(errors))
+
+    if not errors and not missing_inputs:
+        semantic_errors = registered_core[
+            "semantic_validator"
+        ](specification)
+
+        errors.extend(semantic_errors)
+        errors = list(dict.fromkeys(errors))
 
     return {
         "is_valid": not errors and not missing_inputs,

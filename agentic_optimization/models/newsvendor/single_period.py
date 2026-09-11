@@ -19,6 +19,9 @@ from agentic_optimization.models.types import ModelInputField
 from agentic_optimization.models.types import (
     ModelCoreDefinition,
 )
+from agentic_optimization.models.execution import (
+    OptimizationExecutionResult,
+)
 
 
 CORE_DEFINITION: ModelCoreDefinition = {
@@ -105,6 +108,74 @@ CORE_DEFINITION: ModelCoreDefinition = {
         },
     },
 }
+
+
+def validate_single_period_newsvendor_semantics(
+    specification: ModelSpecification,
+) -> list[str]:
+    """Prüft wirtschaftliche Annahmen des Newsvendor-Kerns."""
+
+    component_ids = set(
+        specification["objective"]["component_ids"]
+    )
+    errors: list[str] = []
+
+    uses_sales_revenue = "sales_revenue" in component_ids
+    uses_salvage_revenue = "salvage_revenue" in component_ids
+    uses_purchase_cost = "purchase_cost" in component_ids
+    uses_shortage_cost = "shortage_cost" in component_ids
+
+    for product in specification["products"]:
+        product_id = product["product_id"]
+        facts = product["facts"]
+
+        selling_price = (
+            float(facts["selling_price"])
+            if uses_sales_revenue
+            else 0.0
+        )
+        salvage_value = (
+            float(facts["salvage_value"])
+            if uses_salvage_revenue
+            else 0.0
+        )
+        shortage_cost = (
+            float(facts["shortage_cost"])
+            if uses_shortage_cost
+            else 0.0
+        )
+
+        if uses_salvage_revenue and uses_purchase_cost:
+            purchase_cost = float(
+                facts["purchase_cost"]
+            )
+
+            if salvage_value >= purchase_cost:
+                errors.append(
+                    f"Für das Produkt '{product_id}' muss "
+                    "der Restwert pro unverkaufter Einheit "
+                    "kleiner als die Einkaufskosten pro "
+                    "Einheit sein."
+                )
+
+        fulfillment_incentive = (
+            selling_price
+            + shortage_cost
+            - salvage_value
+        )
+
+        if fulfillment_incentive <= 0:
+            errors.append(
+                f"Für das Produkt '{product_id}' bieten die "
+                "ausgewählten Zielfunktionsbausteine keinen "
+                "positiven Anreiz zur Deckung der Nachfrage. "
+                "Die Summe aus Verkaufspreis und "
+                "Fehlmengenkosten muss größer als der "
+                "Restwert sein."
+            )
+
+    return errors
+
 
 @dataclass
 class BuiltSinglePeriodNewsvendorCore:
@@ -274,4 +345,18 @@ def build_single_period_newsvendor_core(
         sold_quantities=sold_quantities,
         leftover_quantities=leftover_quantities,
         shortage_quantities=shortage_quantities,
+    )
+
+
+def execute_single_period_newsvendor(
+    specification: ModelSpecification,
+) -> OptimizationExecutionResult:
+    """Führt das modulare Newsvendor-Modell aus."""
+
+    from agentic_optimization.models.linear_executor import (
+        execute_linear_model_specification,
+    )
+
+    return execute_linear_model_specification(
+        specification
     )

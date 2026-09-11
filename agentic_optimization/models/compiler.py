@@ -12,6 +12,9 @@ from agentic_optimization.models.component_registry import (
 from agentic_optimization.models.core_registry import (
     CORE_REGISTRY,
 )
+from agentic_optimization.models.registry_validator import (
+    validate_registry_integrity,
+)
 from agentic_optimization.models.specification import (
     ModelSpecification,
 )
@@ -19,11 +22,18 @@ from agentic_optimization.models.validator import (
     validate_model_specification,
 )
 
-
 def compile_model_specification(
     specification: ModelSpecification,
 ) -> ModelBuildContext:
     """Validiert und kompiliert eine Modellspezifikation."""
+
+    registry_errors = validate_registry_integrity()
+
+    if registry_errors:
+        raise RuntimeError(
+            "Die Optimierungs-Registry ist ungültig: "
+            + "; ".join(registry_errors)
+        )
 
     validation_result = validate_model_specification(
         specification
