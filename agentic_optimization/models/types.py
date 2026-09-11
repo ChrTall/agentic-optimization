@@ -3,8 +3,7 @@ Gemeinsame Typverträge für Registry, Modellvarianten, Validierung und UI.
 """
 
 from collections.abc import Callable
-from typing import Any, NotRequired, TypedDict
-
+from typing import Any, Literal, NotRequired, TypedDict
 
 class StructuredConstraint(TypedDict):
     """Ein gemappter oder vom Nutzer bestätigter Constraint mit Parametern."""
@@ -50,6 +49,36 @@ class ModelInputField(TypedDict):
     step: NotRequired[int | float | None]
     unit: NotRequired[str | None]
 
+
+QuantityRole = Literal[
+    "decision",
+    "derived",
+]
+
+QuantityScope = Literal[
+    "per_product",
+    "per_product_and_forecast_point",
+]
+
+
+class ModelQuantityDefinition(TypedDict):
+    """Beschreibt eine mathematische Größe eines Grundmodells."""
+
+    quantity_id: str
+    name: str
+    role: QuantityRole
+    scope: QuantityScope
+    description: str
+
+
+class ModelCoreDefinition(TypedDict):
+    """Beschreibt den fachlichen Vertrag eines Grundmodells."""
+
+    core_id: str
+    name: str
+    minimum_products: int
+    required_forecast_fields: list[ModelInputField]
+    provided_quantities: dict[str, ModelQuantityDefinition]
 
 class ConstraintParameterDefinition(TypedDict):
     """Beschreibt einen Parameter eines optionalen Constraints."""

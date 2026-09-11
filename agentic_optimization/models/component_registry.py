@@ -1,0 +1,584 @@
+"""
+Registry für wiederverwendbare Optimierungsbausteine.
+"""
+
+from collections.abc import Callable
+from typing import Literal, Protocol, TypedDict
+
+import pulp
+
+from agentic_optimization.models.forecast_adapter import (
+    PreparedDemandForecast,
+)
+from agentic_optimization.models.specification import (
+    ConstraintSpecification,
+    ModelSpecification,
+)
+from agentic_optimization.models.types import (
+    ConstraintParameterDefinition,
+    ModelInputField,
+)
+
+
+ComponentScope = Literal[
+    "per_product",
+    "global",
+]
+
+ObjectiveEffect = Literal[
+    "benefit",
+    "cost",
+]
+
+
+class ModelBuildContext(Protocol):
+    """Schnittstelle zwischen Grundmodell und Bausteinen."""
+
+    model: pulp.LpProblem
+    forecasts: dict[str, PreparedDemandForecast]
+
+    def get_quantity(
+        self,
+        quantity_id: str,
+        product_id: str,
+        forecast_point_index: int | None = None,
+    ) -> pulp.LpVariable:
+        """Gibt eine mathematische Größe des Grundmodells zurück."""
+
+
+ObjectiveComponentBuilder = Callable[
+    [
+        ModelSpecification,
+        ModelBuildContext,
+    ],
+    pulp.LpAffineExpression,
+]
+
+ConstraintComponentBuilder = Callable[
+    [
+        ModelSpecification,
+        ModelBuildContext,
+        ConstraintSpecification,
+        int,
+    ],
+    None,
+]
+
+
+class ObjectiveComponentDefinition(TypedDict):
+    """Beschreibt einen registrierten Zielfunktionsbaustein."""
+
+    component_id: str
+    name: str
+    effect: ObjectiveEffect
+    compatible_core_ids: list[str]
+    required_model_quantities: list[str]
+    required_product_facts: list[ModelInputField]
+    required_global_facts: list[ModelInputField]
+    builder: ObjectiveComponentBuilder
+
+
+class ConstraintComponentDefinition(TypedDict):
+    """Beschreibt einen registrierten Nebenbedingungsbaustein."""
+
+    component_id: str
+    name: str
+    scope: ComponentScope
+    compatible_core_ids: list[str]
+    required_model_quantities: list[str]
+    required_product_facts: list[ModelInputField]
+    required_global_facts: list[ModelInputField]
+    parameters: list[ConstraintParameterDefinition]
+    builder: ConstraintComponentBuilder
+
+
+def build_sales_revenue(
+    specification: ModelSpecification,
+    context: ModelBuildContext,
+) -> pulp.LpAffineExpression:
+    """Erzeugt den erwarteten Verkaufserlös."""
+
+    terms = []
+
+    for product in specification["products"]:
+        product_id = product["product_id"]
+        selling_price = float(
+            product["facts"]["selling_price"]
+        )
+
+        demand_points = context.forecasts[
+            product_id
+        ]["demand_points"]
+
+        for point_index, demand_point in enumerate(
+            demand_points
+        ):
+            sold_quantity = context.get_quantity(
+                "sold_quantity",
+                product_id,
+                point_index,
+            )
+
+            terms.append(
+                demand_point["probability"]
+                * selling_price
+                * sold_quantity
+            )
+
+    return pulp.lpSum(terms)
+
+
+def build_salvage_revenue(
+    specification: ModelSpecification,
+    context: ModelBuildContext,
+) -> pulp.LpAffineExpression:
+    """Erzeugt den erwarteten Restwerterlös."""
+
+    terms = []
+
+    for product in specification["products"]:
+        product_id = product["product_id"]
+        salvage_value = float(
+            product["facts"]["salvage_value"]
+        )
+
+        demand_points = context.forecasts[
+            product_id
+        ]["demand_points"]
+
+        for point_index, demand_point in enumerate(
+            demand_points
+        ):
+            leftover_quantity = context.get_quantity(
+                "leftover_quantity",
+                product_id,
+                point_index,
+            )
+
+            terms.append(
+                demand_point["probability"]
+                * salvage_value
+                * leftover_quantity
+            )
+
+    return pulp.lpSum(terms)
+
+
+def build_purchase_cost(
+    specification: ModelSpecification,
+    context: ModelBuildContext,
+) -> pulp.LpAffineExpression:
+    """Erzeugt die Beschaffungskosten aller Produkte."""
+
+    return pulp.lpSum(
+        float(product["facts"]["purchase_cost"])
+        * context.get_quantity(
+            "order_quantity",
+            product["product_id"],
+        )
+        for product in specification["products"]
+    )
+
+
+def build_shortage_cost(
+    specification: ModelSpecification,
+    context: ModelBuildContext,
+) -> pulp.LpAffineExpression:
+    """Erzeugt die erwarteten Fehlmengenkosten."""
+
+    terms = []
+
+    for product in specification["products"]:
+        product_id = product["product_id"]
+        shortage_cost = float(
+            product["facts"]["shortage_cost"]
+        )
+
+        demand_points = context.forecasts[
+            product_id
+        ]["demand_points"]
+
+        for point_index, demand_point in enumerate(
+            demand_points
+        ):
+            shortage_quantity = context.get_quantity(
+                "shortage_quantity",
+                product_id,
+                point_index,
+            )
+
+            terms.append(
+                demand_point["probability"]
+                * shortage_cost
+                * shortage_quantity
+            )
+
+    return pulp.lpSum(terms)
+
+
+def build_minimum_order_quantity(
+    specification: ModelSpecification,
+    context: ModelBuildContext,
+    constraint: ConstraintSpecification,
+    constraint_index: int,
+) -> None:
+    """Fügt die Mindestbestellmenge eines Produkts hinzu."""
+
+    del specification
+
+    product_id = constraint.get("product_id")
+
+    if not product_id:
+        raise ValueError(
+            "Die Mindestbestellmenge muss einem "
+            "Produkt zugeordnet sein."
+        )
+
+    quantity = float(
+        constraint["parameters"]["quantity"]
+    )
+
+    order_quantity = context.get_quantity(
+        "order_quantity",
+        product_id,
+    )
+
+    context.model += (
+        order_quantity >= quantity,
+        f"minimum_order_quantity_{constraint_index}",
+    )
+
+
+def build_maximum_order_quantity(
+    specification: ModelSpecification,
+    context: ModelBuildContext,
+    constraint: ConstraintSpecification,
+    constraint_index: int,
+) -> None:
+    """Fügt die Höchstbestellmenge eines Produkts hinzu."""
+
+    del specification
+
+    product_id = constraint.get("product_id")
+
+    if not product_id:
+        raise ValueError(
+            "Die Höchstbestellmenge muss einem "
+            "Produkt zugeordnet sein."
+        )
+
+    quantity = float(
+        constraint["parameters"]["quantity"]
+    )
+
+    order_quantity = context.get_quantity(
+        "order_quantity",
+        product_id,
+    )
+
+    context.model += (
+        order_quantity <= quantity,
+        f"maximum_order_quantity_{constraint_index}",
+    )
+
+
+def build_budget_limit(
+    specification: ModelSpecification,
+    context: ModelBuildContext,
+    constraint: ConstraintSpecification,
+    constraint_index: int,
+) -> None:
+    """Begrenzt die gesamten Beschaffungsausgaben."""
+
+    budget = float(
+        constraint["parameters"]["budget"]
+    )
+
+    total_purchase_cost = pulp.lpSum(
+        float(product["facts"]["purchase_cost"])
+        * context.get_quantity(
+            "order_quantity",
+            product["product_id"],
+        )
+        for product in specification["products"]
+    )
+
+    context.model += (
+        total_purchase_cost <= budget,
+        f"budget_limit_{constraint_index}",
+    )
+
+
+def build_storage_capacity(
+    specification: ModelSpecification,
+    context: ModelBuildContext,
+    constraint: ConstraintSpecification,
+    constraint_index: int,
+) -> None:
+    """Begrenztlich die insgesamt benötigte Lagerfläche."""
+
+    capacity = float(
+        constraint["parameters"]["capacity"]
+    )
+
+    total_storage_requirement = pulp.lpSum(
+        float(
+            product["facts"]["storage_space_per_unit"]
+        )
+        * context.get_quantity(
+            "order_quantity",
+            product["product_id"],
+        )
+        for product in specification["products"]
+    )
+
+    context.model += (
+        total_storage_requirement <= capacity,
+        f"storage_capacity_{constraint_index}",
+    )
+
+
+OBJECTIVE_COMPONENTS: dict[
+    str,
+    ObjectiveComponentDefinition,
+] = {
+    "sales_revenue": {
+        "component_id": "sales_revenue",
+        "name": "Verkaufserlös",
+        "effect": "benefit",
+        "compatible_core_ids": [
+            "single_period_newsvendor",
+        ],
+        "required_model_quantities": [
+            "sold_quantity",
+        ],
+        "required_product_facts": [
+            {
+                "name": "selling_price",
+                "label": "Verkaufspreis pro Einheit",
+                "type": "number",
+                "required": True,
+                "help": "Erlös aus dem Verkauf einer Einheit.",
+                "min_value": 0.0,
+                "unit": "€ pro Einheit",
+            }
+        ],
+        "required_global_facts": [],
+        "builder": build_sales_revenue,
+    },
+    "salvage_revenue": {
+        "component_id": "salvage_revenue",
+        "name": "Restwerterlös",
+        "effect": "benefit",
+        "compatible_core_ids": [
+            "single_period_newsvendor",
+        ],
+        "required_model_quantities": [
+            "leftover_quantity",
+        ],
+        "required_product_facts": [
+            {
+                "name": "salvage_value",
+                "label": "Restwert pro unverkaufter Einheit",
+                "type": "number",
+                "required": True,
+                "help": (
+                    "Wert einer nach der Periode "
+                    "unverkauften Einheit."
+                ),
+                "min_value": 0.0,
+                "unit": "€ pro Einheit",
+            }
+        ],
+        "required_global_facts": [],
+        "builder": build_salvage_revenue,
+    },
+    "purchase_cost": {
+        "component_id": "purchase_cost",
+        "name": "Einkaufskosten",
+        "effect": "cost",
+        "compatible_core_ids": [
+            "single_period_newsvendor",
+        ],
+        "required_model_quantities": [
+            "order_quantity",
+        ],
+        "required_product_facts": [
+            {
+                "name": "purchase_cost",
+                "label": "Einkaufskosten pro Einheit",
+                "type": "number",
+                "required": True,
+                "help": "Kosten für die Beschaffung einer Einheit.",
+                "min_value": 0.0,
+                "unit": "€ pro Einheit",
+            }
+        ],
+        "required_global_facts": [],
+        "builder": build_purchase_cost,
+    },
+    "shortage_cost": {
+        "component_id": "shortage_cost",
+        "name": "Fehlmengenkosten",
+        "effect": "cost",
+        "compatible_core_ids": [
+            "single_period_newsvendor",
+        ],
+        "required_model_quantities": [
+            "shortage_quantity",
+        ],
+        "required_product_facts": [
+            {
+                "name": "shortage_cost",
+                "label": "Fehlmengenkosten pro Einheit",
+                "type": "number",
+                "required": True,
+                "help": (
+                    "Kosten je Einheit nicht gedeckter Nachfrage."
+                ),
+                "min_value": 0.0,
+                "unit": "€ pro Einheit",
+            }
+        ],
+        "required_global_facts": [],
+        "builder": build_shortage_cost,
+    },
+}
+
+
+CONSTRAINT_COMPONENTS: dict[
+    str,
+    ConstraintComponentDefinition,
+] = {
+    "minimum_order_quantity": {
+        "component_id": "minimum_order_quantity",
+        "name": "Mindestbestellmenge",
+        "scope": "per_product",
+        "compatible_core_ids": [
+            "single_period_newsvendor",
+        ],
+        "required_model_quantities": [
+            "order_quantity",
+        ],
+        "required_product_facts": [],
+        "required_global_facts": [],
+        "parameters": [
+            {
+                "name": "quantity",
+                "label": "Mindestbestellmenge",
+                "type": "number",
+                "required": True,
+                "help": "Die mindestens zu bestellende Menge.",
+                "min_value": 0.0,
+                "step": 1.0,
+                "unit": "Einheiten",
+            }
+        ],
+        "builder": build_minimum_order_quantity,
+    },
+    "maximum_order_quantity": {
+        "component_id": "maximum_order_quantity",
+        "name": "Höchstbestellmenge",
+        "scope": "per_product",
+        "compatible_core_ids": [
+            "single_period_newsvendor",
+        ],
+        "required_model_quantities": [
+            "order_quantity",
+        ],
+        "required_product_facts": [],
+        "required_global_facts": [],
+        "parameters": [
+            {
+                "name": "quantity",
+                "label": "Höchstbestellmenge",
+                "type": "number",
+                "required": True,
+                "help": "Die maximal zulässige Bestellmenge.",
+                "min_value": 0.0,
+                "step": 1.0,
+                "unit": "Einheiten",
+            }
+        ],
+        "builder": build_maximum_order_quantity,
+    },
+    "budget_limit": {
+        "component_id": "budget_limit",
+        "name": "Gemeinsames Beschaffungsbudget",
+        "scope": "global",
+        "compatible_core_ids": [
+            "single_period_newsvendor",
+        ],
+        "required_model_quantities": [
+            "order_quantity",
+        ],
+        "required_product_facts": [
+            {
+                "name": "purchase_cost",
+                "label": "Einkaufskosten pro Einheit",
+                "type": "number",
+                "required": True,
+                "help": "Kosten für die Beschaffung einer Einheit.",
+                "min_value": 0.0,
+                "unit": "€ pro Einheit",
+            }
+        ],
+        "required_global_facts": [],
+        "parameters": [
+            {
+                "name": "budget",
+                "label": "Verfügbares Gesamtbudget",
+                "type": "number",
+                "required": True,
+                "help": (
+                    "Maximal verfügbare Beschaffungsausgaben "
+                    "für alle Produkte."
+                ),
+                "min_value": 0.0,
+                "unit": "€",
+            }
+        ],
+        "builder": build_budget_limit,
+    },
+    "storage_capacity": {
+        "component_id": "storage_capacity",
+        "name": "Gemeinsame Lagerkapazität",
+        "scope": "global",
+        "compatible_core_ids": [
+            "single_period_newsvendor",
+        ],
+        "required_model_quantities": [
+            "order_quantity",
+        ],
+        "required_product_facts": [
+            {
+                "name": "storage_space_per_unit",
+                "label": "Platzbedarf pro Einheit",
+                "type": "number",
+                "required": True,
+                "help": (
+                    "Benötigte Lagerfläche für eine "
+                    "Einheit des Produkts."
+                ),
+                "min_value": 0.0,
+                "unit": "m³ pro Einheit",
+            }
+        ],
+        "required_global_facts": [],
+        "parameters": [
+            {
+                "name": "capacity",
+                "label": "Verfügbare Lagerkapazität",
+                "type": "number",
+                "required": True,
+                "help": (
+                    "Insgesamt verfügbare Lagerfläche "
+                    "für alle Produkte."
+                ),
+                "min_value": 0.0,
+                "unit": "m³",
+            }
+        ],
+        "builder": build_storage_capacity,
+    },
+}
