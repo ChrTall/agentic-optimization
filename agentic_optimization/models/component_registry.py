@@ -3,7 +3,7 @@ Registry für wiederverwendbare Optimierungsbausteine.
 """
 
 from collections.abc import Callable
-from typing import Literal, Protocol, TypedDict
+from typing import Literal, NotRequired, Protocol, TypedDict
 
 import pulp
 
@@ -75,7 +75,7 @@ class ObjectiveComponentDefinition(TypedDict):
     required_model_quantities: list[str]
     required_product_facts: list[ModelInputField]
     required_global_facts: list[ModelInputField]
-    builder: ObjectiveComponentBuilder
+    linear_builder: NotRequired[ObjectiveComponentBuilder]
 
 
 class ConstraintComponentDefinition(TypedDict):
@@ -364,7 +364,7 @@ OBJECTIVE_COMPONENTS: dict[
             }
         ],
         "required_global_facts": [],
-        "builder": build_sales_revenue,
+        "linear_builder": build_sales_revenue,
     },
     "salvage_revenue": {
         "component_id": "salvage_revenue",
@@ -391,7 +391,7 @@ OBJECTIVE_COMPONENTS: dict[
             }
         ],
         "required_global_facts": [],
-        "builder": build_salvage_revenue,
+        "linear_builder": build_salvage_revenue,
     },
     "purchase_cost": {
         "component_id": "purchase_cost",
@@ -415,7 +415,7 @@ OBJECTIVE_COMPONENTS: dict[
             }
         ],
         "required_global_facts": [],
-        "builder": build_purchase_cost,
+        "linear_builder": build_purchase_cost,
     },
     "shortage_cost": {
         "component_id": "shortage_cost",
@@ -441,7 +441,7 @@ OBJECTIVE_COMPONENTS: dict[
             }
         ],
         "required_global_facts": [],
-        "builder": build_shortage_cost,
+        "linear_builder": build_shortage_cost,
     },
 }
 
@@ -474,7 +474,7 @@ CONSTRAINT_COMPONENTS: dict[
                 "unit": "Einheiten",
             }
         ],
-        "builder": build_minimum_order_quantity,
+        "linear_builder": build_minimum_order_quantity,
     },
     "maximum_order_quantity": {
         "component_id": "maximum_order_quantity",
@@ -500,7 +500,7 @@ CONSTRAINT_COMPONENTS: dict[
                 "unit": "Einheiten",
             }
         ],
-        "builder": build_maximum_order_quantity,
+        "linear_builder": build_maximum_order_quantity,
     },
     "budget_limit": {
         "component_id": "budget_limit",
@@ -538,7 +538,7 @@ CONSTRAINT_COMPONENTS: dict[
                 "unit": "€",
             }
         ],
-        "builder": build_budget_limit,
+        "linear_builder": build_budget_limit,
     },
     "storage_capacity": {
         "component_id": "storage_capacity",
@@ -579,6 +579,6 @@ CONSTRAINT_COMPONENTS: dict[
                 "unit": "m³",
             }
         ],
-        "builder": build_storage_capacity,
+        "linear_builder": build_storage_capacity,
     },
 }

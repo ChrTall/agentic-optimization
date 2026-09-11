@@ -65,7 +65,12 @@ def compile_model_specification(
             "ist kein Builder registriert."
         )
 
-    context = registered_core["builder"](specification)
+    core_builder = registered_core.get("builder")
+
+    if not callable(core_builder):
+        raise RuntimeError(f"Für das lineare Grundmodell '{core_id}'ist kein linearer Builder registriert.")
+
+    context = core_builder(specification)
 
     objective_sense = specification["objective"]["sense"]
     objective_terms = []
@@ -75,7 +80,18 @@ def compile_model_specification(
     ]["component_ids"]:
         definition = OBJECTIVE_COMPONENTS[component_id]
 
-        component_expression = definition["builder"](
+        linear_builder = definition.get(
+            "linear_builder"
+        )
+
+        if not callable(linear_builder):
+            raise RuntimeError(
+                f"Für den Zielfunktionsbaustein "
+                f"'{component_id}' ist kein linearer "
+                "Builder registriert."
+            )
+
+        component_expression = linear_builder(
             specification,
             context,
         )
@@ -109,7 +125,18 @@ def compile_model_specification(
             constraint["component_id"]
         ]
 
-        definition["builder"](
+        linear_builder = definition.get(
+            "linear_builder"
+        )
+
+        if not callable(linear_builder):
+            raise RuntimeError(
+                f"Für den Constraint-Baustein "
+                f"'{constraint['component_id']}' ist kein "
+                "linearer Builder registriert."
+            )
+
+        linear_builder(
             specification,
             context,
             constraint,

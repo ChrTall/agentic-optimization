@@ -168,10 +168,37 @@ def validate_registry_integrity(
                 f"stimmt nicht mit der Core-ID '{core_id}' überein."
             )
 
-        if not callable(registered_core["builder"]):
+        solution_method = registered_core.get(
+            "solution_method"
+        )
+
+        if solution_method not in {
+            "linear_programming",
+            "analytical",
+            "numerical",
+        }:
             errors.append(
-                f"Für das Grundmodell '{core_id}' "
+                f"Das Grundmodell '{core_id}' besitzt keine "
+                "gültige Lösungsmethode."
+            )
+
+        core_builder = registered_core.get("builder")
+
+        if (
+            solution_method == "linear_programming"
+            and not callable(core_builder)
+        ):
+            errors.append(
+                f"Für das lineare Grundmodell '{core_id}' "
                 "ist kein aufrufbarer Builder registriert."
+            )
+        elif (
+            core_builder is not None
+            and not callable(core_builder)
+        ):
+            errors.append(
+                f"Der Builder des Grundmodells '{core_id}' "
+                "ist nicht aufrufbar."
             )
 
         if not callable(
@@ -241,16 +268,44 @@ def validate_registry_integrity(
                     f"der Baustein-ID '{component_id}' überein."
                 )
 
-            if not callable(definition["builder"]):
-                errors.append(
-                    f"Für den {component_kind} "
-                    f"'{component_id}' ist kein "
-                    "aufrufbarer Builder registriert."
-                )
-
             compatible_core_ids = definition[
                 "compatible_core_ids"
             ]
+
+            linear_core_ids = [
+                compatible_core_id
+                for compatible_core_id in compatible_core_ids
+                if (
+                    compatible_core_id in cores
+                    and cores[compatible_core_id].get(
+                        "solution_method"
+                    )
+                    == "linear_programming"
+                )
+            ]
+
+            linear_builder = definition.get(
+                "linear_builder"
+            )
+
+            if (
+                linear_core_ids
+                and not callable(linear_builder)
+            ):
+                errors.append(
+                    f"Für den {component_kind} "
+                    f"'{component_id}' ist kein "
+                    "aufrufbarer linearer Builder registriert."
+                )
+            elif (
+                linear_builder is not None
+                and not callable(linear_builder)
+            ):
+                errors.append(
+                    f"Der lineare Builder des "
+                    f"{component_kind}s '{component_id}' "
+                    "ist nicht aufrufbar."
+                )
 
             for compatible_core_id in sorted(
                 _find_duplicates(compatible_core_ids)

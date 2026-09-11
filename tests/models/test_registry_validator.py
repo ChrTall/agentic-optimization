@@ -187,3 +187,49 @@ def test_rejects_missing_executor() -> None:
         and "Executor" in error
         for error in errors
     )
+
+
+def test_rejects_invalid_solution_method() -> None:
+    cores = deepcopy(CORE_REGISTRY)
+    cores["single_period_newsvendor"][
+        "solution_method"
+    ] = "unknown_method"
+
+    errors = validate_registry_integrity(
+        registered_cores=cores
+    )
+
+    assert any(
+        "single_period_newsvendor" in error
+        and "Lösungsmethode" in error
+        for error in errors
+    )
+
+
+def test_rejects_missing_linear_component_builder() -> None:
+    objectives = deepcopy(OBJECTIVE_COMPONENTS)
+    objectives["sales_revenue"]["linear_builder"] = None
+
+    errors = validate_registry_integrity(
+        objective_registry=objectives
+    )
+
+    assert any(
+        "sales_revenue" in error
+        and "linearer Builder" in error
+        for error in errors
+    )
+
+
+def test_analytical_core_does_not_require_builder() -> None:
+    cores = deepcopy(CORE_REGISTRY)
+    registered_core = cores["single_period_newsvendor"]
+
+    registered_core["solution_method"] = "analytical"
+    registered_core.pop("builder")
+
+    errors = validate_registry_integrity(
+        registered_cores=cores
+    )
+
+    assert errors == []

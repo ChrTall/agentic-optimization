@@ -3,7 +3,7 @@ Registry für verfügbare Grundmodelle.
 """
 
 from collections.abc import Callable
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 from agentic_optimization.models.component_registry import (
     ModelBuildContext,
@@ -22,6 +22,7 @@ from agentic_optimization.models.types import (
 )
 from agentic_optimization.models.execution import (
     OptimizationExecutor,
+    SolutionMethod,
 )
 
 
@@ -38,16 +39,19 @@ CoreSemanticValidator = Callable[
 
 
 class RegisteredModelCore(TypedDict):
-    """Verknüpft Definition, Builder und fachliche Prüfung."""
+    """Verknüpft Definition, Ausführung und fachliche Prüfung."""
 
     definition: ModelCoreDefinition
-    builder: CoreBuilder
+    solution_method: SolutionMethod
     semantic_validator: CoreSemanticValidator
     executor: OptimizationExecutor
+    builder: NotRequired[CoreBuilder]
+
 
 CORE_REGISTRY: dict[str, RegisteredModelCore] = {
     SINGLE_PERIOD_NEWSVENDOR_DEFINITION["core_id"]: {
         "definition": SINGLE_PERIOD_NEWSVENDOR_DEFINITION,
+        "solution_method": "linear_programming",
         "builder": build_single_period_newsvendor_core,
         "semantic_validator": validate_single_period_newsvendor_semantics,
         "executor": execute_single_period_newsvendor,
