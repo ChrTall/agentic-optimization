@@ -189,3 +189,75 @@ def test_rejects_different_core(
         match="anderes Grundmodell",
     ):
         call_agent(llm)
+
+
+def test_builds_eoq_selection_request() -> None:
+    response = {
+        "core_id": "eoq",
+        "objective_sense": "minimize",
+        "objective_components": [
+            {
+                "component_id": "annual_ordering_cost",
+                "reason": "Bestellkosten wurden genannt.",
+                "sources": ["source_1"],
+            },
+            {
+                "component_id": "annual_holding_cost",
+                "reason": "Lagerkosten wurden genannt.",
+                "sources": ["source_1"],
+            },
+        ],
+        "constraints": [],
+    }
+    llm = create_mock_llm(response)
+    agent = create_component_selection_agent(llm)
+
+    result = agent(
+        core_id="eoq",
+        requirements={
+            "objective": "Gesamtkosten minimieren",
+        },
+        products=[
+            {
+                "product_id": "product_1",
+                "facts": {
+                    "ordering_cost": 120.0,
+                    "holding_cost": 12.0,
+                },
+            }
+        ],
+        global_facts={},
+        evidence=[
+            {
+                "source_id": "source_1",
+                "content": (
+                    "Bestellkosten und Lagerkosten "
+                    "sollen berücksichtigt werden."
+                ),
+            }
+        ],
+    )
+
+    messages = llm.invoke.call_args.args[0]
+    user_message = messages[1].content
+
+    assert isinstance(user_message, str)
+
+    payload = json.loads(user_message)
+    catalog = payload["component_catalog"]
+
+    assert {
+        component["component_id"]
+        for component in catalog["objective_components"]
+    } == {
+        "annual_ordering_cost",
+        "annual_holding_cost",
+    }
+    assert {
+        component["component_id"]
+        for component in catalog["constraint_components"]
+    } == {
+        "minimum_order_quantity",
+        "maximum_order_quantity",
+    }
+    assert result == response

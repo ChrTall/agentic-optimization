@@ -156,3 +156,65 @@ def test_rejects_mismatched_review_data() -> None:
             proposal,
             specification,
         )
+
+
+def test_builds_eoq_review_data() -> None:
+    proposal: ComponentSelectionProposal = {
+        "core_id": "eoq",
+        "objective_sense": "minimize",
+        "objective_components": [
+            {
+                "component_id": "annual_ordering_cost",
+                "reason": "Bestellkosten wurden genannt.",
+                "sources": ["source_1"],
+            },
+            {
+                "component_id": "annual_holding_cost",
+                "reason": "Lagerkosten wurden genannt.",
+                "sources": ["source_1"],
+            },
+        ],
+        "constraints": [],
+    }
+
+    products: list[ProductSpecification] = [
+        {
+            "product_id": "product_1",
+            "forecast": {
+                "expected_value": 3500.0,
+                "horizon_days": 365,
+            },
+            "facts": {
+                "ordering_cost": 120.0,
+                "holding_cost": 12.0,
+            },
+        }
+    ]
+
+    specification = build_specification_from_proposal(
+        proposal,
+        products,
+        {},
+    )
+
+    review = build_modular_review_data(
+        proposal,
+        specification,
+    )
+
+    assert review["core_id"] == "eoq"
+    assert review["core_name"] == (
+        "Wirtschaftliche Bestellmenge (EOQ)"
+    )
+    assert review["objective_sense"] == "minimize"
+    assert review["ready_for_confirmation"] is True
+    assert review["validation_errors"] == []
+    assert review["missing_inputs"] == []
+
+    assert {
+        component["component_id"]
+        for component in review["objective_components"]
+    } == {
+        "annual_ordering_cost",
+        "annual_holding_cost",
+    }

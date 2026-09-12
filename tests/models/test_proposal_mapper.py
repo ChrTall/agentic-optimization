@@ -1,16 +1,13 @@
+import pytest
+
 from agentic_optimization.models.proposal_mapper import (
     build_specification_from_proposal,
+    validate_component_selection_proposal,
 )
 from agentic_optimization.models.specification import (
     ComponentSelectionProposal,
     ProductSpecification,
 )
-from agentic_optimization.models.proposal_mapper import (
-    build_specification_from_proposal,
-    validate_component_selection_proposal,
-)
-import pytest
-
 
 def create_proposal() -> ComponentSelectionProposal:
     return {
@@ -173,3 +170,61 @@ def test_mapper_rejects_constraint_without_parameters() -> None:
             create_products(),
             {},
         )
+
+
+def test_rejects_objective_incompatible_with_core() -> None:
+    proposal = create_proposal()
+    proposal["objective_components"][0][
+        "component_id"
+    ] = "annual_ordering_cost"
+
+    errors = validate_component_selection_proposal(
+        proposal
+    )
+
+    assert any(
+        "annual_ordering_cost" in error
+        and "single_period_newsvendor" in error
+        and "nicht mit" in error
+        for error in errors
+    )
+
+
+def test_rejects_constraint_incompatible_with_core() -> None:
+    proposal: ComponentSelectionProposal = {
+        "core_id": "eoq",
+        "objective_sense": "minimize",
+        "objective_components": [
+            {
+                "component_id": "annual_ordering_cost",
+                "reason": "Bestellkosten wurden genannt.",
+                "sources": ["source_1"],
+            },
+            {
+                "component_id": "annual_holding_cost",
+                "reason": "Lagerkosten wurden genannt.",
+                "sources": ["source_1"],
+            },
+        ],
+        "constraints": [
+            {
+                "component_id": "budget_limit",
+                "parameters": {
+                    "budget": 1000.0,
+                },
+                "reason": "Ein Budget wurde genannt.",
+                "sources": ["source_1"],
+            }
+        ],
+    }
+
+    errors = validate_component_selection_proposal(
+        proposal
+    )
+
+    assert any(
+        "budget_limit" in error
+        and "eoq" in error
+        and "nicht mit" in error
+        for error in errors
+    )

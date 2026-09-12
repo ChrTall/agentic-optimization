@@ -99,6 +99,19 @@ def validate_component_selection_proposal(
                     f"'{component_id}' ist nicht registriert."
                 )
 
+            elif (
+                core_id in CORE_REGISTRY
+                and core_id
+                not in OBJECTIVE_COMPONENTS[
+                    component_id
+                ]["compatible_core_ids"]
+            ):
+                errors.append(
+                    f"Der Zielfunktionsbaustein "
+                    f"'{component_id}' ist nicht mit "
+                    f"'{core_id}' kompatibel."
+                )
+
             if not _has_text(component.get("reason")):
                 errors.append(
                     f"Für den Zielfunktionsbaustein an "
@@ -139,6 +152,19 @@ def validate_component_selection_proposal(
                 errors.append(
                     f"Die Nebenbedingung "
                     f"'{component_id}' ist nicht registriert."
+                )
+
+            elif (
+                core_id in CORE_REGISTRY
+                and core_id
+                not in CONSTRAINT_COMPONENTS[
+                    component_id
+                ]["compatible_core_ids"]
+            ):
+                errors.append(
+                    f"Die Nebenbedingung "
+                    f"'{component_id}' ist nicht mit "
+                    f"'{core_id}' kompatibel."
                 )
 
             if not isinstance(

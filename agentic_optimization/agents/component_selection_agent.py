@@ -164,6 +164,12 @@ def create_component_selection_agent(
             response.content
         )
 
+        if raw_proposal.get("core_id") != core_id:
+            raise ValueError(
+                "Der Agent hat ein anderes Grundmodell "
+                "als das vorgegebene Grundmodell zurückgegeben."
+            )
+
         proposal_errors = (
             validate_component_selection_proposal(
                 raw_proposal
@@ -174,12 +180,6 @@ def create_component_selection_agent(
             raise ValueError(
                 "Ungültiger Bausteinvorschlag: "
                 + "; ".join(proposal_errors)
-            )
-
-        if raw_proposal["core_id"] != core_id:
-            raise ValueError(
-                "Der Agent hat ein anderes Grundmodell "
-                "als das vorgegebene Grundmodell zurückgegeben."
             )
 
         allowed_source_ids = {
