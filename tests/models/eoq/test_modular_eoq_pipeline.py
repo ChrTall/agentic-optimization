@@ -17,6 +17,12 @@ from agentic_optimization.ui.modular_input_builder import (
     apply_modular_input_value,
     build_modular_input_layout,
 )
+from agentic_optimization.models.specification_updates import (
+    apply_modular_input_value,
+)
+from agentic_optimization.ui.modular_input_builder import (
+    build_modular_input_layout,
+)
 
 
 def test_complete_modular_eoq_pipeline() -> None:
