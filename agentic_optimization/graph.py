@@ -6,9 +6,14 @@ from agentic_optimization.agents.code_agent import optimize_model
 from agentic_optimization.agents.constraint_mapping_agent import (
     create_constraint_mapping_agent,
 )
-from agentic_optimization.agents.modeling_agent import modeling_agent
 from agentic_optimization.agents.model_input_extraction_agent import (
     create_model_input_extraction_agent,
+)
+from agentic_optimization.agents.modeling_agent import modeling_agent
+from agentic_optimization.agents.modular_workflow_nodes import (
+    apply_modular_model_inputs_node,
+    create_modular_model_preparation_node,
+    execute_modular_model_node,
 )
 from agentic_optimization.agents.requirement_agent import create_requirement_agent
 from agentic_optimization.agents.result_node import result_node
@@ -23,6 +28,9 @@ from agentic_optimization.state import (
     EVENT_MODEL_INPUTS_SUBMITTED,
     EVENT_NEW_PROBLEM,
     EVENT_OPTIMIZATION_REQUESTED,
+    EVENT_MODULAR_INPUTS_SUBMITTED,
+    EVENT_MODULAR_MODEL_PREPARATION_REQUESTED,
+    EVENT_MODULAR_OPTIMIZATION_REQUESTED,
     WORKFLOW_GENERAL_INPUTS_VALID,
     WORKFLOW_MODEL_INPUTS_INVALID,
     WORKFLOW_MODEL_INPUTS_VALID,
@@ -56,6 +64,15 @@ def route_workflow(state: GraphState) -> str:
 
     if event == EVENT_OPTIMIZATION_REQUESTED:
         return "optimize_model"
+
+    if event == EVENT_MODULAR_MODEL_PREPARATION_REQUESTED:
+        return "prepare_modular_model"
+
+    if event == EVENT_MODULAR_INPUTS_SUBMITTED:
+        return "apply_modular_model_inputs"
+
+    if event == EVENT_MODULAR_OPTIMIZATION_REQUESTED:
+        return "execute_modular_model"
 
     raise ValueError(f"Unexpected workflow event: {event}")
 
@@ -186,6 +203,19 @@ def build_graph(llm: BaseChatModel):
 
     graph = StateGraph(GraphState)
 
+    graph.add_node(
+        "prepare_modular_model",
+        create_modular_model_preparation_node(llm),
+    )
+    graph.add_node(
+        "apply_modular_model_inputs",
+        apply_modular_model_inputs_node,
+    )
+    graph.add_node(
+        "execute_modular_model",
+        execute_modular_model_node,
+    )
+
     graph.add_node("requirement_agent", create_requirement_agent(llm))
     graph.add_node("clarification", clarification_node)
 
@@ -223,8 +253,23 @@ def build_graph(llm: BaseChatModel):
                 "validate_model_specific_inputs"
             ),
             "optimize_model": "optimize_model",
+            "prepare_modular_model": (
+                "prepare_modular_model"
+            ),
+            "apply_modular_model_inputs": (
+                "apply_modular_model_inputs"
+            ),
+            "execute_modular_model": (
+                "execute_modular_model"
+            ),
         },
     )
+
+    # Modulare Aufrufe sind zunächst eigenständige Graph-Durchläufe.
+    graph.add_edge("prepare_modular_model", END)
+    graph.add_edge("apply_modular_model_inputs", END)
+    graph.add_edge("execute_modular_model", END)
+
 
     # Nach der Requirement-Extraktion immer allgemein validieren.
     graph.add_edge("requirement_agent", "validate_general_requirements")

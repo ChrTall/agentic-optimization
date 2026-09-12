@@ -55,6 +55,10 @@ EVENT_NEW_PROBLEM: Final = "new_problem"
 EVENT_GENERAL_CLARIFICATION_SUBMITTED: Final = "general_clarification_submitted"
 EVENT_MODEL_INPUTS_SUBMITTED: Final = "model_inputs_submitted"
 EVENT_OPTIMIZATION_REQUESTED: Final = "optimization_requested"
+EVENT_MODULAR_MODEL_PREPARATION_REQUESTED: Final = "modular_model_preparation_requested"
+EVENT_MODULAR_INPUTS_SUBMITTED: Final = "modular_inputs_submitted"
+EVENT_MODULAR_OPTIMIZATION_REQUESTED: Final = "modular_optimization_requested"
+
 
 
 # Interner Platzhalter für with_control().
@@ -88,6 +92,9 @@ WorkflowEvent = Literal[
     "general_clarification_submitted",
     "model_inputs_submitted",
     "optimization_requested",
+    "modular_model_preparation_requested",
+    "modular_inputs_submitted",
+    "modular_optimization_requested",
 ]
 
 DecisionType = Literal[

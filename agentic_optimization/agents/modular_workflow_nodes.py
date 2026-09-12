@@ -101,6 +101,7 @@ def create_modular_model_preparation_node(
 
         return with_control(
             updated_state,
+            event=None,
             workflow_status=workflow_status,
         )
 
@@ -200,6 +201,7 @@ def apply_modular_model_inputs_node(
 
     return with_control(
         updated_state,
+        event=None,
         workflow_status=workflow_status,
     )
 
