@@ -492,6 +492,59 @@ def validate_model_specification(
                 f"'{product_id}' ist ungültig: {error}"
                 for error in forecast_errors
             )
+
+        facts = product.get("facts", {})
+
+        for field in core_definition[
+            "required_product_facts"
+        ]:
+            field_name = field["name"]
+
+            if not _has_value(facts, field_name):
+                missing_inputs.append(
+                    {
+                        "source": "product_fact",
+                        "field": field,
+                        "product_id": product_id,
+                    }
+                )
+                continue
+
+            errors.extend(
+                _validate_field_value(
+                    field,
+                    facts[field_name],
+                    f"für Produkt '{product_id}'",
+                )
+            )
+
+    global_facts = specification.get(
+        "global_facts",
+        {},
+    )
+
+    for field in core_definition[
+        "required_global_facts"
+    ]:
+        field_name = field["name"]
+
+        if not _has_value(global_facts, field_name):
+            missing_inputs.append(
+                {
+                    "source": "global_fact",
+                    "field": field,
+                }
+            )
+            continue
+
+        errors.extend(
+            _validate_field_value(
+                field,
+                global_facts[field_name],
+                "in den globalen Angaben",
+            )
+        )
+
     provided_quantities = set(
         core_definition["provided_quantities"]
     )

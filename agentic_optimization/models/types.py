@@ -78,6 +78,8 @@ class ModelCoreDefinition(TypedDict):
     name: str
     minimum_products: int
     required_forecast_fields: list[ModelInputField]
+    required_product_facts: list[ModelInputField]
+    required_global_facts: list[ModelInputField]
     required_objective_component_ids: list[str]
     provided_quantities: dict[str, ModelQuantityDefinition]
 

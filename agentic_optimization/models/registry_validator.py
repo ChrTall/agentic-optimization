@@ -293,6 +293,22 @@ def validate_registry_integrity(
             )
         )
 
+        errors.extend(
+            _validate_field_definitions(
+                f"den Produktfeldern des Grundmodells "
+                f"'{core_id}'",
+                definition["required_product_facts"],
+            )
+        )
+
+        errors.extend(
+            _validate_field_definitions(
+                f"den globalen Feldern des Grundmodells "
+                f"'{core_id}'",
+                definition["required_global_facts"],
+            )
+        )
+
     component_registries = (
         (
             "Zielfunktionsbaustein",

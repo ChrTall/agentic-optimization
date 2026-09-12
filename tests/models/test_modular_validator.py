@@ -8,6 +8,9 @@ from agentic_optimization.models.specification import (
 from agentic_optimization.models.validator import (
     validate_model_specification,
 )
+from agentic_optimization.models.core_registry import (
+    CORE_REGISTRY,
+)
 
 
 def create_complete_specification() -> ModelSpecification:
@@ -697,3 +700,40 @@ def test_accepts_combined_sales_and_shortage_incentive() -> None:
 
     assert result["is_valid"] is True
     assert result["errors"] == []
+
+
+def test_core_required_product_fact_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    definition = CORE_REGISTRY[
+        "single_period_newsvendor"
+    ]["definition"]
+
+    monkeypatch.setitem(
+        definition,
+        "required_product_facts",
+        [
+            {
+                "name": "lead_time_days",
+                "label": "Lieferzeit",
+                "type": "integer",
+                "required": True,
+                "help": "Lieferzeit des Produkts.",
+                "min_value": 1,
+                "unit": "Tage",
+            }
+        ],
+    )
+
+    result = validate_model_specification(
+        create_complete_specification()
+    )
+
+    assert result["is_valid"] is False
+    assert any(
+        missing_input["source"] == "product_fact"
+        and missing_input["field"]["name"]
+        == "lead_time_days"
+        and "component_id" not in missing_input
+        for missing_input in result["missing_inputs"]
+    )

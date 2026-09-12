@@ -23,6 +23,8 @@ CORE_DEFINITION: ModelCoreDefinition = {
     "core_id": "eoq",
     "name": "Wirtschaftliche Bestellmenge (EOQ)",
     "minimum_products": 1,
+    "required_product_facts": [],
+    "required_global_facts": [],
     "required_objective_component_ids": [
         "annual_ordering_cost",
         "annual_holding_cost",
