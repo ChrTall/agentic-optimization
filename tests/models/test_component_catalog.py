@@ -81,3 +81,35 @@ def test_rejects_unknown_core() -> None:
         match="unknown_core",
     ):
         build_component_catalog("unknown_core")
+
+
+def test_builds_eoq_component_catalog() -> None:
+    catalog = build_component_catalog("eoq")
+
+    objective_ids = {
+        component["component_id"]
+        for component in catalog["objective_components"]
+    }
+    constraint_ids = {
+        component["component_id"]
+        for component in catalog["constraint_components"]
+    }
+    forecast_field_names = {
+        field["name"]
+        for field in catalog["core"][
+            "required_forecast_fields"
+        ]
+    }
+
+    assert objective_ids == {
+        "annual_ordering_cost",
+        "annual_holding_cost",
+    }
+    assert constraint_ids == {
+        "minimum_order_quantity",
+        "maximum_order_quantity",
+    }
+    assert forecast_field_names == {
+        "expected_value",
+        "horizon_days",
+    }

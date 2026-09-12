@@ -443,6 +443,58 @@ OBJECTIVE_COMPONENTS: dict[
         "required_global_facts": [],
         "linear_builder": build_shortage_cost,
     },
+    "annual_ordering_cost": {
+        "component_id": "annual_ordering_cost",
+        "name": "Jährliche Bestellkosten",
+        "effect": "cost",
+        "compatible_core_ids": [
+            "eoq",
+        ],
+        "required_model_quantities": [
+            "orders_per_year",
+        ],
+        "required_product_facts": [
+            {
+                "name": "ordering_cost",
+                "label": "Bestellkosten pro Bestellung",
+                "type": "number",
+                "required": True,
+                "help": (
+                    "Fixe Kosten, die bei jeder "
+                    "Bestellung entstehen."
+                ),
+                "min_value": 0.01,
+                "unit": "€ pro Bestellung",
+            }
+        ],
+        "required_global_facts": [],
+    },
+    "annual_holding_cost": {
+        "component_id": "annual_holding_cost",
+        "name": "Jährliche Lagerhaltungskosten",
+        "effect": "cost",
+        "compatible_core_ids": [
+            "eoq",
+        ],
+        "required_model_quantities": [
+            "average_inventory",
+        ],
+        "required_product_facts": [
+            {
+                "name": "holding_cost",
+                "label": "Lagerhaltungskosten",
+                "type": "number",
+                "required": True,
+                "help": (
+                    "Jährliche Lagerhaltungskosten "
+                    "pro durchschnittlich gelagerter Einheit."
+                ),
+                "min_value": 0.01,
+                "unit": "€ pro Einheit und Jahr",
+            }
+        ],
+        "required_global_facts": [],
+    },
 }
 
 
@@ -456,6 +508,7 @@ CONSTRAINT_COMPONENTS: dict[
         "scope": "per_product",
         "compatible_core_ids": [
             "single_period_newsvendor",
+            "eoq",
         ],
         "required_model_quantities": [
             "order_quantity",
@@ -482,6 +535,7 @@ CONSTRAINT_COMPONENTS: dict[
         "scope": "per_product",
         "compatible_core_ids": [
             "single_period_newsvendor",
+            "eoq",
         ],
         "required_model_quantities": [
             "order_quantity",

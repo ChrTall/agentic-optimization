@@ -8,12 +8,22 @@ from typing import NotRequired, TypedDict
 from agentic_optimization.models.component_registry import (
     ModelBuildContext,
 )
+from agentic_optimization.models.eoq.core import (
+    CORE_DEFINITION as EOQ_DEFINITION,
+    execute_eoq,
+    validate_eoq_forecast,
+    validate_eoq_semantics,
+)
+from agentic_optimization.models.execution import (
+    OptimizationExecutor,
+    SolutionMethod,
+)
 from agentic_optimization.models.newsvendor.single_period import (
     CORE_DEFINITION as SINGLE_PERIOD_NEWSVENDOR_DEFINITION,
     build_single_period_newsvendor_core,
     execute_single_period_newsvendor,
-    validate_single_period_newsvendor_semantics,
     validate_single_period_newsvendor_forecast,
+    validate_single_period_newsvendor_semantics,
 )
 from agentic_optimization.models.specification import (
     DemandForecast,
@@ -22,11 +32,6 @@ from agentic_optimization.models.specification import (
 from agentic_optimization.models.types import (
     ModelCoreDefinition,
 )
-from agentic_optimization.models.execution import (
-    OptimizationExecutor,
-    SolutionMethod,
-)
-
 
 CoreBuilder = Callable[
     [ModelSpecification],
@@ -65,5 +70,12 @@ CORE_REGISTRY: dict[str, RegisteredModelCore] = {
         "semantic_validator": validate_single_period_newsvendor_semantics,
         "executor": execute_single_period_newsvendor,
         "forecast_validator": validate_single_period_newsvendor_forecast,
+    },
+    EOQ_DEFINITION["core_id"]: {
+        "definition": EOQ_DEFINITION,
+        "solution_method": "analytical",
+        "semantic_validator": validate_eoq_semantics,
+        "executor": execute_eoq,
+        "forecast_validator": validate_eoq_forecast,
     },
 }
