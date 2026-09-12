@@ -1,6 +1,10 @@
+import math
+from statistics import NormalDist
+
 import pytest
 
 from agentic_optimization.models.forecast_adapter import (
+    prepare_continuous_review_forecast,
     prepare_demand_forecast,
 )
 from agentic_optimization.models.specification import (
@@ -212,3 +216,89 @@ def test_rejects_number_too_large_for_float() -> None:
         match="Erwartungswert",
     ):
         prepare_demand_forecast(forecast)
+
+
+def test_prepares_continuous_review_forecast() -> None:
+    forecast = create_forecast()
+    result = prepare_continuous_review_forecast(
+        forecast,
+        lead_time_days=15,
+    )
+
+    expected_horizon_std = (
+        140.0 - 70.0
+    ) / (
+        NormalDist().inv_cdf(0.9)
+        - NormalDist().inv_cdf(0.1)
+    )
+
+    assert result["annual_demand"] == pytest.approx(
+        100.0 * 365.0 / 30.0
+    )
+    assert result["lead_time_demand_mean"] == pytest.approx(
+        50.0
+    )
+    assert result["lead_time_demand_std"] == pytest.approx(
+        expected_horizon_std * math.sqrt(0.5)
+    )
+    assert result["forecast_horizon_days"] == 30
+    assert result["lead_time_days"] == 15
+
+
+def test_continuous_review_requires_two_sided_quantiles() -> None:
+    forecast = create_forecast()
+    forecast["quantiles"] = [
+        {
+            "level": 0.5,
+            "value": 100.0,
+        },
+        {
+            "level": 0.9,
+            "value": 140.0,
+        },
+    ]
+
+    with pytest.raises(
+        ValueError,
+        match="unterhalb und eines oberhalb",
+    ):
+        prepare_continuous_review_forecast(
+            forecast,
+            lead_time_days=15,
+        )
+
+
+@pytest.mark.parametrize(
+    "lead_time_days",
+    [
+        0,
+        -1,
+        1.5,
+        True,
+    ],
+)
+def test_rejects_invalid_lead_time(
+    lead_time_days: object,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="Lieferzeit",
+    ):
+        prepare_continuous_review_forecast(
+            create_forecast(),
+            lead_time_days=lead_time_days,
+        )
+
+
+def test_rejects_expected_value_outside_quantile_range() -> None:
+    forecast = create_forecast()
+    forecast["expected_value"] = 200.0
+
+    with pytest.raises(
+        ValueError,
+        match="zwischen",
+    ):
+        prepare_continuous_review_forecast(
+            forecast,
+            lead_time_days=15,
+        )

@@ -449,6 +449,7 @@ OBJECTIVE_COMPONENTS: dict[
         "effect": "cost",
         "compatible_core_ids": [
             "eoq",
+            "continuous_review_q_r",
         ],
         "required_model_quantities": [
             "orders_per_year",
@@ -475,6 +476,7 @@ OBJECTIVE_COMPONENTS: dict[
         "effect": "cost",
         "compatible_core_ids": [
             "eoq",
+            "continuous_review_q_r",
         ],
         "required_model_quantities": [
             "average_inventory",
@@ -495,6 +497,32 @@ OBJECTIVE_COMPONENTS: dict[
         ],
         "required_global_facts": [],
     },
+    "annual_shortage_cost": {
+        "component_id": "annual_shortage_cost",
+        "name": "Jährliche Fehlmengenkosten",
+        "effect": "cost",
+        "compatible_core_ids": [
+            "continuous_review_q_r",
+        ],
+        "required_model_quantities": [
+            "annual_shortage_quantity",
+        ],
+        "required_product_facts": [
+            {
+                "name": "shortage_cost",
+                "label": "Fehlmengenkosten pro Einheit",
+                "type": "number",
+                "required": True,
+                "help": (
+                    "Kosten je erwarteter Einheit "
+                    "nicht gedeckter Nachfrage."
+                ),
+                "min_value": 0.01,
+                "unit": "€ pro Einheit",
+            }
+        ],
+        "required_global_facts": [],
+    },
 }
 
 
@@ -509,6 +537,7 @@ CONSTRAINT_COMPONENTS: dict[
         "compatible_core_ids": [
             "single_period_newsvendor",
             "eoq",
+            "continuous_review_q_r",
         ],
         "required_model_quantities": [
             "order_quantity",
@@ -536,6 +565,7 @@ CONSTRAINT_COMPONENTS: dict[
         "compatible_core_ids": [
             "single_period_newsvendor",
             "eoq",
+            "continuous_review_q_r",
         ],
         "required_model_quantities": [
             "order_quantity",
@@ -634,5 +664,59 @@ CONSTRAINT_COMPONENTS: dict[
             }
         ],
         "linear_builder": build_storage_capacity,
+    },
+    "minimum_reorder_point": {
+        "component_id": "minimum_reorder_point",
+        "name": "Mindestmeldebestand",
+        "scope": "per_product",
+        "compatible_core_ids": [
+            "continuous_review_q_r",
+        ],
+        "required_model_quantities": [
+            "reorder_point",
+        ],
+        "required_product_facts": [],
+        "required_global_facts": [],
+        "parameters": [
+            {
+                "name": "reorder_point",
+                "label": "Mindestmeldebestand",
+                "type": "number",
+                "required": True,
+                "help": (
+                    "Untere Grenze für den Meldebestand."
+                ),
+                "min_value": 0.0,
+                "step": 1.0,
+                "unit": "Einheiten",
+            }
+        ],
+    },
+    "maximum_reorder_point": {
+        "component_id": "maximum_reorder_point",
+        "name": "Höchstmeldebestand",
+        "scope": "per_product",
+        "compatible_core_ids": [
+            "continuous_review_q_r",
+        ],
+        "required_model_quantities": [
+            "reorder_point",
+        ],
+        "required_product_facts": [],
+        "required_global_facts": [],
+        "parameters": [
+            {
+                "name": "reorder_point",
+                "label": "Höchstmeldebestand",
+                "type": "number",
+                "required": True,
+                "help": (
+                    "Obere Grenze für den Meldebestand."
+                ),
+                "min_value": 0.0,
+                "step": 1.0,
+                "unit": "Einheiten",
+            }
+        ],
     },
 }

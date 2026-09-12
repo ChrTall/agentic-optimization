@@ -122,3 +122,37 @@ def test_builds_eoq_component_catalog() -> None:
         "annual_ordering_cost",
         "annual_holding_cost",
     ]
+
+
+def test_builds_continuous_review_q_r_catalog() -> None:
+    catalog = build_component_catalog(
+        "continuous_review_q_r"
+    )
+
+    objective_ids = {
+        component["component_id"]
+        for component in catalog["objective_components"]
+    }
+    constraint_ids = {
+        component["component_id"]
+        for component in catalog["constraint_components"]
+    }
+
+    assert objective_ids == {
+        "annual_ordering_cost",
+        "annual_holding_cost",
+        "annual_shortage_cost",
+    }
+    assert constraint_ids == {
+        "minimum_order_quantity",
+        "maximum_order_quantity",
+        "minimum_reorder_point",
+        "maximum_reorder_point",
+    }
+    assert catalog["core"][
+        "required_objective_component_ids"
+    ] == [
+        "annual_ordering_cost",
+        "annual_holding_cost",
+        "annual_shortage_cost",
+    ]

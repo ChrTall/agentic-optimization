@@ -218,3 +218,103 @@ def test_builds_eoq_review_data() -> None:
         "annual_ordering_cost",
         "annual_holding_cost",
     }
+
+
+def test_builds_q_r_review_data() -> None:
+    proposal: ComponentSelectionProposal = {
+        "core_id": "continuous_review_q_r",
+        "objective_sense": "minimize",
+        "objective_components": [
+            {
+                "component_id": "annual_ordering_cost",
+                "reason": "Bestellkosten wurden genannt.",
+                "sources": ["source_1"],
+            },
+            {
+                "component_id": "annual_holding_cost",
+                "reason": "Lagerkosten wurden genannt.",
+                "sources": ["source_1"],
+            },
+            {
+                "component_id": "annual_shortage_cost",
+                "reason": "Fehlmengenkosten wurden genannt.",
+                "sources": ["source_1"],
+            },
+        ],
+        "constraints": [
+            {
+                "component_id": "minimum_reorder_point",
+                "product_id": "product_1",
+                "parameters": {
+                    "reorder_point": 50.0,
+                },
+                "reason": (
+                    "Ein Mindestmeldebestand wurde genannt."
+                ),
+                "sources": ["source_1"],
+            }
+        ],
+    }
+
+    products: list[ProductSpecification] = [
+        {
+            "product_id": "product_1",
+            "forecast": {
+                "expected_value": 100.0,
+                "quantiles": [
+                    {
+                        "level": 0.1,
+                        "value": 70.0,
+                    },
+                    {
+                        "level": 0.5,
+                        "value": 100.0,
+                    },
+                    {
+                        "level": 0.9,
+                        "value": 140.0,
+                    },
+                ],
+                "horizon_days": 30,
+            },
+            "facts": {
+                "lead_time_days": 10,
+                "ordering_cost": 50.0,
+                "holding_cost": 2.0,
+                "shortage_cost": 20.0,
+            },
+        }
+    ]
+
+    specification = build_specification_from_proposal(
+        proposal,
+        products,
+        {},
+    )
+
+    review = build_modular_review_data(
+        proposal,
+        specification,
+    )
+
+    assert review["core_id"] == "continuous_review_q_r"
+    assert review["core_name"] == (
+        "Kontinuierliche Bestandsüberprüfung (Q,R)"
+    )
+    assert review["objective_sense"] == "minimize"
+    assert review["ready_for_confirmation"] is True
+    assert review["validation_errors"] == []
+    assert review["missing_inputs"] == []
+
+    assert {
+        component["component_id"]
+        for component in review["objective_components"]
+    } == {
+        "annual_ordering_cost",
+        "annual_holding_cost",
+        "annual_shortage_cost",
+    }
+
+    assert review["constraints"][0][
+        "component_id"
+    ] == "minimum_reorder_point"

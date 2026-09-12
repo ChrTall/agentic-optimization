@@ -3,6 +3,7 @@ Aufbereitung von Nachfrageprognosen für Optimierungsmodelle.
 """
 
 import math
+from statistics import NormalDist
 from typing import TypedDict
 
 from agentic_optimization.models.specification import (
@@ -25,6 +26,16 @@ class PreparedDemandForecast(TypedDict):
     approximated_expected_value: float
     horizon_days: int
     demand_points: list[WeightedDemandPoint]
+
+
+class PreparedContinuousReviewForecast(TypedDict):
+    """Aufbereiteter Forecast für kontinuierliche Überprüfung."""
+
+    annual_demand: float
+    lead_time_demand_mean: float
+    lead_time_demand_std: float
+    forecast_horizon_days: int
+    lead_time_days: int
 
 
 def _is_number(value: object) -> bool:
@@ -202,4 +213,106 @@ def prepare_demand_forecast(
         ),
         "horizon_days": horizon_days,
         "demand_points": demand_points,
+    }
+
+
+def prepare_continuous_review_forecast(
+    forecast: DemandForecast,
+    lead_time_days: int,
+) -> PreparedContinuousReviewForecast:
+    """
+    Leitet Jahresbedarf und Lieferzeitnachfrage aus dem Forecast ab.
+
+    Die Streuung wird unter Annahme einer Normalverteilung aus einem
+    unteren und oberen Quantil geschätzt. Beim Übertragen auf einen
+    anderen Zeitraum wird eine stationäre, unabhängige Nachfrage mit
+    zeitproportionaler Varianz angenommen.
+    """
+
+    prepared_forecast = prepare_demand_forecast(
+        forecast
+    )
+
+    if (
+        not isinstance(lead_time_days, int)
+        or isinstance(lead_time_days, bool)
+        or lead_time_days <= 0
+    ):
+        raise ValueError(
+            "Die Lieferzeit muss eine positive "
+            "ganze Zahl sein."
+        )
+
+    quantiles = sorted(
+        forecast["quantiles"],
+        key=lambda quantile: quantile["level"],
+    )
+
+    lower_quantiles = [
+        quantile
+        for quantile in quantiles
+        if quantile["level"] < 0.5
+    ]
+    upper_quantiles = [
+        quantile
+        for quantile in quantiles
+        if quantile["level"] > 0.5
+    ]
+
+    if not lower_quantiles or not upper_quantiles:
+        raise ValueError(
+            "Für die kontinuierliche Überprüfung wird "
+            "mindestens ein Nachfragequantil unterhalb "
+            "und eines oberhalb von 0,5 benötigt."
+        )
+
+    lower_quantile = lower_quantiles[0]
+    upper_quantile = upper_quantiles[-1]
+
+    expected_value = prepared_forecast["expected_value"]
+    lower_value = float(lower_quantile["value"])
+    upper_value = float(upper_quantile["value"])
+
+    if not lower_value <= expected_value <= upper_value:
+        raise ValueError(
+            "Der Erwartungswert der Nachfrage muss zwischen "
+            "dem verwendeten unteren und oberen Quantil liegen."
+        )
+
+    normal_distribution = NormalDist()
+
+    lower_z = normal_distribution.inv_cdf(
+        float(lower_quantile["level"])
+    )
+    upper_z = normal_distribution.inv_cdf(
+        float(upper_quantile["level"])
+    )
+
+    forecast_standard_deviation = (
+        (upper_value - lower_value)
+        / (upper_z - lower_z)
+    )
+
+    forecast_horizon_days = prepared_forecast[
+        "horizon_days"
+    ]
+    time_factor = (
+        lead_time_days / forecast_horizon_days
+    )
+
+    return {
+        "annual_demand": (
+            expected_value
+            * 365.0
+            / forecast_horizon_days
+        ),
+        "lead_time_demand_mean": (
+            expected_value * time_factor
+        ),
+        "lead_time_demand_std": (
+            forecast_standard_deviation
+            * math.sqrt(time_factor)
+        ),
+        "forecast_horizon_days": forecast_horizon_days,
+        "lead_time_days": lead_time_days,
     }

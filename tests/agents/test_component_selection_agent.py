@@ -261,3 +261,99 @@ def test_builds_eoq_selection_request() -> None:
         "maximum_order_quantity",
     }
     assert result == response
+
+
+def test_builds_q_r_selection_request() -> None:
+    response = {
+        "core_id": "continuous_review_q_r",
+        "objective_sense": "minimize",
+        "objective_components": [
+            {
+                "component_id": "annual_ordering_cost",
+                "reason": "Bestellkosten wurden genannt.",
+                "sources": ["source_1"],
+            },
+            {
+                "component_id": "annual_holding_cost",
+                "reason": "Lagerkosten wurden genannt.",
+                "sources": ["source_1"],
+            },
+            {
+                "component_id": "annual_shortage_cost",
+                "reason": "Fehlmengenkosten wurden genannt.",
+                "sources": ["source_1"],
+            },
+        ],
+        "constraints": [
+            {
+                "component_id": "minimum_reorder_point",
+                "product_id": "product_1",
+                "parameters": {
+                    "reorder_point": 50.0,
+                },
+                "reason": (
+                    "Ein Mindestmeldebestand wurde genannt."
+                ),
+                "sources": ["source_1"],
+            }
+        ],
+    }
+
+    llm = create_mock_llm(response)
+    agent = create_component_selection_agent(llm)
+
+    result = agent(
+        core_id="continuous_review_q_r",
+        requirements={
+            "objective": "Jährliche Kosten minimieren",
+        },
+        products=[
+            {
+                "product_id": "product_1",
+                "facts": {
+                    "lead_time_days": 10,
+                    "ordering_cost": 50.0,
+                    "holding_cost": 2.0,
+                    "shortage_cost": 20.0,
+                },
+            }
+        ],
+        global_facts={},
+        evidence=[
+            {
+                "source_id": "source_1",
+                "content": (
+                    "Bestell-, Lager- und Fehlmengenkosten "
+                    "sollen berücksichtigt werden. Der "
+                    "Meldebestand muss mindestens 50 betragen."
+                ),
+            }
+        ],
+    )
+
+    messages = llm.invoke.call_args.args[0]
+    user_message = messages[1].content
+
+    assert isinstance(user_message, str)
+
+    payload = json.loads(user_message)
+    catalog = payload["component_catalog"]
+
+    assert {
+        component["component_id"]
+        for component in catalog["objective_components"]
+    } == {
+        "annual_ordering_cost",
+        "annual_holding_cost",
+        "annual_shortage_cost",
+    }
+    assert {
+        component["component_id"]
+        for component in catalog["constraint_components"]
+    } == {
+        "minimum_order_quantity",
+        "maximum_order_quantity",
+        "minimum_reorder_point",
+        "maximum_reorder_point",
+    }
+    assert result == response

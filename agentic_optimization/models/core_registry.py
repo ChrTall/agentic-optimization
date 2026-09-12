@@ -18,6 +18,12 @@ from agentic_optimization.models.execution import (
     OptimizationExecutor,
     SolutionMethod,
 )
+from agentic_optimization.models.reorder_point.core import (
+    CORE_DEFINITION as CONTINUOUS_REVIEW_Q_R_DEFINITION,
+    execute_continuous_review_q_r,
+    validate_q_r_forecast,
+    validate_q_r_semantics,
+)
 from agentic_optimization.models.newsvendor.single_period import (
     CORE_DEFINITION as SINGLE_PERIOD_NEWSVENDOR_DEFINITION,
     build_single_period_newsvendor_core,
@@ -77,5 +83,12 @@ CORE_REGISTRY: dict[str, RegisteredModelCore] = {
         "semantic_validator": validate_eoq_semantics,
         "executor": execute_eoq,
         "forecast_validator": validate_eoq_forecast,
+    },
+    CONTINUOUS_REVIEW_Q_R_DEFINITION["core_id"]: {
+        "definition": CONTINUOUS_REVIEW_Q_R_DEFINITION,
+        "solution_method": "numerical",
+        "semantic_validator": validate_q_r_semantics,
+        "executor": execute_continuous_review_q_r,
+        "forecast_validator": validate_q_r_forecast,
     },
 }
