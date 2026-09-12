@@ -3,6 +3,19 @@ from typing import Any, Final, Literal, TypedDict
 from agentic_optimization.models.types import (
     StructuredConstraint,
 )
+from agentic_optimization.models.execution import (
+    OptimizationExecutionResult,
+)
+from agentic_optimization.models.specification import (
+    ComponentSelectionProposal,
+    ModelSpecification,
+    ProductSpecification,
+    SelectionEvidence,
+)
+from agentic_optimization.models.validator import (
+    MissingInput,
+    SpecificationValidationResult,
+)
 
 # ---------------------------------------------------------------------------
 # Workflow-Status
@@ -168,6 +181,27 @@ class ModelConfig(TypedDict, total=False):
     decision: Any
 
 
+class ModularInputSubmission(TypedDict):
+    """Ein vom Nutzer ergänzter Wert für ein fehlendes Feld."""
+
+    missing_input: MissingInput
+    value: Any
+
+
+class ModularModelState(TypedDict, total=False):
+    """Zustand der neuen modularen Modellpipeline."""
+
+    core_id: str
+    products: list[ProductSpecification]
+    global_facts: dict[str, Any]
+    evidence: list[SelectionEvidence]
+    proposal: ComponentSelectionProposal
+    specification: ModelSpecification
+    validation: SpecificationValidationResult
+    review_confirmed: bool
+    optimization_result: OptimizationExecutionResult | None
+    pending_input_submissions: list[ModularInputSubmission]
+
 class GraphState(TypedDict, total=False):
     """
     Gemeinsamer Zustand des LangGraph-Workflows.
@@ -175,6 +209,8 @@ class GraphState(TypedDict, total=False):
     Dieser State wird von Knoten zu Knoten weitergegeben.
     Jeder Agent liest relevante Felder aus und ergänzt neue Ergebnisse.
     """
+
+    modular_model: ModularModelState
 
     # Steuerinformationen für Routing im Graph und in der UI
     control: ControlState
@@ -323,8 +359,7 @@ def invalidate_optimization_state(
     Diese Funktion muss verwendet werden, sobald der Nutzer
     Modellparameter oder strukturierte Constraints ändert.
     """
-
-    return {
+    updated_state: GraphState = {
         **state,
         "review_confirmed": False,
         "ready_for_optimization": False,
@@ -332,3 +367,12 @@ def invalidate_optimization_state(
         "optimization_errors": [],
         "result": {},
     }
+
+    if "modular_model" in state:
+        updated_state["modular_model"] = {
+            **state["modular_model"],
+            "review_confirmed": False,
+            "optimization_result": None,
+        }
+
+    return updated_state
