@@ -20,9 +20,7 @@ from agentic_optimization.models.types import (
     ConstraintParameterDefinition,
     ModelInputField,
 )
-from agentic_optimization.models.forecast_adapter import (
-    prepare_demand_forecast,
-)
+
 
 MissingInputSource = Literal[
     "forecast",
@@ -484,14 +482,15 @@ def validate_model_specification(
             forecast_complete
             and len(errors) == forecast_error_count
         ):
-            try:
-                prepare_demand_forecast(forecast)
-            except ValueError as error:
-                errors.append(
-                    f"Die Nachfrageprognose für Produkt "
-                    f"'{product_id}' ist ungültig: {error}"
-                )
+            forecast_errors = registered_core[
+                "forecast_validator"
+            ](forecast)
 
+            errors.extend(
+                f"Die Nachfrageprognose für Produkt "
+                f"'{product_id}' ist ungültig: {error}"
+                for error in forecast_errors
+            )
     provided_quantities = set(
         core_definition["provided_quantities"]
     )

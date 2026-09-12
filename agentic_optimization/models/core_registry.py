@@ -13,8 +13,10 @@ from agentic_optimization.models.newsvendor.single_period import (
     build_single_period_newsvendor_core,
     execute_single_period_newsvendor,
     validate_single_period_newsvendor_semantics,
+    validate_single_period_newsvendor_forecast,
 )
 from agentic_optimization.models.specification import (
+    DemandForecast,
     ModelSpecification,
 )
 from agentic_optimization.models.types import (
@@ -38,6 +40,12 @@ CoreSemanticValidator = Callable[
 ]
 
 
+CoreForecastValidator = Callable[
+    [DemandForecast],
+    list[str],
+]
+
+
 class RegisteredModelCore(TypedDict):
     """Verknüpft Definition, Ausführung und fachliche Prüfung."""
 
@@ -46,6 +54,7 @@ class RegisteredModelCore(TypedDict):
     semantic_validator: CoreSemanticValidator
     executor: OptimizationExecutor
     builder: NotRequired[CoreBuilder]
+    forecast_validator: CoreForecastValidator
 
 
 CORE_REGISTRY: dict[str, RegisteredModelCore] = {
@@ -55,5 +64,6 @@ CORE_REGISTRY: dict[str, RegisteredModelCore] = {
         "builder": build_single_period_newsvendor_core,
         "semantic_validator": validate_single_period_newsvendor_semantics,
         "executor": execute_single_period_newsvendor,
+        "forecast_validator": validate_single_period_newsvendor_forecast,
     },
 }

@@ -202,6 +202,15 @@ def validate_registry_integrity(
             )
 
         if not callable(
+            registered_core.get("forecast_validator")
+        ):
+            errors.append(
+                f"Für das Grundmodell '{core_id}' "
+                "ist kein aufrufbarer Forecast-Validator "
+                "registriert."
+            )
+
+        if not callable(
             registered_core.get("semantic_validator")
         ):
             errors.append(

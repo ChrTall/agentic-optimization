@@ -233,3 +233,20 @@ def test_analytical_core_does_not_require_builder() -> None:
     )
 
     assert errors == []
+
+
+def test_rejects_missing_forecast_validator() -> None:
+    cores = deepcopy(CORE_REGISTRY)
+    cores["single_period_newsvendor"][
+        "forecast_validator"
+    ] = None
+
+    errors = validate_registry_integrity(
+        registered_cores=cores
+    )
+
+    assert any(
+        "single_period_newsvendor" in error
+        and "Forecast-Validator" in error
+        for error in errors
+    )

@@ -4,25 +4,23 @@ Grunddefinition des einperiodigen Newsvendor-Modells.
 
 from dataclasses import dataclass
 
-
 import pulp
 
+from agentic_optimization.models.execution import (
+    OptimizationExecutionResult,
+)
 from agentic_optimization.models.forecast_adapter import (
     PreparedDemandForecast,
     prepare_demand_forecast,
 )
 from agentic_optimization.models.specification import (
+    DemandForecast,
     ModelSpecification,
 )
-from agentic_optimization.models.types import ModelInputField
-
 from agentic_optimization.models.types import (
     ModelCoreDefinition,
+    ModelInputField,
 )
-from agentic_optimization.models.execution import (
-    OptimizationExecutionResult,
-)
-
 
 CORE_DEFINITION: ModelCoreDefinition = {
     "core_id": "single_period_newsvendor",
@@ -108,6 +106,19 @@ CORE_DEFINITION: ModelCoreDefinition = {
         },
     },
 }
+
+
+def validate_single_period_newsvendor_forecast(
+    forecast: DemandForecast,
+) -> list[str]:
+    """Prüft den Forecast für ein Newsvendor-Modell."""
+
+    try:
+        prepare_demand_forecast(forecast)
+    except ValueError as error:
+        return [str(error)]
+
+    return []
 
 
 def validate_single_period_newsvendor_semantics(
