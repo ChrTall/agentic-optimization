@@ -80,18 +80,13 @@ def test_requires_cost_minimization() -> None:
     )
 
 
-def test_requires_classical_eoq_cost_components() -> None:
-    specification = create_specification()
-    specification["objective"]["component_ids"] = [
+def test_declares_classical_eoq_cost_components() -> None:
+    assert CORE_DEFINITION[
+        "required_objective_component_ids"
+    ] == [
         "annual_ordering_cost",
+        "annual_holding_cost",
     ]
-
-    errors = validate_eoq_semantics(specification)
-
-    assert any(
-        "Lagerhaltungskosten" in error
-        for error in errors
-    )
 
 
 def test_calculates_classical_eoq() -> None:

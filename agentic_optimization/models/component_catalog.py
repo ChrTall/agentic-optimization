@@ -27,6 +27,7 @@ class CoreCatalogEntry(TypedDict):
     name: str
     minimum_products: int
     required_forecast_fields: list[ModelInputField]
+    required_objective_component_ids: list[str]
 
 
 class ObjectiveComponentCatalogEntry(TypedDict):
@@ -128,6 +129,11 @@ def build_component_catalog(
             ],
             "required_forecast_fields": deepcopy(
                 core_definition["required_forecast_fields"]
+            ),
+            "required_objective_component_ids": list(
+                core_definition[
+                    "required_objective_component_ids"
+                ]
             ),
         },
         "objective_components": objective_components,

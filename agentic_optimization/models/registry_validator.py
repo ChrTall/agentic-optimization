@@ -168,6 +168,48 @@ def validate_registry_integrity(
                 f"stimmt nicht mit der Core-ID '{core_id}' überein."
             )
 
+        required_objective_component_ids = definition[
+            "required_objective_component_ids"
+        ]
+
+        for duplicate_component_id in sorted(
+            _find_duplicates(
+                required_objective_component_ids
+            )
+        ):
+            errors.append(
+                f"Das Grundmodell '{core_id}' verlangt den "
+                "Zielfunktionsbaustein "
+                f"'{duplicate_component_id}' mehrfach."
+            )
+
+        for required_component_id in (
+            required_objective_component_ids
+        ):
+            objective_definition = objectives.get(
+                required_component_id
+            )
+
+            if objective_definition is None:
+                errors.append(
+                    f"Das Grundmodell '{core_id}' verlangt "
+                    "den nicht registrierten "
+                    "Zielfunktionsbaustein "
+                    f"'{required_component_id}'."
+                )
+            elif (
+                core_id
+                not in objective_definition[
+                    "compatible_core_ids"
+                ]
+            ):
+                errors.append(
+                    f"Der vom Grundmodell '{core_id}' "
+                    "verlangte Zielfunktionsbaustein "
+                    f"'{required_component_id}' ist nicht "
+                    "mit diesem Grundmodell kompatibel."
+                )
+
         solution_method = registered_core.get(
             "solution_method"
         )

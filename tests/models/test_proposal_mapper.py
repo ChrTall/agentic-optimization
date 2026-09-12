@@ -228,3 +228,28 @@ def test_rejects_constraint_incompatible_with_core() -> None:
         and "nicht mit" in error
         for error in errors
     )
+
+
+def test_rejects_missing_required_eoq_component() -> None:
+    proposal: ComponentSelectionProposal = {
+        "core_id": "eoq",
+        "objective_sense": "minimize",
+        "objective_components": [
+            {
+                "component_id": "annual_ordering_cost",
+                "reason": "Bestellkosten wurden genannt.",
+                "sources": ["source_1"],
+            }
+        ],
+        "constraints": [],
+    }
+
+    errors = validate_component_selection_proposal(
+        proposal
+    )
+
+    assert any(
+        "annual_holding_cost" in error
+        and "benötigt" in error
+        for error in errors
+    )

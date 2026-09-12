@@ -100,7 +100,8 @@ def validate_component_selection_proposal(
                 )
 
             elif (
-                core_id in CORE_REGISTRY
+                _has_text(core_id)
+                and core_id in CORE_REGISTRY
                 and core_id
                 not in OBJECTIVE_COMPONENTS[
                     component_id
@@ -125,6 +126,36 @@ def validate_component_selection_proposal(
                     f"Für den Zielfunktionsbaustein an "
                     f"Position {index} fehlt eine gültige Quelle."
                 )
+    if (
+        _has_text(core_id)
+        and core_id in CORE_REGISTRY
+        and isinstance(objective_components, list)
+    ):
+        selected_component_ids = {
+            component.get("component_id")
+            for component in objective_components
+            if isinstance(component, dict)
+        }
+
+        required_component_ids = CORE_REGISTRY[
+            core_id
+        ]["definition"][
+            "required_objective_component_ids"
+        ]
+
+        for required_component_id in (
+            required_component_ids
+        ):
+            if (
+                required_component_id
+                not in selected_component_ids
+            ):
+                errors.append(
+                    f"Das Grundmodell '{core_id}' benötigt "
+                    "den Zielfunktionsbaustein "
+                    f"'{required_component_id}'."
+                )
+
 
     constraints = proposal.get("constraints")
 
@@ -155,7 +186,8 @@ def validate_component_selection_proposal(
                 )
 
             elif (
-                core_id in CORE_REGISTRY
+                _has_text(core_id)
+                and core_id in CORE_REGISTRY
                 and core_id
                 not in CONSTRAINT_COMPONENTS[
                     component_id

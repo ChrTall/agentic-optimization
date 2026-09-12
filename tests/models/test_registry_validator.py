@@ -250,3 +250,60 @@ def test_rejects_missing_forecast_validator() -> None:
         and "Forecast-Validator" in error
         for error in errors
     )
+
+
+def test_rejects_unknown_required_objective_component() -> None:
+    cores = deepcopy(CORE_REGISTRY)
+    cores["eoq"]["definition"][
+        "required_objective_component_ids"
+    ] = ["unknown_component"]
+
+    errors = validate_registry_integrity(
+        registered_cores=cores
+    )
+
+    assert any(
+        "eoq" in error
+        and "unknown_component" in error
+        and "nicht registrierten" in error
+        for error in errors
+    )
+
+
+def test_rejects_incompatible_required_component() -> None:
+    cores = deepcopy(CORE_REGISTRY)
+    cores["eoq"]["definition"][
+        "required_objective_component_ids"
+    ] = ["sales_revenue"]
+
+    errors = validate_registry_integrity(
+        registered_cores=cores
+    )
+
+    assert any(
+        "eoq" in error
+        and "sales_revenue" in error
+        and "nicht mit" in error
+        for error in errors
+    )
+
+
+def test_rejects_duplicate_required_component() -> None:
+    cores = deepcopy(CORE_REGISTRY)
+    cores["eoq"]["definition"][
+        "required_objective_component_ids"
+    ] = [
+        "annual_ordering_cost",
+        "annual_ordering_cost",
+    ]
+
+    errors = validate_registry_integrity(
+        registered_cores=cores
+    )
+
+    assert any(
+        "eoq" in error
+        and "annual_ordering_cost" in error
+        and "mehrfach" in error
+        for error in errors
+    )

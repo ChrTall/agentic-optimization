@@ -425,7 +425,8 @@ def validate_model_specification(
 
     if len(products) < core_definition["minimum_products"]:
         errors.append(
-            "Das Newsvendor-Modell benötigt mindestens ein Produkt."
+            f"Das Grundmodell '{core_id}' benötigt "
+            "mindestens ein Produkt."
         )
 
     product_ids = [
@@ -516,6 +517,18 @@ def validate_model_specification(
         errors.append(
             "Es wurde kein Zielfunktionsbaustein ausgewählt."
         )
+
+    selected_component_ids = set(component_ids)
+
+    for required_component_id in core_definition[
+        "required_objective_component_ids"
+    ]:
+        if required_component_id not in selected_component_ids:
+            errors.append(
+                f"Das Grundmodell '{core_id}' benötigt "
+                "den Zielfunktionsbaustein "
+                f"'{required_component_id}'."
+            )
 
     for component_id in component_ids:
         definition = OBJECTIVE_COMPONENTS.get(component_id)

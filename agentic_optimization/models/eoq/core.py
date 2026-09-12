@@ -23,6 +23,10 @@ CORE_DEFINITION: ModelCoreDefinition = {
     "core_id": "eoq",
     "name": "Wirtschaftliche Bestellmenge (EOQ)",
     "minimum_products": 1,
+    "required_objective_component_ids": [
+        "annual_ordering_cost",
+        "annual_holding_cost",
+    ],
     "required_forecast_fields": [
         {
             "name": "expected_value",
@@ -200,26 +204,11 @@ def validate_eoq_semantics(
 
     errors: list[str] = []
     objective = specification["objective"]
-    component_ids = set(objective["component_ids"])
 
     if objective["sense"] != "minimize":
         errors.append(
             "Das klassische EOQ-Modell muss die "
             "jährlichen relevanten Kosten minimieren."
-        )
-
-    required_components = {
-        "annual_ordering_cost",
-        "annual_holding_cost",
-    }
-
-    missing_components = required_components - component_ids
-
-    if missing_components:
-        errors.append(
-            "Für das klassische EOQ-Modell werden die "
-            "Zielfunktionsbausteine für jährliche Bestellkosten "
-            "und jährliche Lagerhaltungskosten benötigt."
         )
 
     for constraint in specification["constraints"]:

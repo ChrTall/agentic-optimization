@@ -40,6 +40,9 @@ def test_builds_newsvendor_component_catalog() -> None:
         "budget_limit",
         "storage_capacity",
     }
+    assert catalog["core"][
+        "required_objective_component_ids"
+    ] == []
 
 
 def test_catalog_is_json_serializable() -> None:
@@ -113,3 +116,9 @@ def test_builds_eoq_component_catalog() -> None:
         "expected_value",
         "horizon_days",
     }
+    assert catalog["core"][
+        "required_objective_component_ids"
+    ] == [
+        "annual_ordering_cost",
+        "annual_holding_cost",
+    ]

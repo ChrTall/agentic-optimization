@@ -102,3 +102,21 @@ def test_applies_minimum_order_quantity() -> None:
     assert result["objective_value"] == pytest.approx(
         3200.0
     )
+
+
+def test_rejects_missing_required_objective_component() -> None:
+    specification = create_specification()
+    specification["objective"]["component_ids"] = [
+        "annual_ordering_cost",
+    ]
+
+    validation = validate_model_specification(
+        specification
+    )
+
+    assert validation["is_valid"] is False
+    assert any(
+        "annual_holding_cost" in error
+        and "benötigt" in error
+        for error in validation["errors"]
+    )

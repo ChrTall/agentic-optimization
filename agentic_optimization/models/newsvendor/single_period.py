@@ -26,6 +26,7 @@ CORE_DEFINITION: ModelCoreDefinition = {
     "core_id": "single_period_newsvendor",
     "name": "Einperiodiges Newsvendor-Modell",
     "minimum_products": 1,
+    "required_objective_component_ids": [],
     "required_forecast_fields": [
         {
             "name": "expected_value",
