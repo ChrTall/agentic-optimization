@@ -44,6 +44,7 @@ class MetricValue(TypedDict):
     value: int | float
 
     product_id: NotRequired[str]
+    aggregation: NotRequired[Literal["expected_value"]]
 
 
 class OptimizationExecutionResult(TypedDict):
@@ -56,16 +57,6 @@ class OptimizationExecutionResult(TypedDict):
     metrics: list[MetricValue]
     technical_representation: str | None
     errors: list[str]
-
-
-class MetricValue(TypedDict):
-    """Eine zusätzliche, unformatierte Ergebniskennzahl."""
-
-    metric_id: str
-    value: int | float
-
-    product_id: NotRequired[str]
-    aggregation: NotRequired[Literal["expected_value"]]
 
 
 OptimizationExecutor = Callable[

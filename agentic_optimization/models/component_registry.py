@@ -89,7 +89,7 @@ class ConstraintComponentDefinition(TypedDict):
     required_product_facts: list[ModelInputField]
     required_global_facts: list[ModelInputField]
     parameters: list[ConstraintParameterDefinition]
-    builder: ConstraintComponentBuilder
+    linear_builder: NotRequired[ConstraintComponentBuilder]
 
 
 def build_sales_revenue(
