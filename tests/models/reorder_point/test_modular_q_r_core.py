@@ -6,6 +6,7 @@ from agentic_optimization.models.reorder_point.core import (
     CORE_DEFINITION,
     calculate_expected_shortage,
     evaluate_q_r_candidate,
+    get_order_multiple,
     validate_q_r_forecast,
     validate_q_r_semantics,
     determine_reorder_point_candidates,
@@ -413,5 +414,82 @@ def test_rejects_conflicting_reorder_point_bounds() -> None:
     assert any(
         "Mindestmeldebestand" in error
         and "Höchstmeldebestand" in error
+        for error in errors
+    )
+
+
+def test_respects_order_multiple() -> None:
+    result = find_optimal_q_r_policy(
+        annual_demand=7300.0,
+        ordering_cost=250.0,
+        holding_cost=50.0,
+        shortage_cost=10.0,
+        lead_time_demand_mean=60.0,
+        lead_time_demand_std=6.928,
+        minimum_order_quantity=250,
+        maximum_order_quantity=300,
+        order_multiple=50,
+        minimum_reorder_point=60,
+        maximum_reorder_point=80,
+    )
+
+    assert result.order_quantity == 300
+    assert result.order_quantity % 50 == 0
+    assert result.reorder_point == 66
+    assert result.annual_relevant_cost == pytest.approx(
+        14063.4367393
+    )
+
+
+def test_reads_order_multiple_from_constraints() -> None:
+    specification = create_specification()
+    specification["constraints"] = [
+        {
+            "component_id": "order_multiple",
+            "product_id": "product_1",
+            "parameters": {
+                "multiple": 50,
+            },
+        }
+    ]
+
+    assert get_order_multiple(
+        specification,
+        "product_1",
+    ) == 50
+
+
+def test_returns_no_order_multiple_when_not_configured() -> None:
+    specification = create_specification()
+
+    assert get_order_multiple(
+        specification,
+        "product_1",
+    ) is None
+
+
+def test_rejects_order_multiple_above_maximum() -> None:
+    specification = create_specification()
+    specification["constraints"] = [
+        {
+            "component_id": "maximum_order_quantity",
+            "product_id": "product_1",
+            "parameters": {
+                "quantity": 50,
+            },
+        },
+        {
+            "component_id": "order_multiple",
+            "product_id": "product_1",
+            "parameters": {
+                "multiple": 100,
+            },
+        },
+    ]
+
+    errors = validate_q_r_semantics(specification)
+
+    assert any(
+        "kein zulässiges Bestellvielfaches" in error
         for error in errors
     )

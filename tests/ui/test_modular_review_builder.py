@@ -137,6 +137,55 @@ def test_review_reports_missing_component_input() -> None:
     )
 
 
+def test_review_shows_selected_disposal_cost() -> None:
+    proposal = create_proposal()
+
+    proposal["objective_components"].append(
+        {
+            "component_id": "disposal_cost",
+            "reason": (
+                "Unverkaufte Ware muss kostenpflichtig "
+                "entsorgt werden."
+            ),
+            "sources": ["source_1"],
+        }
+    )
+
+    products = create_products()
+    products[0]["facts"]["disposal_cost"] = 20.0
+
+    specification = build_specification_from_proposal(
+        proposal,
+        products,
+        {},
+    )
+
+    review = build_modular_review_data(
+        proposal,
+        specification,
+    )
+
+    disposal_component = next(
+        component
+        for component in review["objective_components"]
+        if component["component_id"] == "disposal_cost"
+    )
+
+    assert disposal_component == {
+        "component_id": "disposal_cost",
+        "name": "Entsorgungskosten",
+        "effect": "cost",
+        "reason": (
+            "Unverkaufte Ware muss kostenpflichtig "
+            "entsorgt werden."
+        ),
+        "sources": ["source_1"],
+    }
+
+    assert review["ready_for_confirmation"] is True
+    assert review["missing_inputs"] == []
+
+
 def test_rejects_mismatched_review_data() -> None:
     proposal = create_proposal()
     specification = build_specification_from_proposal(
@@ -369,3 +418,56 @@ def test_copies_product_and_global_review_data() -> None:
     assert specification["global_facts"][
         "currency"
     ] == "EUR"
+
+
+def test_review_shows_order_multiple_constraint() -> None:
+    proposal = create_proposal()
+
+    proposal["constraints"].append(
+        {
+            "component_id": "order_multiple",
+            "product_id": "product_1",
+            "parameters": {
+                "multiple": 60,
+            },
+            "reason": (
+                "Bestellungen sind nur in vollständigen "
+                "Verpackungseinheiten möglich."
+            ),
+            "sources": ["source_1"],
+        }
+    )
+
+    specification = build_specification_from_proposal(
+        proposal,
+        create_products(),
+        {},
+    )
+
+    review = build_modular_review_data(
+        proposal,
+        specification,
+    )
+
+    order_multiple = next(
+        constraint
+        for constraint in review["constraints"]
+        if constraint["component_id"] == "order_multiple"
+    )
+
+    assert order_multiple == {
+        "component_id": "order_multiple",
+        "name": "Verpackungseinheit",
+        "scope": "per_product",
+        "product_id": "product_1",
+        "parameters": {
+            "multiple": 60,
+        },
+        "reason": (
+            "Bestellungen sind nur in vollständigen "
+            "Verpackungseinheiten möglich."
+        ),
+        "sources": ["source_1"],
+    }
+
+    assert review["ready_for_confirmation"] is True

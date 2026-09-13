@@ -121,3 +121,20 @@ def test_applies_order_quantity_bounds() -> None:
     assert result.annual_relevant_cost == pytest.approx(
         3200.0
     )
+
+
+def test_selects_cost_minimal_order_multiple() -> None:
+    result = calculate_eoq_product(
+        annual_demand=3500.0,
+        ordering_cost=120.0,
+        holding_cost=12.0,
+        order_multiple=100,
+    )
+
+    assert result.unconstrained_order_quantity == (
+        pytest.approx(264.5751311064591)
+    )
+    assert result.order_quantity == 300.0
+    assert result.annual_relevant_cost == pytest.approx(
+        3200.0
+    )

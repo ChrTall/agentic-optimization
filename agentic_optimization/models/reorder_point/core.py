@@ -358,6 +358,7 @@ def find_optimal_q_r_policy(
     lead_time_demand_std: float,
     minimum_order_quantity: int = 1,
     maximum_order_quantity: int | None = None,
+    order_multiple: int | None = None,
     minimum_reorder_point: int = 0,
     maximum_reorder_point: int | None = None,
 ) -> QRPolicyEvaluation:
@@ -377,6 +378,35 @@ def find_optimal_q_r_policy(
             "Die Mindestbestellmenge darf die "
             "Höchstbestellmenge nicht überschreiten."
         )
+
+    minimum_allowed_order_quantity = (
+        minimum_order_quantity
+    )
+
+    if order_multiple is not None:
+        if order_multiple <= 0:
+            raise ValueError(
+                "Das Bestellvielfache muss größer als "
+                "null sein."
+            )
+
+        minimum_allowed_order_quantity = (
+            math.ceil(
+                minimum_order_quantity / order_multiple
+            )
+            * order_multiple
+        )
+
+        if (
+            maximum_order_quantity is not None
+            and minimum_allowed_order_quantity
+            > maximum_order_quantity
+        ):
+            raise ValueError(
+                "Innerhalb der Bestellmengengrenzen "
+                "existiert kein zulässiges "
+                "Bestellvielfaches."
+            )
 
     if minimum_reorder_point < 0:
         raise ValueError(
@@ -400,16 +430,35 @@ def find_optimal_q_r_policy(
         / holding_cost
     )
 
-    seed_order_quantity = max(
-        minimum_order_quantity,
-        math.floor(unconstrained_eoq + 0.5),
-    )
-
-    if maximum_order_quantity is not None:
-        seed_order_quantity = min(
-            seed_order_quantity,
-            maximum_order_quantity,
+    if order_multiple is None:
+        seed_order_quantity = max(
+            minimum_order_quantity,
+            math.floor(unconstrained_eoq + 0.5),
         )
+
+        if maximum_order_quantity is not None:
+            seed_order_quantity = min(
+                seed_order_quantity,
+                maximum_order_quantity,
+            )
+    else:
+        seed_order_quantity = max(
+            minimum_allowed_order_quantity,
+            math.floor(
+                unconstrained_eoq / order_multiple + 0.5
+            )
+            * order_multiple,
+        )
+
+        if maximum_order_quantity is not None:
+            seed_order_quantity = min(
+                seed_order_quantity,
+                math.floor(
+                    maximum_order_quantity
+                    / order_multiple
+                )
+                * order_multiple,
+            )
 
     seed_reorder_points = (
         determine_reorder_point_candidates(
@@ -476,6 +525,12 @@ def find_optimal_q_r_policy(
         minimum_order_quantity,
         search_maximum + 1,
     ):
+        if (
+            order_multiple is not None
+            and order_quantity % order_multiple != 0
+        ):
+            continue
+
         reorder_points = determine_reorder_point_candidates(
             annual_demand=annual_demand,
             holding_cost=holding_cost,
@@ -575,6 +630,25 @@ def get_q_r_bounds(
     )
 
 
+def get_order_multiple(
+    specification: ModelSpecification,
+    product_id: str,
+) -> int | None:
+    """Liest das Bestellvielfache eines Produkts."""
+
+    for constraint in specification["constraints"]:
+        if (
+            constraint.get("product_id") == product_id
+            and constraint["component_id"]
+            == "order_multiple"
+        ):
+            return int(
+                constraint["parameters"]["multiple"]
+            )
+
+    return None
+
+
 def validate_q_r_forecast(
     forecast: DemandForecast,
 ) -> list[str]:
@@ -632,6 +706,11 @@ def validate_q_r_semantics(
             product_id,
         )
 
+        order_multiple = get_order_multiple(
+            specification,
+            product_id,
+        )
+
         if (
             maximum_order_quantity is not None
             and minimum_order_quantity
@@ -653,6 +732,28 @@ def validate_q_r_semantics(
                 "Mindestmeldebestand den "
                 "Höchstmeldebestand nicht überschreiten."
             )
+
+        if (
+            maximum_order_quantity is not None
+            and order_multiple is not None
+        ):
+            smallest_allowed_multiple = (
+                math.ceil(
+                    minimum_order_quantity
+                    / order_multiple
+                )
+                * order_multiple
+            )
+
+            if (
+                smallest_allowed_multiple
+                > maximum_order_quantity
+            ):
+                errors.append(
+                    f"Für Produkt '{product_id}' existiert "
+                    "innerhalb der Bestellmengengrenzen "
+                    "kein zulässiges Bestellvielfaches."
+                )
 
     return errors
 
@@ -710,6 +811,11 @@ def execute_continuous_review_q_r(
             product_id,
         )
 
+        order_multiple = get_order_multiple(
+            specification,
+            product_id,
+        )
+
         result = find_optimal_q_r_policy(
             annual_demand=prepared_forecast[
                 "annual_demand"
@@ -729,6 +835,7 @@ def execute_continuous_review_q_r(
             maximum_order_quantity=(
                 maximum_order_quantity
             ),
+            order_multiple=order_multiple,
             minimum_reorder_point=(
                 minimum_reorder_point
             ),

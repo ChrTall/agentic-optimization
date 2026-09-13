@@ -31,12 +31,14 @@ def test_builds_newsvendor_component_catalog() -> None:
     assert objective_ids == {
         "sales_revenue",
         "salvage_revenue",
+        "disposal_cost",
         "purchase_cost",
         "shortage_cost",
     }
     assert constraint_ids == {
         "minimum_order_quantity",
         "maximum_order_quantity",
+        "order_multiple",
         "budget_limit",
         "storage_capacity",
     }
@@ -111,6 +113,7 @@ def test_builds_eoq_component_catalog() -> None:
     assert constraint_ids == {
         "minimum_order_quantity",
         "maximum_order_quantity",
+        "order_multiple",
     }
     assert forecast_field_names == {
         "expected_value",
@@ -146,6 +149,7 @@ def test_builds_continuous_review_q_r_catalog() -> None:
     assert constraint_ids == {
         "minimum_order_quantity",
         "maximum_order_quantity",
+        "order_multiple",
         "minimum_reorder_point",
         "maximum_reorder_point",
     }

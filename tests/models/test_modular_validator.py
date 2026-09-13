@@ -160,6 +160,30 @@ def test_selected_component_adds_required_input() -> None:
     assert missing_input["field"]["name"] == "salvage_value"
 
 
+def test_disposal_cost_adds_required_product_fact() -> None:
+    specification = create_complete_specification()
+
+    specification["objective"]["component_ids"].append(
+        "disposal_cost"
+    )
+
+    result = validate_model_specification(specification)
+
+    assert result["is_valid"] is False
+    assert result["errors"] == []
+    assert len(result["missing_inputs"]) == 1
+
+    missing_input = result["missing_inputs"][0]
+
+    assert missing_input["source"] == "product_fact"
+    assert missing_input["product_id"] == "product_1"
+    assert missing_input["component_id"] == "disposal_cost"
+    assert missing_input["field"]["name"] == "disposal_cost"
+    assert missing_input["field"]["label"] == (
+        "Entsorgungskosten pro unverkaufter Einheit"
+    )
+
+
 def test_missing_fact_required_by_multiple_components_is_unique() -> None:
     specification = create_complete_specification()
     del specification["products"][0]["facts"]["purchase_cost"]
@@ -736,4 +760,91 @@ def test_core_required_product_fact_is_reported(
         == "lead_time_days"
         and "component_id" not in missing_input
         for missing_input in result["missing_inputs"]
+    )
+
+
+def test_order_multiple_parameter_is_requested() -> None:
+    specification = create_complete_specification()
+
+    specification["constraints"] = [
+        {
+            "component_id": "order_multiple",
+            "product_id": "product_1",
+            "parameters": {},
+        }
+    ]
+
+    result = validate_model_specification(specification)
+
+    assert result["is_valid"] is False
+    assert result["errors"] == []
+    assert len(result["missing_inputs"]) == 1
+
+    missing_input = result["missing_inputs"][0]
+
+    assert missing_input["source"] == "constraint_parameter"
+    assert missing_input["component_id"] == "order_multiple"
+    assert missing_input["constraint_index"] == 0
+    assert missing_input["field"]["name"] == "multiple"
+    assert missing_input["field"]["label"] == "Bestellvielfaches"
+
+
+def test_rejects_fractional_order_multiple() -> None:
+    specification = create_complete_specification()
+
+    specification["constraints"] = [
+        {
+            "component_id": "order_multiple",
+            "product_id": "product_1",
+            "parameters": {
+                "multiple": 2.5,
+            },
+        }
+    ]
+
+    result = validate_model_specification(specification)
+
+    assert result["is_valid"] is False
+    assert any(
+        "Bestellvielfaches" in error
+        and "muss eine ganze Zahl sein" in error
+        for error in result["errors"]
+    )
+
+
+def test_rejects_incompatible_order_multiple_bounds() -> None:
+    specification = create_complete_specification()
+
+    specification["constraints"] = [
+        {
+            "component_id": "minimum_order_quantity",
+            "product_id": "product_1",
+            "parameters": {
+                "quantity": 250.0,
+            },
+        },
+        {
+            "component_id": "maximum_order_quantity",
+            "product_id": "product_1",
+            "parameters": {
+                "quantity": 280.0,
+            },
+        },
+        {
+            "component_id": "order_multiple",
+            "product_id": "product_1",
+            "parameters": {
+                "multiple": 100,
+            },
+        },
+    ]
+
+    result = validate_model_specification(specification)
+
+    assert result["is_valid"] is False
+    assert any(
+        "product_1" in error
+        and "kein zulässiges Bestellvielfaches"
+        in error
+        for error in result["errors"]
     )

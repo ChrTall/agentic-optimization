@@ -74,7 +74,11 @@ def call_agent(llm: Mock):
                 "source_id": "source_1",
                 "content": (
                     "Der Einkaufspreis beträgt 5 Euro. "
-                    "Die Mindestbestellmenge beträgt 50 Stück."
+                    "Die Mindestbestellmenge beträgt 50 Stück. "
+                    "Unverkaufte Ware muss kostenpflichtig "
+                    "entsorgt werden. "
+                    "Bestellungen sind nur in vollständigen "
+                    "Verpackungseinheiten zu je 60 Stück möglich."
                 ),
             }
         ],
@@ -121,8 +125,20 @@ def test_prompt_contains_filtered_component_catalog() -> None:
     } == {
         "sales_revenue",
         "salvage_revenue",
+        "disposal_cost",
         "purchase_cost",
         "shortage_cost",
+    }
+
+    assert {
+        component["component_id"]
+        for component in catalog["constraint_components"]
+    } == {
+        "minimum_order_quantity",
+        "maximum_order_quantity",
+        "order_multiple",
+        "budget_limit",
+        "storage_capacity",
     }
     assert "builder" not in user_message
 
@@ -259,6 +275,7 @@ def test_builds_eoq_selection_request() -> None:
     } == {
         "minimum_order_quantity",
         "maximum_order_quantity",
+        "order_multiple",
     }
     assert result == response
 
@@ -353,7 +370,69 @@ def test_builds_q_r_selection_request() -> None:
     } == {
         "minimum_order_quantity",
         "maximum_order_quantity",
+        "order_multiple",
         "minimum_reorder_point",
         "maximum_reorder_point",
     }
     assert result == response
+
+
+def test_accepts_disposal_cost_component_proposal() -> None:
+    response = create_response()
+
+    response["objective_components"].append(
+        {
+            "component_id": "disposal_cost",
+            "reason": (
+                "Unverkaufte Ware muss kostenpflichtig "
+                "entsorgt werden."
+            ),
+            "sources": ["source_1"],
+        }
+    )
+
+    llm = create_mock_llm(response)
+
+    result = call_agent(llm)
+
+    selected_component_ids = {
+        component["component_id"]
+        for component in result["objective_components"]
+    }
+
+    assert "disposal_cost" in selected_component_ids
+
+
+def test_accepts_order_multiple_constraint_proposal() -> None:
+    response = create_response()
+
+    response["constraints"].append(
+        {
+            "component_id": "order_multiple",
+            "product_id": "product_1",
+            "parameters": {
+                "multiple": 60,
+            },
+            "reason": (
+                "Bestellungen sind nur in vollständigen "
+                "Verpackungseinheiten möglich."
+            ),
+            "sources": ["source_1"],
+        }
+    )
+
+    llm = create_mock_llm(response)
+
+    result = call_agent(llm)
+
+    order_multiple = next(
+        constraint
+        for constraint in result["constraints"]
+        if constraint["component_id"] == "order_multiple"
+    )
+
+    assert order_multiple["product_id"] == "product_1"
+    assert order_multiple["parameters"] == {
+        "multiple": 60,
+    }
+    assert order_multiple["sources"] == ["source_1"]

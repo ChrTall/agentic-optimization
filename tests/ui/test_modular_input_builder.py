@@ -2,9 +2,6 @@ from agentic_optimization.models.specification import (
     ModelSpecification,
     ProductSpecification,
 )
-from agentic_optimization.ui.modular_input_builder import (
-    build_modular_input_layout,
-)
 from agentic_optimization.models.validator import (
     validate_model_specification,
 )
@@ -220,3 +217,99 @@ def test_applies_missing_values_and_completes_specification() -> None:
         "selling_price"
         not in specification["products"][0]["facts"]
     )
+
+
+def test_builds_input_for_selected_disposal_cost() -> None:
+    product = create_product("product_1")
+    specification = create_specification([product])
+
+    specification["objective"]["component_ids"].append(
+        "disposal_cost"
+    )
+
+    layout = build_modular_input_layout(specification)
+
+    product_group = layout["product_groups"][0]
+    fact_inputs = product_group["fact_inputs"]
+
+    assert len(fact_inputs) == 1
+
+    missing_input = fact_inputs[0]
+
+    assert missing_input["component_id"] == "disposal_cost"
+    assert missing_input["field"]["name"] == "disposal_cost"
+    assert missing_input["field"]["label"] == (
+        "Entsorgungskosten pro unverkaufter Einheit"
+    )
+
+    updated_specification = apply_modular_input_value(
+        specification,
+        missing_input,
+        20.0,
+    )
+
+    assert (
+        updated_specification["products"][0]["facts"][
+            "disposal_cost"
+        ]
+        == 20.0
+    )
+
+    final_validation = validate_model_specification(
+        updated_specification
+    )
+
+    assert final_validation["is_valid"] is True
+
+
+def test_builds_input_for_missing_order_multiple() -> None:
+    specification = create_specification(
+        [
+            create_product("product_1"),
+        ]
+    )
+
+    specification["constraints"] = [
+        {
+            "component_id": "order_multiple",
+            "product_id": "product_1",
+            "parameters": {},
+        }
+    ]
+
+    layout = build_modular_input_layout(specification)
+
+    assert len(layout["constraint_groups"]) == 1
+
+    constraint_group = layout["constraint_groups"][0]
+
+    assert constraint_group["component_id"] == (
+        "order_multiple"
+    )
+    assert constraint_group["product_id"] == "product_1"
+    assert len(constraint_group["inputs"]) == 1
+
+    missing_input = constraint_group["inputs"][0]
+
+    assert missing_input["source"] == (
+        "constraint_parameter"
+    )
+    assert missing_input["field"]["name"] == "multiple"
+    assert missing_input["field"]["type"] == "integer"
+    assert missing_input["field"]["unit"] == "Einheiten"
+
+    updated_specification = apply_modular_input_value(
+        specification,
+        missing_input,
+        60,
+    )
+
+    assert updated_specification["constraints"][0][
+        "parameters"
+    ]["multiple"] == 60
+
+    final_validation = validate_model_specification(
+        updated_specification
+    )
+
+    assert final_validation["is_valid"] is True

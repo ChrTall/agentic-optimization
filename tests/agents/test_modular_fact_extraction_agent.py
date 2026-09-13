@@ -136,3 +136,52 @@ def test_accepts_json_code_block() -> None:
 
     assert products == create_products()
     assert global_facts == {}
+
+
+def test_extracts_disposal_cost_from_evidence() -> None:
+    response = {
+        "products": [
+            {
+                "product_id": "product_1",
+                "forecast": {},
+                "facts": {
+                    "disposal_cost": 20.0,
+                },
+            }
+        ],
+        "global_facts": {},
+    }
+
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(
+        content=json.dumps(response)
+    )
+
+    agent = create_modular_fact_extraction_agent(llm)
+
+    products, global_facts = agent(
+        core_id="single_period_newsvendor",
+        requirements={
+            "objective": "maximize_profit",
+        },
+        products=create_products(),
+        global_facts={},
+        evidence=[
+            {
+                "source_id": "raw_input",
+                "content": (
+                    "Unverkaufte Ware muss entsorgt werden. "
+                    "Die Entsorgung kostet 20 Euro pro Stück."
+                ),
+            }
+        ],
+    )
+
+    assert products[0]["facts"]["disposal_cost"] == 20.0
+    assert global_facts == {}
+
+    messages = llm.invoke.call_args.args[0]
+    user_message = messages[1].content
+
+    assert isinstance(user_message, str)
+    assert "disposal_cost" in user_message

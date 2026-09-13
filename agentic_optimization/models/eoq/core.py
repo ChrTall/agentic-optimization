@@ -128,6 +128,7 @@ def calculate_eoq_product(
     holding_cost: float,
     minimum_order_quantity: float | None = None,
     maximum_order_quantity: float | None = None,
+    order_multiple: int | None = None,
 ) -> EoqProductResult:
     """Berechnet die klassische EOQ für ein Produkt."""
 
@@ -138,18 +139,96 @@ def calculate_eoq_product(
         / holding_cost
     )
 
-    order_quantity = unconstrained_order_quantity
+    if order_multiple is None:
+        order_quantity = unconstrained_order_quantity
 
-    if minimum_order_quantity is not None:
-        order_quantity = max(
-            order_quantity,
-            minimum_order_quantity,
+        if minimum_order_quantity is not None:
+            order_quantity = max(
+                order_quantity,
+                minimum_order_quantity,
+            )
+
+        if maximum_order_quantity is not None:
+            order_quantity = min(
+                order_quantity,
+                maximum_order_quantity,
+            )
+    else:
+        if order_multiple <= 0:
+            raise ValueError(
+                "Das Bestellvielfache muss größer als null sein."
+            )
+
+        minimum_factor = max(
+            1,
+            math.ceil(
+                (minimum_order_quantity or 0.0)
+                / order_multiple
+            ),
         )
 
-    if maximum_order_quantity is not None:
+        maximum_factor = (
+            math.floor(
+                maximum_order_quantity / order_multiple
+            )
+            if maximum_order_quantity is not None
+            else None
+        )
+
+        if (
+            maximum_factor is not None
+            and minimum_factor > maximum_factor
+        ):
+            raise ValueError(
+                "Innerhalb der Bestellmengengrenzen "
+                "existiert kein zulässiges Bestellvielfaches."
+            )
+
+        unconstrained_factor = (
+            unconstrained_order_quantity / order_multiple
+        )
+
+        factor_candidates = {
+            minimum_factor,
+            max(
+                minimum_factor,
+                math.floor(unconstrained_factor),
+            ),
+            max(
+                minimum_factor,
+                math.ceil(unconstrained_factor),
+            ),
+        }
+
+        if maximum_factor is not None:
+            factor_candidates = {
+                min(factor, maximum_factor)
+                for factor in factor_candidates
+            }
+            factor_candidates.add(maximum_factor)
+
+        quantity_candidates = {
+            float(factor * order_multiple)
+            for factor in factor_candidates
+            if factor >= minimum_factor
+            and (
+                maximum_factor is None
+                or factor <= maximum_factor
+            )
+        }
+
+        def relevant_cost(quantity: float) -> float:
+            return (
+                annual_demand * ordering_cost / quantity
+                + holding_cost * quantity / 2.0
+            )
+
         order_quantity = min(
-            order_quantity,
-            maximum_order_quantity,
+            quantity_candidates,
+            key=lambda quantity: (
+                relevant_cost(quantity),
+                quantity,
+            ),
         )
 
     orders_per_year = annual_demand / order_quantity
@@ -227,6 +306,36 @@ def validate_eoq_semantics(
                 "EOQ-Modell größer als null sein."
             )
 
+    for product in specification["products"]:
+        product_id = product["product_id"]
+
+        minimum, maximum = _get_order_quantity_bounds(
+            specification,
+            product_id,
+        )
+        order_multiple = _get_order_multiple(
+            specification,
+            product_id,
+        )
+
+        if (
+            maximum is not None
+            and order_multiple is not None
+        ):
+            minimum_factor = max(
+                1,
+                math.ceil(
+                    (minimum or 0.0) / order_multiple
+                ),
+            )
+
+            if minimum_factor * order_multiple > maximum:
+                errors.append(
+                    f"Für das EOQ-Produkt '{product_id}' "
+                    "existiert innerhalb der Bestellmengengrenzen "
+                    "kein positives zulässiges Bestellvielfaches."
+                )
+
     return errors
 
 
@@ -244,6 +353,13 @@ def _get_order_quantity_bounds(
             continue
 
         component_id = constraint["component_id"]
+
+        if component_id not in {
+            "minimum_order_quantity",
+            "maximum_order_quantity",
+        }:
+            continue
+
         quantity = float(
             constraint["parameters"]["quantity"]
         )
@@ -254,6 +370,25 @@ def _get_order_quantity_bounds(
             maximum = quantity
 
     return minimum, maximum
+
+
+def _get_order_multiple(
+    specification: ModelSpecification,
+    product_id: str,
+) -> int | None:
+    """Liest das Bestellvielfache eines Produkts."""
+
+    for constraint in specification["constraints"]:
+        if (
+            constraint.get("product_id") == product_id
+            and constraint["component_id"]
+            == "order_multiple"
+        ):
+            return int(
+                constraint["parameters"]["multiple"]
+            )
+
+    return None
 
 
 def execute_eoq(
@@ -302,6 +437,11 @@ def execute_eoq(
             product_id,
         )
 
+        order_multiple = _get_order_multiple(
+            specification,
+            product_id,
+        )
+
         minimum_text = (
             "nicht gesetzt"
             if minimum is None
@@ -319,6 +459,7 @@ def execute_eoq(
             holding_cost=holding_cost,
             minimum_order_quantity=minimum,
             maximum_order_quantity=maximum,
+            order_multiple=order_multiple,
         )
 
         total_annual_cost += result.annual_relevant_cost

@@ -237,3 +237,30 @@ def test_executes_multiple_products_independently() -> None:
     assert result["objective_value"] == pytest.approx(
         sum(product_costs)
     )
+
+
+def test_applies_order_multiple() -> None:
+    specification = create_specification()
+    specification["constraints"] = [
+        {
+            "component_id": "order_multiple",
+            "product_id": "product_1",
+            "parameters": {
+                "multiple": 100,
+            },
+        }
+    ]
+
+    validation = validate_model_specification(
+        specification
+    )
+    result = execute_model_specification(specification)
+    decisions = decision_values(result)
+
+    assert validation["is_valid"] is True
+    assert decisions["order_quantity"] == 300
+    assert decisions["order_quantity"] % 100 == 0
+    assert decisions["reorder_point"] == 64
+    assert result["objective_value"] == pytest.approx(
+        576.6824991
+    )

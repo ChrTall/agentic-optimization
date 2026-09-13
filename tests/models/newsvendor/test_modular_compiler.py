@@ -382,3 +382,55 @@ def test_reports_infeasible_linear_model() -> None:
     assert result["objective_value"] is None
     assert result["decisions"] == []
     assert result["errors"]
+
+
+def test_disposal_cost_changes_optimal_order_quantity() -> None:
+    product = create_product("product_1")
+    product["facts"]["disposal_cost"] = 20.0
+
+    specification = create_specification([product])
+    specification["objective"]["component_ids"] = [
+        "sales_revenue",
+        "purchase_cost",
+        "disposal_cost",
+    ]
+
+    context = solve(specification)
+
+    order_quantity = context.get_quantity(
+        "order_quantity",
+        "product_1",
+    ).value()
+
+    assert order_quantity == pytest.approx(70.0)
+    assert pulp.value(
+        context.model.objective
+    ) == pytest.approx(490.0)
+
+
+def test_applies_order_multiple_builder() -> None:
+    specification = create_specification(
+        [
+            create_product("product_1"),
+        ]
+    )
+
+    specification["constraints"] = [
+        {
+            "component_id": "order_multiple",
+            "product_id": "product_1",
+            "parameters": {
+                "multiple": 60,
+            },
+        }
+    ]
+
+    context = solve(specification)
+
+    order_quantity = context.get_quantity(
+        "order_quantity",
+        "product_1",
+    ).value()
+
+    assert order_quantity == pytest.approx(120.0)
+    assert order_quantity % 60 == pytest.approx(0.0)

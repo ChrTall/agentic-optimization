@@ -835,32 +835,37 @@ def validate_model_specification(
     for constraint in specification.get("constraints", []):
         component_id = constraint.get("component_id")
         product_id = constraint.get("product_id")
-        quantity = constraint.get(
-            "parameters",
-            {},
-        ).get("quantity")
+        parameters = constraint.get("parameters", {})
 
-        quantity_value = _to_finite_number(quantity)
+        if not product_id or not isinstance(parameters, dict):
+            continue
 
-        if (
-            component_id
-            not in {
-                "minimum_order_quantity",
-                "maximum_order_quantity",
-            }
-            or not product_id
-            or quantity_value is None
-        ):
+        if component_id in {
+            "minimum_order_quantity",
+            "maximum_order_quantity",
+        }:
+            parameter_value = parameters.get("quantity")
+        elif component_id == "order_multiple":
+            parameter_value = parameters.get("multiple")
+        else:
+            continue
+
+        numeric_value = _to_finite_number(
+            parameter_value
+        )
+
+        if numeric_value is None:
             continue
 
         order_bounds_by_product.setdefault(
             product_id,
             {},
-        )[component_id] = quantity_value
+        )[component_id] = numeric_value
 
     for product_id, bounds in order_bounds_by_product.items():
         minimum = bounds.get("minimum_order_quantity")
         maximum = bounds.get("maximum_order_quantity")
+        multiple = bounds.get("order_multiple")
 
         if (
             minimum is not None
@@ -872,6 +877,24 @@ def validate_model_specification(
                 "Mindestbestellmenge die Höchstbestellmenge "
                 "nicht überschreiten."
             )
+
+        if (
+            minimum is not None
+            and maximum is not None
+            and multiple is not None
+            and multiple > 0
+        ):
+            smallest_allowed_multiple = (
+                math.ceil(minimum / multiple)
+                * multiple
+            )
+
+            if smallest_allowed_multiple > maximum:
+                errors.append(
+                    f"Für das Produkt '{product_id}' existiert "
+                    "zwischen Mindest- und Höchstbestellmenge "
+                    "kein zulässiges Bestellvielfaches."
+                )
 
     missing_inputs = _deduplicate_missing_inputs(
         missing_inputs

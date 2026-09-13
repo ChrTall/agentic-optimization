@@ -164,6 +164,42 @@ def build_salvage_revenue(
     return pulp.lpSum(terms)
 
 
+def build_disposal_cost(
+    specification: ModelSpecification,
+    context: ModelBuildContext,
+) -> pulp.LpAffineExpression:
+    """Erzeugt die erwarteten Entsorgungskosten."""
+
+    terms = []
+
+    for product in specification["products"]:
+        product_id = product["product_id"]
+        disposal_cost = float(
+            product["facts"]["disposal_cost"]
+        )
+
+        demand_points = context.forecasts[
+            product_id
+        ]["demand_points"]
+
+        for point_index, demand_point in enumerate(
+            demand_points
+        ):
+            leftover_quantity = context.get_quantity(
+                "leftover_quantity",
+                product_id,
+                point_index,
+            )
+
+            terms.append(
+                demand_point["probability"]
+                * disposal_cost
+                * leftover_quantity
+            )
+
+    return pulp.lpSum(terms)
+
+
 def build_purchase_cost(
     specification: ModelSpecification,
     context: ModelBuildContext,
@@ -282,6 +318,48 @@ def build_maximum_order_quantity(
     )
 
 
+def build_order_multiple(
+    specification: ModelSpecification,
+    context: ModelBuildContext,
+    constraint: ConstraintSpecification,
+    constraint_index: int,
+) -> None:
+    """Beschränkt die Bestellmenge auf ein Vielfaches."""
+
+    del specification
+
+    product_id = constraint.get("product_id")
+
+    if not product_id:
+        raise ValueError(
+            "Das Bestellvielfache muss einem "
+            "Produkt zugeordnet sein."
+        )
+
+    multiple = int(
+        constraint["parameters"]["multiple"]
+    )
+
+    package_count = pulp.LpVariable(
+        (
+            f"order_package_count_"
+            f"{product_id}_{constraint_index}"
+        ),
+        lowBound=0,
+        cat=pulp.LpInteger,
+    )
+
+    order_quantity = context.get_quantity(
+        "order_quantity",
+        product_id,
+    )
+
+    context.model += (
+        order_quantity == multiple * package_count,
+        f"order_multiple_{constraint_index}",
+    )
+
+
 def build_budget_limit(
     specification: ModelSpecification,
     context: ModelBuildContext,
@@ -392,6 +470,33 @@ OBJECTIVE_COMPONENTS: dict[
         ],
         "required_global_facts": [],
         "linear_builder": build_salvage_revenue,
+    },
+    "disposal_cost": {
+        "component_id": "disposal_cost",
+        "name": "Entsorgungskosten",
+        "effect": "cost",
+        "compatible_core_ids": [
+            "single_period_newsvendor",
+        ],
+        "required_model_quantities": [
+            "leftover_quantity",
+        ],
+        "required_product_facts": [
+            {
+                "name": "disposal_cost",
+                "label": "Entsorgungskosten pro unverkaufter Einheit",
+                "type": "number",
+                "required": True,
+                "help": (
+                    "Kosten für die Entsorgung einer "
+                    "nach der Periode unverkauften Einheit."
+                ),
+                "min_value": 0.0,
+                "unit": "€ pro Einheit",
+            }
+        ],
+        "required_global_facts": [],
+        "linear_builder": build_disposal_cost,
     },
     "purchase_cost": {
         "component_id": "purchase_cost",
@@ -585,6 +690,37 @@ CONSTRAINT_COMPONENTS: dict[
             }
         ],
         "linear_builder": build_maximum_order_quantity,
+    },
+    "order_multiple": {
+        "component_id": "order_multiple",
+        "name": "Verpackungseinheit",
+        "scope": "per_product",
+        "compatible_core_ids": [
+            "single_period_newsvendor",
+            "eoq",
+            "continuous_review_q_r",
+        ],
+        "required_model_quantities": [
+            "order_quantity",
+        ],
+        "required_product_facts": [],
+        "required_global_facts": [],
+        "parameters": [
+            {
+                "name": "multiple",
+                "label": "Bestellvielfaches",
+                "type": "integer",
+                "required": True,
+                "help": (
+                    "Die Bestellmenge muss ein Vielfaches "
+                    "dieser Verpackungseinheit sein."
+                ),
+                "min_value": 1,
+                "step": 1,
+                "unit": "Einheiten",
+            }
+        ],
+        "linear_builder": build_order_multiple,
     },
     "budget_limit": {
         "component_id": "budget_limit",

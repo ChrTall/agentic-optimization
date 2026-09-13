@@ -134,3 +134,62 @@ def test_rejects_missing_required_objective_component() -> None:
         and "benötigt" in error
         for error in validation["errors"]
     )
+
+
+def test_applies_order_multiple() -> None:
+    specification = create_specification()
+
+    specification["constraints"] = [
+        {
+            "component_id": "order_multiple",
+            "product_id": "product_1",
+            "parameters": {
+                "multiple": 100,
+            },
+        }
+    ]
+
+    validation = validate_model_specification(
+        specification
+    )
+    result = execute_model_specification(specification)
+
+    assert validation["is_valid"] is True
+    assert result["status"] == "optimal"
+    assert result["solution_method"] == "analytical"
+    assert result["decisions"][0]["value"] == 300.0
+    assert result["objective_value"] == pytest.approx(
+        3200.0
+    )
+
+
+def test_rejects_order_multiple_above_maximum() -> None:
+    specification = create_specification()
+
+    specification["constraints"] = [
+        {
+            "component_id": "maximum_order_quantity",
+            "product_id": "product_1",
+            "parameters": {
+                "quantity": 50.0,
+            },
+        },
+        {
+            "component_id": "order_multiple",
+            "product_id": "product_1",
+            "parameters": {
+                "multiple": 100,
+            },
+        },
+    ]
+
+    validation = validate_model_specification(
+        specification
+    )
+
+    assert validation["is_valid"] is False
+    assert any(
+        "kein positives zulässiges Bestellvielfaches"
+        in error
+        for error in validation["errors"]
+    )

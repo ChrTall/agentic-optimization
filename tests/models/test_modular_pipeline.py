@@ -136,6 +136,91 @@ def test_complete_modular_newsvendor_pipeline() -> None:
     assert result["errors"] == []
 
 
+def test_newsvendor_pipeline_with_disposal_cost() -> None:
+    proposal: ComponentSelectionProposal = {
+        "core_id": "single_period_newsvendor",
+        "objective_sense": "maximize",
+        "objective_components": [
+            {
+                "component_id": "sales_revenue",
+                "reason": "Verkaufserlöse wurden beschrieben.",
+                "sources": ["Freitext"],
+            },
+            {
+                "component_id": "purchase_cost",
+                "reason": "Einkaufskosten wurden beschrieben.",
+                "sources": ["Freitext"],
+            },
+            {
+                "component_id": "disposal_cost",
+                "reason": (
+                    "Unverkaufte Ware muss kostenpflichtig "
+                    "entsorgt werden."
+                ),
+                "sources": ["Freitext"],
+            },
+        ],
+        "constraints": [],
+    }
+
+    products: list[ProductSpecification] = [
+        {
+            "product_id": "product_1",
+            "forecast": {
+                "expected_value": 100.0,
+                "quantiles": [
+                    {
+                        "level": 0.1,
+                        "value": 70.0,
+                    },
+                    {
+                        "level": 0.5,
+                        "value": 100.0,
+                    },
+                    {
+                        "level": 0.9,
+                        "value": 140.0,
+                    },
+                ],
+                "horizon_days": 30,
+            },
+            "facts": {
+                "selling_price": 12.0,
+                "purchase_cost": 5.0,
+                "disposal_cost": 20.0,
+            },
+        }
+    ]
+
+    specification = build_specification_from_proposal(
+        proposal,
+        products,
+        {},
+    )
+
+    validation = validate_model_specification(
+        specification
+    )
+
+    assert validation["is_valid"] is True
+    assert validation["errors"] == []
+    assert validation["missing_inputs"] == []
+
+    result = execute_model_specification(specification)
+
+    assert result["status"] == "optimal"
+    assert result["solution_method"] == "linear_programming"
+    assert result["objective_value"] == pytest.approx(490.0)
+    assert result["decisions"] == [
+        {
+            "quantity_id": "order_quantity",
+            "product_id": "product_1",
+            "value": pytest.approx(70.0),
+        }
+    ]
+    assert result["errors"] == []
+
+
 def test_complete_modular_q_r_pipeline() -> None:
     proposal: ComponentSelectionProposal = {
         "core_id": "continuous_review_q_r",
@@ -174,7 +259,19 @@ def test_complete_modular_q_r_pipeline() -> None:
                     "Eine Mindestbestellmenge wurde erkannt."
                 ),
                 "sources": ["Lieferantenvertrag"],
-            }
+            },
+            {
+                "component_id": "order_multiple",
+                "product_id": "product_1",
+                "parameters": {
+                    "multiple": 100,
+                },
+                "reason": (
+                    "Bestellungen sind nur in vollständigen "
+                    "Verpackungseinheiten möglich."
+                ),
+                "sources": ["Lieferantenvertrag"],
+            },
         ],
     }
 
@@ -277,6 +374,7 @@ def test_complete_modular_q_r_pipeline() -> None:
     assert result["status"] == "optimal"
     assert result["solution_method"] == "numerical"
     assert decisions["order_quantity"] >= 300
+    assert decisions["order_quantity"] % 100 == 0
     assert decisions["reorder_point"] >= 0
     assert result["errors"] == []
 
