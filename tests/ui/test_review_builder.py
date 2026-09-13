@@ -1,3 +1,6 @@
+from agentic_optimization.models.eoq.basic_eoq import (
+    VARIANT_DEFINITION as EOQ_VARIANT_DEFINITION,
+)
 from agentic_optimization.models.newsvendor.single_product_single_period import (
     VARIANT_DEFINITION,
 )
@@ -258,10 +261,6 @@ def test_builds_basic_eoq_review_data() -> None:
         {
             "label": "Nachfrage",
             "value": "Sicher oder bekannt",
-        },
-        {
-            "label": "Produktumfang",
-            "value": "Ein Produkt",
         },
         {
             "label": "Planungszeitraum",

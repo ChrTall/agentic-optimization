@@ -263,7 +263,6 @@ class GraphState(TypedDict, total=False):
     model_input_candidates: dict[str, dict[str, dict[str, Any]]]
     model_input_extraction_errors: list[str]
 
-    required_model_inputs: list[dict[str, Any]]
     missing_model_input_fields: list[str]
     model_input_validation_errors: list[str]
 
@@ -283,9 +282,6 @@ class GraphState(TypedDict, total=False):
 
     # Fehler bei der Validierung aktiver Constraints.
     constraint_validation_errors: list[str]
-
-    # Noch fehlende Parameter aktiver Constraints.
-    required_constraint_inputs: list[dict[str, Any]]
 
     # Optimierungssteuerung
     # Wird erst nach erfolgreicher Input- und Constraintvalidierung gesetzt.

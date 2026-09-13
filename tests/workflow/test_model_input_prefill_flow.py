@@ -127,7 +127,12 @@ def test_new_problem_prefills_q_r_model_inputs_and_constraints() -> None:
         "maximum_reorder_point",
         "storage_capacity",
     }
-    assert result["required_model_inputs"][0]["form_id"] == (
-        "reorder_point_q_r_policy_parameters"
-    )
+    assert result["missing_model_input_fields"] == [
+        "annual_demand",
+        "fixed_order_cost",
+        "holding_cost",
+        "penalty_cost",
+        "lead_time_demand_mean",
+        "lead_time_demand_std",
+    ]
     assert llm.invoke.call_count == 3

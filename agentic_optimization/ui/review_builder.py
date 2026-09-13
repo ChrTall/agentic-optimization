@@ -46,6 +46,7 @@ DEMAND_TYPE_LABELS = {
 
 PLANNING_HORIZON_LABELS = {
     "single_period": "Einmalige Entscheidung",
+    "repeated_cycles": "Wiederkehrende Bestellzyklen",
     "multiple_periods": "Mehrere Zeiträume",
 }
 

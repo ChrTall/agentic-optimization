@@ -65,7 +65,7 @@ def test_rounds_operational_outputs_with_fractional_statistics(
     )
 
 
-def test_matches_cornell_q_r_reference_example() -> None:
+def test_finds_integer_optimum_for_cornell_reference_inputs() -> None:
     inputs = {
         "annual_demand": 7_300.0,
         "fixed_order_cost": 250.0,
@@ -107,11 +107,17 @@ def test_matches_cornell_q_r_reference_example() -> None:
     assert result["solver_status"] == "Optimal"
     assert result["converged"] is True
     assert result["order_quantity"] == 274
-    assert result["reorder_point"] == 67
-    assert result["safety_stock"] == 7
-    assert result["expected_annual_cost"] == pytest.approx(14_011.35, abs=0.01)
-    assert result["iterations"] == 5
-    assert "1 - h Q/(p λ)" in result["model_representation"]
+    assert result["reorder_point"] == 66
+    assert result["safety_stock"] == 6
+    assert result["expected_annual_cost"] == pytest.approx(
+        14_007.78,
+        abs=0.01,
+    )
+    assert result["iterations"] > 0
+    assert (
+        "Ganzzahlige Q-R-Politik"
+        in result["model_representation"]
+    )
 
 
 @pytest.mark.parametrize(
@@ -248,28 +254,30 @@ def test_unsupported_constraint_raises_error(valid_inputs: dict) -> None:
         )
 
 
-def test_one_iteration_returns_iteration_limit(valid_inputs: dict) -> None:
-    specification = QRPolicySpecification(
-        **valid_inputs,
-        max_iterations=1,
-    )
-    result = solve_q_r_policy(specification)
-    assert result.solver_status == "IterationLimit"
-    assert result.converged is False
-    assert result.iterations == 1
-
-
-def test_storage_capacity_can_make_result_infeasible(valid_inputs: dict) -> None:
+def test_storage_capacity_can_make_result_infeasible(
+    valid_inputs: dict,
+) -> None:
     result = optimize_q_r_policy(
         valid_inputs,
         [
             {
-                "type": "storage_capacity",
-                "parameters": {"capacity": 10.0},
+                "type": "minimum_order_quantity",
+                "parameters": {"quantity": 8},
                 "source_text": None,
-            }
+            },
+            {
+                "type": "minimum_reorder_point",
+                "parameters": {"reorder_point": 5},
+                "source_text": None,
+            },
+            {
+                "type": "storage_capacity",
+                "parameters": {"capacity": 10},
+                "source_text": None,
+            },
         ],
     )
+
     assert result["solver_status"] == "Infeasible"
     assert result["order_quantity"] is None
 

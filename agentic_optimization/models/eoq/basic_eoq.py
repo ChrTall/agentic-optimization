@@ -565,6 +565,7 @@ def build_basic_eoq_result_presentation(
 
     return {
         "metrics": metrics,
+        "technical_metrics": [],
         "detail_title": "EOQ-Berechnungsdetails",
         "detail_rows": detail_rows,
     }
