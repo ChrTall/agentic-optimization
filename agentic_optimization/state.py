@@ -122,6 +122,7 @@ ProductScope = Literal[
 
 PlanningHorizon = Literal[
     "single_period",
+    "repeated_cycles",
     "multiple_periods",
 ]
 
@@ -218,6 +219,8 @@ class GraphState(TypedDict, total=False):
     """
 
     modular_model: ModularModelState
+
+    use_modular_pipeline: bool
 
     # Steuerinformationen für Routing im Graph und in der UI
     control: ControlState

@@ -13,10 +13,6 @@ from agentic_optimization.models.specification import (
 from agentic_optimization.models.validator import (
     validate_model_specification,
 )
-from agentic_optimization.ui.modular_input_builder import (
-    apply_modular_input_value,
-    build_modular_input_layout,
-)
 from agentic_optimization.models.specification_updates import (
     apply_modular_input_value,
 )
@@ -283,3 +279,64 @@ def test_complete_modular_q_r_pipeline() -> None:
     assert decisions["order_quantity"] >= 300
     assert decisions["reorder_point"] >= 0
     assert result["errors"] == []
+
+
+@pytest.mark.parametrize(
+    ("source", "field_name", "container_name"),
+    [
+        (
+            "forecast",
+            "expected_value",
+            "forecast",
+        ),
+        (
+            "product_fact",
+            "selling_price",
+            "facts",
+        ),
+    ],
+)
+def test_creates_missing_product_input_container(
+    source: str,
+    field_name: str,
+    container_name: str,
+) -> None:
+    specification = {
+        "core_id": "single_period_newsvendor",
+        "products": [
+            {
+                "product_id": "product_1",
+            }
+        ],
+        "global_facts": {},
+        "objective": {
+            "sense": "maximize",
+            "component_ids": [],
+        },
+        "constraints": [],
+    }
+
+    missing_input = {
+        "source": source,
+        "field": {
+            "name": field_name,
+            "label": field_name,
+            "type": "number",
+            "required": True,
+            "help": None,
+        },
+        "product_id": "product_1",
+    }
+
+    result = apply_modular_input_value(
+        specification,
+        missing_input,
+        10.0,
+    )
+
+    assert result["products"][0][
+        container_name
+    ][field_name] == 10.0
+    assert container_name not in (
+        specification["products"][0]
+    )

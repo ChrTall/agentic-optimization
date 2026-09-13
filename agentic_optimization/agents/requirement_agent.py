@@ -77,8 +77,18 @@ product_scope:
   nicht unterstützt
 
 planning_horizon:
-- single_period: eine einmalige Entscheidung
-- multiple_periods: mehrere aufeinanderfolgende Zeiträume
+- single_period: eine einmalige Bestellentscheidung ohne wiederholte
+  Nachbestellzyklen
+- repeated_cycles: dieselbe Bestellentscheidung wird unter weitgehend
+  gleichbleibenden Bedingungen regelmäßig wiederholt, beispielsweise
+  bei einer wirtschaftlichen Bestellmenge mit Jahresbedarf
+- multiple_periods: für mehrere getrennte Zeiträume werden jeweils eigene
+  Entscheidungen getroffen, beispielsweise unterschiedliche Bestellmengen
+  je Woche oder Monat
+
+Ein Prognosezeitraum von mehreren Tagen oder einem Jahr bedeutet allein
+nicht multiple_periods. Verwende multiple_periods nur, wenn tatsächlich
+getrennte Entscheidungen für mehrere Perioden beschrieben werden.
 
 review_type:
 - continuous_review: der Bestand wird laufend überwacht und bei Erreichen
@@ -86,8 +96,7 @@ review_type:
 - periodic_review: der Bestand wird in festen Zeitabständen überprüft
 
 review_type ist nur relevant, wenn planning_horizon multiple_periods ist.
-Bei single_period muss review_type null sein.
-
+Bei single_period und repeated_cycles muss review_type null sein.
 
 constraints enthält ausschließlich konkrete betriebliche Vorgaben oder
 Grenzen, welche die zulässige Optimierungsentscheidung einschränken.
@@ -128,8 +137,13 @@ Betroffen sind ausschließlich:
 - review_type
 
 Beispiele:
-- "Bestellmenge und Meldebestand bestimmen" kann als order_quantity mit
-  continuous_review eingeordnet werden.
+- "Bestellmenge und Meldebestand bestimmen" beschreibt eine
+  kontinuierliche Q,R-Bestandspolitik und muss als decision
+  order_quantity, planning_horizon multiple_periods und review_type
+  continuous_review eingeordnet werden. Die Bestellmenge Q und der
+  Meldebestand R sind dabei zwei Ergebnisse desselben unterstützten
+  Grundmodells. Trage diese Kombination niemals in
+  unsupported_requirements ein.
 - Eine ausdrücklich genannte, andere Überprüfungsart ist ein nicht
   unterstütztes review_type.
 

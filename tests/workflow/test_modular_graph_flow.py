@@ -8,6 +8,7 @@ from agentic_optimization.state import (
     EVENT_MODULAR_INPUTS_SUBMITTED,
     EVENT_MODULAR_MODEL_PREPARATION_REQUESTED,
     EVENT_MODULAR_OPTIMIZATION_REQUESTED,
+    EVENT_NEW_PROBLEM,
     WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS,
     WORKFLOW_OPTIMIZATION_COMPLETED,
     WORKFLOW_READY_FOR_REVIEW,
@@ -40,9 +41,19 @@ def test_runs_modular_model_through_graph() -> None:
     }
 
     llm = Mock()
-    llm.invoke.return_value = AIMessage(
-        content=json.dumps(response)
-    )
+    llm.invoke.side_effect = [
+        AIMessage(
+            content=json.dumps(
+                {
+                    "products": [],
+                    "global_facts": {},
+                }
+            )
+        ),
+        AIMessage(
+            content=json.dumps(response)
+        ),
+    ]
 
     graph = build_graph(llm)
 
@@ -177,4 +188,95 @@ def test_runs_modular_model_through_graph() -> None:
     )
     assert "event" not in optimized_state["control"]
 
-    llm.invoke.assert_called_once()
+    assert llm.invoke.call_count == 2
+
+
+def test_enters_modular_pipeline_after_model_selection() -> None:
+    requirement_response = {
+        "decision": None,
+        "objective": None,
+        "demand_type": None,
+        "product_scope": None,
+        "planning_horizon": None,
+        "review_type": None,
+        "constraints": [],
+        "unsupported_requirements": [],
+    }
+
+    fact_extraction_response = {
+        "products": [],
+        "global_facts": {},
+    }
+
+    component_response = {
+        "core_id": "single_period_newsvendor",
+        "objective_sense": "maximize",
+        "objective_components": [
+            {
+                "component_id": "sales_revenue",
+                "reason": "Verkaufserlöse berücksichtigen.",
+                "sources": ["raw_input"],
+            },
+            {
+                "component_id": "purchase_cost",
+                "reason": "Einkaufskosten berücksichtigen.",
+                "sources": ["raw_input"],
+            },
+        ],
+        "constraints": [],
+    }
+
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(
+            content=json.dumps(requirement_response)
+        ),
+        AIMessage(
+            content=json.dumps(
+                fact_extraction_response
+            )
+        ),
+        AIMessage(
+            content=json.dumps(component_response)
+        ),
+    ]
+
+    graph = build_graph(llm)
+
+    result = graph.invoke(
+        {
+            "control": {
+                "event": EVENT_NEW_PROBLEM,
+            },
+            "use_modular_pipeline": True,
+            "form_data": {
+                "decision": "order_quantity",
+                "objective": "maximize_profit",
+                "demand_type": "uncertain",
+                "planning_horizon": "single_period",
+            },
+            "raw_input": (
+                "Verkaufserlöse und Einkaufskosten "
+                "sollen berücksichtigt werden."
+            ),
+        }
+    )
+
+    modular_state = result["modular_model"]
+
+    assert result["selected_model_family"] == "newsvendor"
+    assert result["selected_model_variant"] == (
+        "single_product_single_period"
+    )
+    assert modular_state["core_id"] == (
+        "single_period_newsvendor"
+    )
+    assert modular_state["proposal"] == component_response
+    assert modular_state["validation"]["is_valid"] is False
+    assert modular_state["validation"]["missing_inputs"]
+    assert get_workflow_status(result) == (
+        WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS
+    )
+    assert "event" not in result["control"]
+
+    assert llm.invoke.call_count == 3

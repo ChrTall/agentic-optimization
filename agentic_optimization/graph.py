@@ -46,6 +46,9 @@ from agentic_optimization.state import (
     get_event,
     get_workflow_status,
 )
+from agentic_optimization.agents.modular_state_adapter import (
+    initialize_modular_model_state,
+)
 
 
 def route_workflow(state: GraphState) -> str:
@@ -99,6 +102,9 @@ def route_after_modeling(
     status = get_workflow_status(state)
 
     if status == WORKFLOW_MODEL_SELECTED:
+        if state.get("use_modular_pipeline", False):
+            return "initialize_modular_model"
+
         return "model_selected"
 
     if status == WORKFLOW_MODEL_UNSUPPORTED:
@@ -215,6 +221,10 @@ def build_graph(llm: BaseChatModel):
         "execute_modular_model",
         execute_modular_model_node,
     )
+    graph.add_node(
+        "initialize_modular_model",
+        initialize_modular_model_state,
+    )
 
     graph.add_node("requirement_agent", create_requirement_agent(llm))
     graph.add_node("clarification", clarification_node)
@@ -295,8 +305,16 @@ def build_graph(llm: BaseChatModel):
         route_after_modeling,
         {
             "model_selected": "constraint_mapping_agent",
+            "initialize_modular_model": (
+                "initialize_modular_model"
+            ),
             "model_unsupported": END,
         },
+    )
+
+    graph.add_edge(
+        "initialize_modular_model",
+        "prepare_modular_model",
     )
 
     # Das LLM erzeugt zunächst unbestätigte Constraint-Kandidaten.

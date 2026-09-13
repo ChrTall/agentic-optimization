@@ -9,12 +9,16 @@ from agentic_optimization.models.registry import (
 )
 from agentic_optimization.state import (
     EVENT_MODEL_INPUTS_SUBMITTED,
+    EVENT_MODULAR_INPUTS_SUBMITTED,
+    EVENT_MODULAR_OPTIMIZATION_REQUESTED,
     EVENT_NEW_PROBLEM,
     EVENT_OPTIMIZATION_REQUESTED,
     WORKFLOW_MODEL_INPUTS_INVALID,
     WORKFLOW_MODEL_UNSUPPORTED,
     WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
     WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS,
+    WORKFLOW_OPTIMIZATION_COMPLETED,
+    WORKFLOW_OPTIMIZATION_FAILED,
     WORKFLOW_READY_FOR_RESULT,
     WORKFLOW_READY_FOR_REVIEW,
     get_workflow_status,
@@ -24,12 +28,20 @@ from agentic_optimization.ui.field_renderer import (
     parse_input_value,
     render_input_field,
 )
+from agentic_optimization.ui.modular_input_page import render_modular_input_page
 from agentic_optimization.ui.result_builder import (
     build_result_data,
 )
 from agentic_optimization.ui.review_builder import (
     build_review_data,
 )
+from agentic_optimization.ui.modular_review_page import (
+    render_modular_review_page,
+)
+from agentic_optimization.ui.modular_result_page import (
+    render_modular_result_page,
+)
+
 
 DECISION_LABELS = {
     "order_quantity": "Bestellmenge",
@@ -173,7 +185,11 @@ def route_ui_from_graph_state(graph_state: dict) -> str:
     }:
         return "model_input_form"
 
-    if status == WORKFLOW_READY_FOR_RESULT:
+    if status in {
+        WORKFLOW_READY_FOR_RESULT,
+        WORKFLOW_OPTIMIZATION_COMPLETED,
+        WORKFLOW_OPTIMIZATION_FAILED,
+    }:
         return "result"
 
     if status == WORKFLOW_READY_FOR_REVIEW:
@@ -412,6 +428,7 @@ elif st.session_state.step == "freitext":
                 "control": {
                     "event": EVENT_NEW_PROBLEM,
                 },
+                "use_modular_pipeline": True,
                 "raw_input": raw_input,
                 "form_data": (
                     st.session_state.form_data
@@ -497,6 +514,80 @@ elif st.session_state.step == "model_input_form":
     st.subheader("Angaben zur Berechnung")
 
     graph_state = st.session_state.graph_state or {}
+
+    modular_state = graph_state.get("modular_model")
+    modular_specification = (
+        modular_state.get("specification")
+        if modular_state is not None
+        else None
+    )
+
+    if (
+        modular_state is not None
+        and modular_specification is not None
+    ):
+        try:
+            submissions = render_modular_input_page(
+                modular_specification
+            )
+        except (TypeError, ValueError) as error:
+            st.error(
+                "Bitte korrigieren Sie die Eingaben:"
+            )
+            st.error(str(error))
+            st.stop()
+
+        if submissions is None:
+            st.stop()
+
+        next_state = {
+            **graph_state,
+            "control": {
+                **graph_state.get("control", {}),
+                "event": EVENT_MODULAR_INPUTS_SUBMITTED,
+            },
+            "modular_model": {
+                **modular_state,
+                "pending_input_submissions": submissions,
+            },
+        }
+
+        next_state = invalidate_optimization_state(
+            next_state
+        )
+
+        st.session_state.review_sections = {
+            "problem": False,
+            "parameters": False,
+            "constraints": False,
+        }
+
+        llm = st.session_state.get("llm")
+
+        if llm is None:
+            try:
+                llm_config = load_llm_configuration()
+                llm = create_chat_model(llm_config)
+            except ValueError as error:
+                st.error(str(error))
+                st.stop()
+
+            st.session_state.llm = llm
+
+        app = build_graph(llm)
+
+        st.session_state.graph_state = app.invoke(
+            next_state
+        )
+
+        st.session_state.step = (
+            route_ui_from_graph_state(
+                st.session_state.graph_state
+            )
+        )
+
+        st.rerun()
+        st.stop()
 
     selected_family = graph_state.get(
         "selected_model_family"
@@ -1275,6 +1366,80 @@ elif st.session_state.step == "review":
 
     graph_state = st.session_state.graph_state or {}
 
+    modular_state = graph_state.get("modular_model")
+    modular_proposal = (
+        modular_state.get("proposal")
+        if modular_state is not None
+        else None
+    )
+    modular_specification = (
+        modular_state.get("specification")
+        if modular_state is not None
+        else None
+    )
+
+    if (
+        modular_state is not None
+        and modular_proposal is not None
+        and modular_specification is not None
+    ):
+        try:
+            start_optimization = (
+                render_modular_review_page(
+                    modular_proposal,
+                    modular_specification,
+                )
+            )
+        except ValueError as error:
+            st.error(
+                "Die modulare Modellprüfung konnte "
+                "nicht aufgebaut werden."
+            )
+            st.error(str(error))
+            st.stop()
+
+        if start_optimization:
+            llm = st.session_state.get("llm")
+
+            if llm is None:
+                try:
+                    llm_config = load_llm_configuration()
+                    llm = create_chat_model(llm_config)
+                except ValueError as error:
+                    st.error(str(error))
+                    st.stop()
+
+                st.session_state.llm = llm
+
+            next_state = {
+                **graph_state,
+                "control": {
+                    **graph_state.get("control", {}),
+                    "event": (
+                        EVENT_MODULAR_OPTIMIZATION_REQUESTED
+                    ),
+                },
+                "modular_model": {
+                    **modular_state,
+                    "review_confirmed": True,
+                },
+            }
+
+            app = build_graph(llm)
+
+            st.session_state.graph_state = app.invoke(
+                next_state
+            )
+            st.session_state.step = (
+                route_ui_from_graph_state(
+                    st.session_state.graph_state
+                )
+            )
+
+            st.rerun()
+
+        st.stop()
+
     selected_family = graph_state.get(
         "selected_model_family"
     )
@@ -1570,6 +1735,66 @@ elif st.session_state.step == "review":
 
 elif st.session_state.step == "result":
     graph_state = st.session_state.graph_state or {}
+
+    modular_state = graph_state.get("modular_model")
+    modular_specification = (
+        modular_state.get("specification")
+        if modular_state is not None
+        else None
+    )
+    modular_result = (
+        modular_state.get("optimization_result")
+        if modular_state is not None
+        else None
+    )
+
+    if (
+        modular_state is not None
+        and modular_specification is not None
+        and modular_result is not None
+    ):
+        render_modular_result_page(
+            modular_specification,
+            modular_result,
+        )
+
+        st.divider()
+
+        if st.button(
+            "Neue Optimierung starten",
+            use_container_width=True,
+            key="new_modular_optimization",
+        ):
+            keys_to_clear = [
+                "step",
+                "form_data",
+                "graph_state",
+                "raw_problem_description",
+                "review_sections",
+                "form_decision",
+                "form_objective",
+                "form_demand_type",
+                "form_planning_horizon",
+                "form_review_type",
+                "submit_general_form",
+                "confirm_modular_review",
+                "start_modular_optimization",
+                "new_modular_optimization",
+            ]
+
+            keys_to_clear.extend(
+                key
+                for key in list(st.session_state)
+                if key.startswith("modular_")
+            )
+
+            for key in keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
+
+            st.rerun()
+
+        st.stop()
 
     result_data = build_result_data(
         graph_state

@@ -302,6 +302,17 @@ def execute_eoq(
             product_id,
         )
 
+        minimum_text = (
+            "nicht gesetzt"
+            if minimum is None
+            else str(minimum)
+        )
+        maximum_text = (
+            "nicht gesetzt"
+            if maximum is None
+            else str(maximum)
+        )
+
         result = calculate_eoq_product(
             annual_demand=annual_demand,
             ordering_cost=ordering_cost,
@@ -360,8 +371,14 @@ def execute_eoq(
                         "Unbeschränkte EOQ = "
                         f"{result.unconstrained_order_quantity}"
                     ),
-                    f"Mindestbestellmenge = {minimum}",
-                    f"Höchstbestellmenge = {maximum}",
+                    (
+                        "Mindestbestellmenge = "
+                        f"{minimum_text}"
+                    ),
+                    (
+                        "Höchstbestellmenge = "
+                        f"{maximum_text}"
+                    ),
                     (
                         "Empfohlene Bestellmenge = "
                         f"{result.order_quantity}"

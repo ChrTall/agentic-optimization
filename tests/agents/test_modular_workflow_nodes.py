@@ -42,9 +42,19 @@ def test_prepares_modular_model_in_graph_state() -> None:
     }
 
     llm = Mock()
-    llm.invoke.return_value = AIMessage(
-        content=json.dumps(response)
-    )
+    llm.invoke.side_effect = [
+        AIMessage(
+            content=json.dumps(
+                {
+                    "products": [],
+                    "global_facts": {},
+                }
+            )
+        ),
+        AIMessage(
+            content=json.dumps(response)
+        ),
+    ]
 
     node = create_modular_model_preparation_node(llm)
 
@@ -120,7 +130,7 @@ def test_prepares_modular_model_in_graph_state() -> None:
     assert modular_result["review_confirmed"] is False
     assert modular_result["optimization_result"] is None
 
-    llm.invoke.assert_called_once()
+    assert llm.invoke.call_count == 2
 
     values = {
         "ordering_cost": 50.0,
@@ -167,7 +177,7 @@ def test_prepares_modular_model_in_graph_state() -> None:
     assert product_facts["holding_cost"] == 2.0
     assert product_facts["shortage_cost"] == 20.0
 
-    llm.invoke.assert_called_once()
+    assert llm.invoke.call_count == 2
 
     with pytest.raises(
         ValueError,
@@ -208,4 +218,4 @@ def test_prepares_modular_model_in_graph_state() -> None:
         WORKFLOW_OPTIMIZATION_COMPLETED
     )
 
-    llm.invoke.assert_called_once()
+    assert llm.invoke.call_count == 2

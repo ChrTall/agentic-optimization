@@ -49,9 +49,15 @@ def apply_modular_input_value(
             )
 
         if source == "forecast":
-            product["forecast"][field_name] = value
+            product.setdefault(
+                "forecast",
+                {},
+            )[field_name] = value
         else:
-            product["facts"][field_name] = value
+            product.setdefault(
+                "facts",
+                {},
+            )[field_name] = value
 
         return updated_specification
 

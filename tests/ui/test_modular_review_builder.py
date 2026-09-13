@@ -318,3 +318,54 @@ def test_builds_q_r_review_data() -> None:
     assert review["constraints"][0][
         "component_id"
     ] == "minimum_reorder_point"
+
+
+def test_copies_product_and_global_review_data() -> None:
+    proposal = create_proposal()
+    specification = build_specification_from_proposal(
+        proposal,
+        create_products(),
+        {
+            "currency": "EUR",
+        },
+    )
+
+    review = build_modular_review_data(
+        proposal,
+        specification,
+    )
+
+    assert review["products"] == [
+        {
+            "product_id": "product_1",
+            "forecast": {
+                "expected_value": 100.0,
+                "quantiles": [
+                    {
+                        "level": 0.5,
+                        "value": 100.0,
+                    }
+                ],
+                "horizon_days": 30,
+            },
+            "facts": {
+                "selling_price": 12.0,
+                "purchase_cost": 5.0,
+            },
+        }
+    ]
+    assert review["global_facts"] == {
+        "currency": "EUR",
+    }
+
+    review["products"][0]["facts"][
+        "selling_price"
+    ] = 99.0
+    review["global_facts"]["currency"] = "USD"
+
+    assert specification["products"][0]["facts"][
+        "selling_price"
+    ] == 12.0
+    assert specification["global_facts"][
+        "currency"
+    ] == "EUR"

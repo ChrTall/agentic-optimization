@@ -63,6 +63,20 @@ def test_validates_and_executes_eoq() -> None:
         }
     ]
 
+    technical_representation = result[
+        "technical_representation"
+    ]
+
+    assert (
+        "Mindestbestellmenge = nicht gesetzt"
+        in technical_representation
+    )
+    assert (
+        "Höchstbestellmenge = nicht gesetzt"
+        in technical_representation
+    )
+    assert "None" not in technical_representation
+
 
 def test_reports_missing_holding_cost() -> None:
     specification = create_specification()

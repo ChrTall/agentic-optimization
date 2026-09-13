@@ -1,7 +1,6 @@
 """
 Agentische Vorbereitung modularer Optimierungsmodelle.
 """
-
 from collections.abc import Callable
 from typing import Any, TypedDict
 
@@ -9,6 +8,9 @@ from langchain_core.language_models import BaseChatModel
 
 from agentic_optimization.agents.component_selection_agent import (
     create_component_selection_agent,
+)
+from agentic_optimization.agents.modular_fact_extraction_agent import (
+    create_modular_fact_extraction_agent,
 )
 from agentic_optimization.models.execution import (
     OptimizationExecutionResult,
@@ -49,6 +51,10 @@ def create_modular_model_agent(
 ) -> ModularModelAgent:
     """Erzeugt einen Agenten zur Vorbereitung eines Modellentwurfs."""
 
+    fact_extraction_agent = (
+        create_modular_fact_extraction_agent(llm)
+    )
+
     component_selection_agent = (
         create_component_selection_agent(llm)
     )
@@ -61,18 +67,28 @@ def create_modular_model_agent(
         global_facts: dict[str, Any],
         evidence: list[SelectionEvidence],
     ) -> ModularModelDraft:
+        extracted_products, extracted_global_facts = (
+            fact_extraction_agent(
+                core_id=core_id,
+                requirements=requirements,
+                products=products,
+                global_facts=global_facts,
+                evidence=evidence,
+            )
+        )
+
         proposal = component_selection_agent(
             core_id=core_id,
             requirements=requirements,
-            products=products,
-            global_facts=global_facts,
+            products=extracted_products,
+            global_facts=extracted_global_facts,
             evidence=evidence,
         )
 
         specification = build_specification_from_proposal(
             proposal,
-            products,
-            global_facts,
+            extracted_products,
+            extracted_global_facts,
         )
 
         validation = validate_model_specification(

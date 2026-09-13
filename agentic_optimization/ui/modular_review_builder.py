@@ -47,6 +47,14 @@ class ReviewConstraint(TypedDict):
     sources: list[str]
 
 
+class ReviewProduct(TypedDict):
+    """Produktdaten für die fachliche Überprüfung."""
+
+    product_id: str
+    forecast: dict[str, Any]
+    facts: dict[str, Any]
+
+
 class ModularReviewData(TypedDict):
     """Prüfbare Darstellung einer modularen Spezifikation."""
 
@@ -58,6 +66,8 @@ class ModularReviewData(TypedDict):
     missing_inputs: list[MissingInput]
     validation_errors: list[str]
     ready_for_confirmation: bool
+    products: list[ReviewProduct]
+    global_facts: dict[str, Any]
 
 
 def _validate_proposal_specification_alignment(
@@ -205,6 +215,21 @@ def build_modular_review_data(
     return {
         "core_id": specification["core_id"],
         "core_name": registered_core["definition"]["name"],
+        "products": [
+            {
+                "product_id": product["product_id"],
+                "forecast": deepcopy(
+                    product.get("forecast", {})
+                ),
+                "facts": deepcopy(
+                    product.get("facts", {})
+                ),
+            }
+            for product in specification["products"]
+        ],
+        "global_facts": deepcopy(
+            specification["global_facts"]
+        ),
         "objective_sense": specification[
             "objective"
         ]["sense"],

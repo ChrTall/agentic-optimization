@@ -36,9 +36,19 @@ def test_prepares_modular_q_r_model_draft() -> None:
     }
 
     llm = Mock()
-    llm.invoke.return_value = AIMessage(
-        content=json.dumps(response)
-    )
+    llm.invoke.side_effect = [
+        AIMessage(
+            content=json.dumps(
+                {
+                    "products": [],
+                    "global_facts": {},
+                }
+            )
+        ),
+        AIMessage(
+            content=json.dumps(response)
+        ),
+    ]
 
     agent = create_modular_model_agent(llm)
 
@@ -159,4 +169,108 @@ def test_prepares_modular_q_r_model_draft() -> None:
     assert result["status"] == "optimal"
     assert result["solution_method"] == "numerical"
 
-    llm.invoke.assert_called_once()
+    assert llm.invoke.call_count == 2
+
+
+def test_uses_extracted_facts_in_model_specification() -> None:
+    fact_response = {
+        "products": [
+            {
+                "product_id": "product_1",
+                "forecast": {
+                    "expected_value": 100.0,
+                    "quantiles": [
+                        {
+                            "level": 0.1,
+                            "value": 70.0,
+                        },
+                        {
+                            "level": 0.5,
+                            "value": 100.0,
+                        },
+                        {
+                            "level": 0.9,
+                            "value": 140.0,
+                        },
+                    ],
+                    "horizon_days": 30,
+                },
+                "facts": {
+                    "selling_price": 12.0,
+                    "purchase_cost": 5.0,
+                },
+            }
+        ],
+        "global_facts": {},
+    }
+
+    component_response = {
+        "core_id": "single_period_newsvendor",
+        "objective_sense": "maximize",
+        "objective_components": [
+            {
+                "component_id": "sales_revenue",
+                "reason": "Verkaufspreis wurde genannt.",
+                "sources": ["raw_input"],
+            },
+            {
+                "component_id": "purchase_cost",
+                "reason": "Einkaufspreis wurde genannt.",
+                "sources": ["raw_input"],
+            },
+        ],
+        "constraints": [],
+    }
+
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(
+            content=json.dumps(fact_response)
+        ),
+        AIMessage(
+            content=json.dumps(component_response)
+        ),
+    ]
+
+    agent = create_modular_model_agent(llm)
+
+    draft = agent(
+        core_id="single_period_newsvendor",
+        requirements={
+            "objective": "maximize_profit",
+        },
+        products=[
+            {
+                "product_id": "product_1",
+                "forecast": {},
+                "facts": {},
+            }
+        ],
+        global_facts={},
+        evidence=[
+            {
+                "source_id": "raw_input",
+                "content": (
+                    "Die erwartete Nachfrage beträgt 100 "
+                    "Einheiten für 30 Tage. Der Verkaufspreis "
+                    "beträgt 12 Euro und der Einkaufspreis "
+                    "5 Euro. Die Nachfragequantile sind "
+                    "70, 100 und 140 Einheiten."
+                ),
+            }
+        ],
+    )
+
+    product = draft["specification"]["products"][0]
+
+    assert product["forecast"] == (
+        fact_response["products"][0]["forecast"]
+    )
+    assert product["facts"] == {
+        "selling_price": 12.0,
+        "purchase_cost": 5.0,
+    }
+    assert draft["validation"]["is_valid"] is True
+    assert draft["validation"]["errors"] == []
+    assert draft["validation"]["missing_inputs"] == []
+    assert llm.invoke.call_count == 2
