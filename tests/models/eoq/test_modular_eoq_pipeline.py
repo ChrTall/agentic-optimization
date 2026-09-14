@@ -28,6 +28,7 @@ from agentic_optimization.ui.modular_input_builder import (
 def test_complete_modular_eoq_pipeline() -> None:
     proposal: ComponentSelectionProposal = {
         "core_id": "eoq",
+        "selection_status": "complete",
         "objective_sense": "minimize",
         "objective_components": [
             {
@@ -58,6 +59,7 @@ def test_complete_modular_eoq_pipeline() -> None:
                 "sources": ["Lieferantenvertrag"],
             }
         ],
+        "unresolved_requirements": [],
     }
 
     products: list[ProductSpecification] = [

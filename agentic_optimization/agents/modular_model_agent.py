@@ -2,7 +2,7 @@
 Agentische Vorbereitung modularer Optimierungsmodelle.
 """
 from collections.abc import Callable
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 from langchain_core.language_models import BaseChatModel
 
@@ -39,8 +39,10 @@ class ModularModelDraft(TypedDict):
     """Ergebnis der agentischen Modellvorbereitung."""
 
     proposal: ComponentSelectionProposal
-    specification: ModelSpecification
-    validation: SpecificationValidationResult
+    specification: NotRequired[ModelSpecification]
+    validation: NotRequired[
+        SpecificationValidationResult
+    ]
 
 
 ModularModelAgent = Callable[..., ModularModelDraft]
@@ -84,6 +86,11 @@ def create_modular_model_agent(
             global_facts=extracted_global_facts,
             evidence=evidence,
         )
+
+        if proposal["selection_status"] != "complete":
+            return {
+                "proposal": proposal,
+            }
 
         specification = build_specification_from_proposal(
             proposal,

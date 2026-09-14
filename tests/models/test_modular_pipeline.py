@@ -24,6 +24,7 @@ from agentic_optimization.ui.modular_input_builder import (
 def test_complete_modular_newsvendor_pipeline() -> None:
     proposal: ComponentSelectionProposal = {
         "core_id": "single_period_newsvendor",
+        "selection_status": "complete",
         "objective_sense": "maximize",
         "objective_components": [
             {
@@ -53,6 +54,7 @@ def test_complete_modular_newsvendor_pipeline() -> None:
                 "sources": ["Lieferantenvertrag"],
             }
         ],
+        "unresolved_requirements": [],
     }
 
     products: list[ProductSpecification] = [
@@ -139,6 +141,7 @@ def test_complete_modular_newsvendor_pipeline() -> None:
 def test_newsvendor_pipeline_with_disposal_cost() -> None:
     proposal: ComponentSelectionProposal = {
         "core_id": "single_period_newsvendor",
+        "selection_status": "complete",
         "objective_sense": "maximize",
         "objective_components": [
             {
@@ -161,6 +164,7 @@ def test_newsvendor_pipeline_with_disposal_cost() -> None:
             },
         ],
         "constraints": [],
+        "unresolved_requirements": [],
     }
 
     products: list[ProductSpecification] = [
@@ -224,6 +228,7 @@ def test_newsvendor_pipeline_with_disposal_cost() -> None:
 def test_complete_modular_q_r_pipeline() -> None:
     proposal: ComponentSelectionProposal = {
         "core_id": "continuous_review_q_r",
+        "selection_status": "complete",
         "objective_sense": "minimize",
         "objective_components": [
             {
@@ -273,6 +278,7 @@ def test_complete_modular_q_r_pipeline() -> None:
                 "sources": ["Lieferantenvertrag"],
             },
         ],
+        "unresolved_requirements": [],
     }
 
     products: list[ProductSpecification] = [

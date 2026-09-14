@@ -117,6 +117,7 @@ def initialize_modular_model_state(
         "evidence": evidence,
         "review_confirmed": False,
         "optimization_result": None,
+        "preparation_error": None,
         "pending_input_submissions": [],
     }
 

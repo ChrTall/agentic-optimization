@@ -14,6 +14,7 @@ from agentic_optimization.agents.modular_model_agent import (
 def test_prepares_modular_q_r_model_draft() -> None:
     response = {
         "core_id": "continuous_review_q_r",
+        "selection_status": "complete",
         "objective_sense": "minimize",
         "objective_components": [
             {
@@ -33,6 +34,7 @@ def test_prepares_modular_q_r_model_draft() -> None:
             },
         ],
         "constraints": [],
+        "unresolved_requirements": [],
     }
 
     llm = Mock()
@@ -206,6 +208,7 @@ def test_uses_extracted_facts_in_model_specification() -> None:
 
     component_response = {
         "core_id": "single_period_newsvendor",
+        "selection_status": "complete",
         "objective_sense": "maximize",
         "objective_components": [
             {
@@ -220,6 +223,7 @@ def test_uses_extracted_facts_in_model_specification() -> None:
             },
         ],
         "constraints": [],
+        "unresolved_requirements": [],
     }
 
     llm = Mock()
@@ -273,4 +277,79 @@ def test_uses_extracted_facts_in_model_specification() -> None:
     assert draft["validation"]["is_valid"] is True
     assert draft["validation"]["errors"] == []
     assert draft["validation"]["missing_inputs"] == []
+    assert llm.invoke.call_count == 2
+
+
+def test_returns_unsupported_proposal_without_specification() -> None:
+    response = {
+        "core_id": "eoq",
+        "selection_status": "unsupported",
+        "objective_sense": "minimize",
+        "objective_components": [
+            {
+                "component_id": "annual_ordering_cost",
+                "reason": "Bestellkosten wurden genannt.",
+                "sources": ["source_1"],
+            },
+            {
+                "component_id": "annual_holding_cost",
+                "reason": "Lagerkosten wurden genannt.",
+                "sources": ["source_1"],
+            },
+        ],
+        "constraints": [],
+        "unresolved_requirements": [
+            {
+                "description": "Mengenrabatt",
+                "resolution": "unsupported",
+                "reason": (
+                    "Für Mengenrabatte ist kein "
+                    "kompatibler Baustein verfügbar."
+                ),
+                "sources": ["source_1"],
+            }
+        ],
+    }
+
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(
+            content=json.dumps(
+                {
+                    "products": [],
+                    "global_facts": {},
+                }
+            )
+        ),
+        AIMessage(content=json.dumps(response)),
+    ]
+
+    agent = create_modular_model_agent(llm)
+
+    draft = agent(
+        core_id="eoq",
+        requirements={
+            "objective": "Kosten minimieren",
+        },
+        products=[
+            {
+                "product_id": "product_1",
+                "forecast": {},
+                "facts": {},
+            }
+        ],
+        global_facts={},
+        evidence=[
+            {
+                "source_id": "source_1",
+                "content": (
+                    "Ab 1.000 Stück gilt ein Mengenrabatt."
+                ),
+            }
+        ],
+    )
+
+    assert draft["proposal"] == response
+    assert "specification" not in draft
+    assert "validation" not in draft
     assert llm.invoke.call_count == 2

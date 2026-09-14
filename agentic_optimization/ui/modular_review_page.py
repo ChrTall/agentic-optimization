@@ -15,6 +15,7 @@ from agentic_optimization.models.specification import (
 )
 from agentic_optimization.ui.modular_review_builder import (
     build_modular_review_data,
+    build_modular_selection_issue_data,
 )
 
 
@@ -83,6 +84,53 @@ def _build_constraint_parameter_labels(
         }
         for constraint in catalog["constraint_components"]
     }
+
+
+def render_modular_selection_issues(
+    proposal: ComponentSelectionProposal,
+) -> None:
+    """Zeigt ungeklärte oder nicht unterstützte Anforderungen."""
+
+    issue_data = build_modular_selection_issue_data(
+        proposal
+    )
+
+    if (
+        issue_data["selection_status"]
+        == "needs_clarification"
+    ):
+        st.warning(
+            "Für die Modellzusammenstellung werden "
+            "noch zusätzliche Angaben benötigt."
+        )
+    elif (
+        issue_data["selection_status"]
+        == "unsupported"
+    ):
+        st.error(
+            "Mindestens eine Anforderung kann mit den "
+            "verfügbaren Modellbausteinen derzeit nicht "
+            "abgebildet werden."
+        )
+    else:
+        return
+
+    st.caption(
+        "Erkanntes Grundmodell: "
+        f"{issue_data['core_name']}"
+    )
+
+    for requirement in issue_data[
+        "unresolved_requirements"
+    ]:
+        st.markdown(
+            f"**{requirement['description']}**"
+        )
+        st.write(requirement["reason"])
+        st.caption(
+            "Quelle: "
+            + ", ".join(requirement["sources"])
+        )
 
 
 def render_modular_review_page(

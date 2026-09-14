@@ -40,6 +40,8 @@ WORKFLOW_OPTIMIZATION_COMPLETED: Final = "optimization_completed"
 WORKFLOW_OPTIMIZATION_FAILED: Final = "optimization_failed"
 WORKFLOW_READY_FOR_REVIEW: Final = "ready_for_review"
 WORKFLOW_MODEL_UNSUPPORTED: Final = "model_unsupported"
+WORKFLOW_MODEL_PREPARATION_FAILED: Final = "model_preparation_failed"
+
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +87,7 @@ WorkflowStatus = Literal[
     "optimization_failed",
     "ready_for_review",
     "model_unsupported",
+    "model_preparation_failed",
 ]
 
 WorkflowEvent = Literal[
@@ -209,6 +212,7 @@ class ModularModelState(TypedDict, total=False):
     review_confirmed: bool
     optimization_result: OptimizationExecutionResult | None
     pending_input_submissions: list[ModularInputSubmission]
+    preparation_error: str | None
 
 class GraphState(TypedDict, total=False):
     """

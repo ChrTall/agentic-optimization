@@ -18,6 +18,9 @@ from agentic_optimization.state import (
     WORKFLOW_READY_FOR_REVIEW,
     WORKFLOW_OPTIMIZATION_COMPLETED,
     WORKFLOW_OPTIMIZATION_FAILED,
+    WORKFLOW_MODEL_UNSUPPORTED,
+    WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
+    WORKFLOW_MODEL_PREPARATION_FAILED,
     GraphState,
     with_control,
 )
@@ -57,21 +60,105 @@ def create_modular_model_preparation_node(
                 "Modell fehlen."
             )
 
-        draft = prepare_model(
-            core_id=core_id,
-            requirements=dict(
-                state.get("requirements", {})
-            ),
-            products=products,
-            global_facts=modular_state.get(
-                "global_facts",
-                {},
-            ),
-            evidence=modular_state.get(
-                "evidence",
-                [],
-            ),
-        )
+        try:
+            draft = prepare_model(
+                core_id=core_id,
+                requirements=dict(
+                    state.get("requirements", {})
+                ),
+                products=products,
+                global_facts=modular_state.get(
+                    "global_facts",
+                    {},
+                ),
+                evidence=modular_state.get(
+                    "evidence",
+                    [],
+                ),
+            )
+        except (TypeError, ValueError):
+            preparation_error = (
+                "Die automatische Modellzusammenstellung "
+                "konnte nicht zuverlässig abgeschlossen "
+                "werden. Bitte starten Sie die Analyse "
+                "erneut."
+            )
+
+            updated_modular_state = {
+                **modular_state,
+                "preparation_error": preparation_error,
+                "review_confirmed": False,
+                "optimization_result": None,
+            }
+
+            for field_name in (
+                "proposal",
+                "specification",
+                "validation",
+            ):
+                updated_modular_state.pop(
+                    field_name,
+                    None,
+                )
+
+            return with_control(
+                {
+                    **state,
+                    "modular_model": (
+                        updated_modular_state
+                    ),
+                },
+                event=None,
+                workflow_status=(
+                    WORKFLOW_MODEL_PREPARATION_FAILED
+                ),
+            )
+
+        proposal = draft["proposal"]
+        selection_status = proposal[
+            "selection_status"
+        ]
+
+        if selection_status != "complete":
+            if (
+                selection_status
+                == "needs_clarification"
+            ):
+                workflow_status = (
+                    WORKFLOW_NEEDS_GENERAL_CLARIFICATION
+                )
+            else:
+                workflow_status = (
+                    WORKFLOW_MODEL_UNSUPPORTED
+                )
+
+            updated_modular_state = {
+                **modular_state,
+                "proposal": proposal,
+                "review_confirmed": False,
+                "optimization_result": None,
+                "preparation_error": None,
+            }
+
+            updated_modular_state.pop(
+                "specification",
+                None,
+            )
+            updated_modular_state.pop(
+                "validation",
+                None,
+            )
+
+            return with_control(
+                {
+                    **state,
+                    "modular_model": (
+                        updated_modular_state
+                    ),
+                },
+                event=None,
+                workflow_status=workflow_status,
+            )
 
         validation = draft["validation"]
 
@@ -91,11 +178,12 @@ def create_modular_model_preparation_node(
             **state,
             "modular_model": {
                 **modular_state,
-                "proposal": draft["proposal"],
+                "proposal": proposal,
                 "specification": draft["specification"],
                 "validation": validation,
                 "review_confirmed": False,
                 "optimization_result": None,
+                "preparation_error": None,
             },
         }
 

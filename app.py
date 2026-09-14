@@ -14,6 +14,7 @@ from agentic_optimization.state import (
     EVENT_NEW_PROBLEM,
     EVENT_OPTIMIZATION_REQUESTED,
     WORKFLOW_MODEL_INPUTS_INVALID,
+    WORKFLOW_MODEL_PREPARATION_FAILED,
     WORKFLOW_MODEL_UNSUPPORTED,
     WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
     WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS,
@@ -29,19 +30,19 @@ from agentic_optimization.ui.field_renderer import (
     render_input_field,
 )
 from agentic_optimization.ui.modular_input_page import render_modular_input_page
+from agentic_optimization.ui.modular_result_page import (
+    render_modular_result_page,
+)
+from agentic_optimization.ui.modular_review_page import (
+    render_modular_review_page,
+    render_modular_selection_issues,
+)
 from agentic_optimization.ui.result_builder import (
     build_result_data,
 )
 from agentic_optimization.ui.review_builder import (
     build_review_data,
 )
-from agentic_optimization.ui.modular_review_page import (
-    render_modular_review_page,
-)
-from agentic_optimization.ui.modular_result_page import (
-    render_modular_result_page,
-)
-
 
 DECISION_LABELS = {
     "order_quantity": "Bestellmenge",
@@ -176,7 +177,10 @@ def route_ui_from_graph_state(graph_state: dict) -> str:
 
     status = get_workflow_status(graph_state)
 
-    if status == WORKFLOW_NEEDS_GENERAL_CLARIFICATION:
+    if status in {
+        WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
+        WORKFLOW_MODEL_PREPARATION_FAILED,
+    }:
         return "freitext"
 
     if status in {
@@ -303,9 +307,21 @@ elif st.session_state.step == "freitext":
 
     graph_state = st.session_state.graph_state or {}
 
+    modular_state = graph_state.get("modular_model")
+    modular_proposal = (
+        modular_state.get("proposal")
+        if modular_state is not None
+        else None
+    )
+
     has_clarification = (
         get_workflow_status(graph_state)
         == WORKFLOW_NEEDS_GENERAL_CLARIFICATION
+    )
+
+    has_preparation_error = (
+        get_workflow_status(graph_state)
+        == WORKFLOW_MODEL_PREPARATION_FAILED
     )
 
     # ---------------------------------------------------------
@@ -341,25 +357,58 @@ elif st.session_state.step == "freitext":
     # Clarification direkt in Formular 2
     # ---------------------------------------------------------
 
-    if has_clarification:
-        clarification_question = graph_state.get(
-            "clarification_question",
-            "",
+    if has_preparation_error:
+        preparation_error = (
+            modular_state.get("preparation_error")
+            if modular_state is not None
+            else None
         )
 
-        st.warning(
-            clarification_question
+        st.error(
+            preparation_error
             or (
-                "Die Beschreibung enthält unvollständige "
-                "oder widersprüchliche Angaben. Bitte "
-                "korrigieren Sie den Text und analysieren "
-                "Sie ihn erneut."
+                "Die automatische Modellzusammenstellung "
+                "konnte nicht zuverlässig abgeschlossen "
+                "werden. Bitte starten Sie die Analyse "
+                "erneut."
             )
         )
 
         st.caption(
-            "Ihr bisheriger Text bleibt erhalten. Ändern "
-            "Sie nur die betreffende Angabe."
+            "Ihre bisherigen Angaben bleiben erhalten."
+        )
+
+    elif has_clarification:
+        if (
+            modular_proposal is not None
+            and modular_proposal.get(
+                "selection_status"
+            )
+            == "needs_clarification"
+        ):
+            render_modular_selection_issues(
+                modular_proposal
+            )
+        else:
+            clarification_question = graph_state.get(
+                "clarification_question",
+                "",
+            )
+
+            st.warning(
+                clarification_question
+                or (
+                    "Die Beschreibung enthält "
+                    "unvollständige oder "
+                    "widersprüchliche Angaben. Bitte "
+                    "korrigieren Sie den Text und "
+                    "analysieren Sie ihn erneut."
+                )
+            )
+
+        st.caption(
+            "Ihr bisheriger Text bleibt erhalten. "
+            "Ändern Sie nur die betreffende Angabe."
         )
 
     # ---------------------------------------------------------
@@ -459,19 +508,36 @@ elif st.session_state.step == "model_unsupported":
         or {}
     )
 
+    modular_state = graph_state.get("modular_model")
+    modular_proposal = (
+        modular_state.get("proposal")
+        if modular_state is not None
+        else None
+    )
+
     selected_review_type = graph_state.get(
         "requirements",
         {},
     ).get("review_type")
 
-    if selected_review_type == "periodic_review":
+    if (
+        modular_proposal is not None
+        and modular_proposal.get(
+            "selection_status"
+        )
+        == "unsupported"
+    ):
+        render_modular_selection_issues(
+            modular_proposal
+        )
+    elif selected_review_type == "periodic_review":
         st.success(
             "**Periodische Bestandsüberprüfung erkannt.**"
         )
         st.info(
             "Dieser Anwendungsfall ist für eine zukünftige "
-            "(s, S)-Politik vorgesehen. Das Berechnungsmodell "
-            "ist noch nicht implementiert."
+            "(s, S)-Politik vorgesehen. Das "
+            "Berechnungsmodell ist noch nicht implementiert."
         )
     else:
         st.warning(

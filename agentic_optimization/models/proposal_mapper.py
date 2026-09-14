@@ -44,6 +44,107 @@ def validate_component_selection_proposal(
 
     errors: list[str] = []
 
+    selection_status = proposal.get(
+        "selection_status"
+    )
+
+    if selection_status not in {
+        "complete",
+        "needs_clarification",
+        "unsupported",
+    }:
+        errors.append(
+            "Der Auswahlstatus muss 'complete', "
+            "'needs_clarification' oder "
+            "'unsupported' sein."
+        )
+
+    unresolved_requirements = proposal.get(
+        "unresolved_requirements"
+    )
+
+    if not isinstance(unresolved_requirements, list):
+        errors.append(
+            "Die ungelösten Anforderungen müssen als "
+            "Liste vorliegen."
+        )
+    else:
+        resolutions: set[str] = set()
+
+        for index, requirement in enumerate(
+            unresolved_requirements
+        ):
+            if not isinstance(requirement, dict):
+                errors.append(
+                    f"Die ungelöste Anforderung an "
+                    f"Position {index} muss als Objekt "
+                    "vorliegen."
+                )
+                continue
+
+            if not _has_text(
+                requirement.get("description")
+            ):
+                errors.append(
+                    f"Für die ungelöste Anforderung an "
+                    f"Position {index} fehlt eine "
+                    "Beschreibung."
+                )
+
+            resolution = requirement.get("resolution")
+
+            if resolution not in {
+                "clarification",
+                "unsupported",
+            }:
+                errors.append(
+                    f"Die Auflösungsart der ungelösten "
+                    f"Anforderung an Position {index} "
+                    "muss 'clarification' oder "
+                    "'unsupported' sein."
+                )
+            else:
+                resolutions.add(resolution)
+
+            if not _has_text(requirement.get("reason")):
+                errors.append(
+                    f"Für die ungelöste Anforderung an "
+                    f"Position {index} fehlt eine "
+                    "Begründung."
+                )
+
+            if not _has_valid_sources(
+                requirement.get("sources")
+            ):
+                errors.append(
+                    f"Für die ungelöste Anforderung an "
+                    f"Position {index} fehlt eine "
+                    "gültige Quelle."
+                )
+
+        if "unsupported" in resolutions:
+            expected_status = "unsupported"
+        elif "clarification" in resolutions:
+            expected_status = "needs_clarification"
+        else:
+            expected_status = "complete"
+
+        if (
+            selection_status
+            in {
+                "complete",
+                "needs_clarification",
+                "unsupported",
+            }
+            and selection_status != expected_status
+        ):
+            errors.append(
+                f"Der Auswahlstatus "
+                f"'{selection_status}' passt nicht zu "
+                "den ungelösten Anforderungen; erwartet "
+                f"wird '{expected_status}'."
+            )
+
     core_id = proposal.get("core_id")
 
     if not _has_text(core_id):
@@ -251,6 +352,22 @@ def build_specification_from_proposal(
         raise ValueError(
             "Ungültiger Bausteinvorschlag: "
             + "; ".join(proposal_errors)
+        )
+
+    if proposal["selection_status"] != "complete":
+        unresolved_descriptions = ", ".join(
+            requirement["description"]
+            for requirement in proposal[
+                "unresolved_requirements"
+            ]
+        )
+
+        raise ValueError(
+            "Aus einem nicht vollständigen "
+            "Bausteinvorschlag darf keine "
+            "Modellspezifikation erzeugt werden. "
+            "Ungelöste Anforderungen: "
+            f"{unresolved_descriptions}."
         )
 
     constraints: list[ConstraintSpecification] = []

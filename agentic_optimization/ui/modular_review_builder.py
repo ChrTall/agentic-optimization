@@ -18,6 +18,8 @@ from agentic_optimization.models.proposal_mapper import (
 from agentic_optimization.models.specification import (
     ComponentSelectionProposal,
     ModelSpecification,
+    SelectionStatus,
+    UnresolvedRequirement,
 )
 from agentic_optimization.models.validator import (
     MissingInput,
@@ -53,6 +55,17 @@ class ReviewProduct(TypedDict):
     product_id: str
     forecast: dict[str, Any]
     facts: dict[str, Any]
+
+
+class ModularSelectionIssueData(TypedDict):
+    """Darstellung einer unvollständigen Bausteinauswahl."""
+
+    core_id: str
+    core_name: str
+    selection_status: SelectionStatus
+    unresolved_requirements: list[
+        UnresolvedRequirement
+    ]
 
 
 class ModularReviewData(TypedDict):
@@ -131,6 +144,39 @@ def _validate_proposal_specification_alignment(
             "Inkonsistente Review-Daten: "
             + "; ".join(errors)
         )
+
+
+def build_modular_selection_issue_data(
+    proposal: ComponentSelectionProposal,
+) -> ModularSelectionIssueData:
+    """Bereitet ungelöste Anforderungen für die UI auf."""
+
+    proposal_errors = (
+        validate_component_selection_proposal(proposal)
+    )
+
+    if proposal_errors:
+        raise ValueError(
+            "Ungültiger Bausteinvorschlag: "
+            + "; ".join(proposal_errors)
+        )
+
+    registered_core = CORE_REGISTRY[
+        proposal["core_id"]
+    ]
+
+    return {
+        "core_id": proposal["core_id"],
+        "core_name": registered_core[
+            "definition"
+        ]["name"],
+        "selection_status": proposal[
+            "selection_status"
+        ],
+        "unresolved_requirements": deepcopy(
+            proposal["unresolved_requirements"]
+        ),
+    }
 
 
 def build_modular_review_data(

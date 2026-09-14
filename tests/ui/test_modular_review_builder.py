@@ -9,12 +9,14 @@ from agentic_optimization.models.specification import (
 )
 from agentic_optimization.ui.modular_review_builder import (
     build_modular_review_data,
+    build_modular_selection_issue_data,
 )
 
 
 def create_proposal() -> ComponentSelectionProposal:
     return {
         "core_id": "single_period_newsvendor",
+        "selection_status": "complete",
         "objective_sense": "maximize",
         "objective_components": [
             {
@@ -39,6 +41,7 @@ def create_proposal() -> ComponentSelectionProposal:
                 "sources": ["source_1"],
             }
         ],
+        "unresolved_requirements": [],
     }
 
 
@@ -210,6 +213,7 @@ def test_rejects_mismatched_review_data() -> None:
 def test_builds_eoq_review_data() -> None:
     proposal: ComponentSelectionProposal = {
         "core_id": "eoq",
+        "selection_status": "complete",
         "objective_sense": "minimize",
         "objective_components": [
             {
@@ -224,6 +228,7 @@ def test_builds_eoq_review_data() -> None:
             },
         ],
         "constraints": [],
+        "unresolved_requirements": [],
     }
 
     products: list[ProductSpecification] = [
@@ -272,6 +277,7 @@ def test_builds_eoq_review_data() -> None:
 def test_builds_q_r_review_data() -> None:
     proposal: ComponentSelectionProposal = {
         "core_id": "continuous_review_q_r",
+        "selection_status": "complete",
         "objective_sense": "minimize",
         "objective_components": [
             {
@@ -303,6 +309,7 @@ def test_builds_q_r_review_data() -> None:
                 "sources": ["source_1"],
             }
         ],
+        "unresolved_requirements": [],
     }
 
     products: list[ProductSpecification] = [
@@ -471,3 +478,51 @@ def test_review_shows_order_multiple_constraint() -> None:
     }
 
     assert review["ready_for_confirmation"] is True
+
+
+def test_builds_unsupported_selection_issue_data() -> None:
+    proposal = create_proposal()
+    proposal["selection_status"] = "unsupported"
+    proposal["unresolved_requirements"] = [
+        {
+            "description": "Mengenrabatt",
+            "resolution": "unsupported",
+            "reason": (
+                "Für Mengenrabatte ist kein "
+                "kompatibler Baustein verfügbar."
+            ),
+            "sources": ["source_1"],
+        }
+    ]
+
+    issue_data = (
+        build_modular_selection_issue_data(
+            proposal
+        )
+    )
+
+    assert issue_data == {
+        "core_id": "single_period_newsvendor",
+        "core_name": (
+            "Einperiodiges Newsvendor-Modell"
+        ),
+        "selection_status": "unsupported",
+        "unresolved_requirements": [
+            {
+                "description": "Mengenrabatt",
+                "resolution": "unsupported",
+                "reason": (
+                    "Für Mengenrabatte ist kein "
+                    "kompatibler Baustein verfügbar."
+                ),
+                "sources": ["source_1"],
+            }
+        ],
+    }
+    issue_data["unresolved_requirements"][0][
+        "description"
+    ] = "geändert"
+
+    assert proposal["unresolved_requirements"][0][
+        "description"
+    ] == "Mengenrabatt"

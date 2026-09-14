@@ -88,9 +88,11 @@ def test_invalidates_modular_optimization_result() -> None:
             "core_id": "eoq",
             "proposal": {
                 "core_id": "eoq",
+                "selection_status": "complete",
                 "objective_sense": "minimize",
                 "objective_components": [],
                 "constraints": [],
+                "unresolved_requirements": [],
             },
             "review_confirmed": True,
             "optimization_result": {

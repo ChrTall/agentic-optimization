@@ -9,9 +9,11 @@ from agentic_optimization.models.specification import (
     ProductSpecification,
 )
 
+
 def create_proposal() -> ComponentSelectionProposal:
     return {
         "core_id": "single_period_newsvendor",
+        "selection_status": "complete",
         "objective_sense": "maximize",
         "objective_components": [
             {
@@ -36,6 +38,7 @@ def create_proposal() -> ComponentSelectionProposal:
                 "sources": ["Lieferantenvertrag"],
             }
         ],
+        "unresolved_requirements": [],
     }
 
 
@@ -194,6 +197,7 @@ def test_rejects_constraint_incompatible_with_core() -> None:
     proposal: ComponentSelectionProposal = {
         "core_id": "eoq",
         "objective_sense": "minimize",
+        "selection_status": "complete",
         "objective_components": [
             {
                 "component_id": "annual_ordering_cost",
@@ -216,6 +220,7 @@ def test_rejects_constraint_incompatible_with_core() -> None:
                 "sources": ["source_1"],
             }
         ],
+        "unresolved_requirements": [],
     }
 
     errors = validate_component_selection_proposal(
@@ -234,6 +239,7 @@ def test_rejects_missing_required_eoq_component() -> None:
     proposal: ComponentSelectionProposal = {
         "core_id": "eoq",
         "objective_sense": "minimize",
+        "selection_status": "complete",
         "objective_components": [
             {
                 "component_id": "annual_ordering_cost",
@@ -242,6 +248,7 @@ def test_rejects_missing_required_eoq_component() -> None:
             }
         ],
         "constraints": [],
+        "unresolved_requirements": [],
     }
 
     errors = validate_component_selection_proposal(
@@ -251,5 +258,177 @@ def test_rejects_missing_required_eoq_component() -> None:
     assert any(
         "annual_holding_cost" in error
         and "benötigt" in error
+        for error in errors
+    )
+
+
+def test_accepts_consistent_unsupported_proposal() -> None:
+    proposal = create_proposal()
+    proposal["selection_status"] = "unsupported"
+    proposal["unresolved_requirements"] = [
+        {
+            "description": (
+                "Mengenabhängiger Einkaufspreis"
+            ),
+            "resolution": "unsupported",
+            "reason": (
+                "Ein Mengenrabattmodell ist für diesen "
+                "Grundmodellkern nicht registriert."
+            ),
+            "sources": ["Lieferantenvertrag"],
+        }
+    ]
+
+    errors = validate_component_selection_proposal(
+        proposal
+    )
+
+    assert errors == []
+
+
+def test_rejects_complete_status_with_unresolved_requirement() -> None:
+    proposal = create_proposal()
+    proposal["unresolved_requirements"] = [
+        {
+            "description": (
+                "Rückgabemöglichkeit ist unklar"
+            ),
+            "resolution": "clarification",
+            "reason": (
+                "Es ist nicht bekannt, ob Restbestand "
+                "zurückgegeben werden kann."
+            ),
+            "sources": ["Freitext"],
+        }
+    ]
+
+    errors = validate_component_selection_proposal(
+        proposal
+    )
+
+    assert any(
+        "Auswahlstatus 'complete'" in error
+        and "needs_clarification" in error
+        for error in errors
+    )
+
+
+def test_mapper_rejects_unsupported_proposal() -> None:
+    proposal = create_proposal()
+    proposal["selection_status"] = "unsupported"
+    proposal["unresolved_requirements"] = [
+        {
+            "description": "Mengenrabatt",
+            "resolution": "unsupported",
+            "reason": (
+                "Kein kompatibler Baustein verfügbar."
+            ),
+            "sources": ["Lieferantenvertrag"],
+        }
+    ]
+
+    with pytest.raises(
+        ValueError,
+        match="nicht vollständigen",
+    ):
+        build_specification_from_proposal(
+            proposal,
+            create_products(),
+            {},
+        )
+
+
+def test_mapper_rejects_proposal_needing_clarification() -> None:
+    proposal = create_proposal()
+    proposal["selection_status"] = (
+        "needs_clarification"
+    )
+    proposal["unresolved_requirements"] = [
+        {
+            "description": (
+                "Umgang mit unverkaufter Ware"
+            ),
+            "resolution": "clarification",
+            "reason": (
+                "Rückgabe oder Entsorgung ist unklar."
+            ),
+            "sources": ["Freitext"],
+        }
+    ]
+
+    with pytest.raises(
+        ValueError,
+        match="nicht vollständigen",
+    ):
+        build_specification_from_proposal(
+            proposal,
+            create_products(),
+            {},
+        )
+
+
+def test_rejects_malformed_unresolved_requirement() -> None:
+    proposal = create_proposal()
+    proposal["selection_status"] = (
+        "needs_clarification"
+    )
+    proposal["unresolved_requirements"] = [
+        {
+            "description": "",
+            "resolution": "clarification",
+            "reason": "",
+            "sources": [],
+        }
+    ]
+
+    errors = validate_component_selection_proposal(
+        proposal
+    )
+
+    assert any(
+        "Beschreibung" in error
+        for error in errors
+    )
+    assert any(
+        "Begründung" in error
+        for error in errors
+    )
+    assert any(
+        "gültige Quelle" in error
+        for error in errors
+    )
+
+
+def test_unsupported_status_dominates_mixed_requirements() -> None:
+    proposal = create_proposal()
+    proposal["selection_status"] = (
+        "needs_clarification"
+    )
+    proposal["unresolved_requirements"] = [
+        {
+            "description": "Rückgabewert unklar",
+            "resolution": "clarification",
+            "reason": (
+                "Der Rückgabewert wurde nicht angegeben."
+            ),
+            "sources": ["Freitext"],
+        },
+        {
+            "description": "Mengenrabatt",
+            "resolution": "unsupported",
+            "reason": (
+                "Kein kompatibles Mengenrabattmodell "
+                "ist registriert."
+            ),
+            "sources": ["Lieferantenvertrag"],
+        },
+    ]
+
+    errors = validate_component_selection_proposal(
+        proposal
+    )
+
+    assert any(
+        "erwartet wird 'unsupported'" in error
         for error in errors
     )

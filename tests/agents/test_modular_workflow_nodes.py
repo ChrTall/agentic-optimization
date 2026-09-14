@@ -13,13 +13,20 @@ from agentic_optimization.state import (
     WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS,
     WORKFLOW_READY_FOR_REVIEW,
     WORKFLOW_OPTIMIZATION_COMPLETED,
+    WORKFLOW_MODEL_UNSUPPORTED,
+    WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
+    WORKFLOW_MODEL_PREPARATION_FAILED,
     get_workflow_status,
+)
+from agentic_optimization.agents import (
+    modular_workflow_nodes,
 )
 
 
 def test_prepares_modular_model_in_graph_state() -> None:
     response = {
         "core_id": "continuous_review_q_r",
+        "selection_status": "complete",
         "objective_sense": "minimize",
         "objective_components": [
             {
@@ -39,6 +46,7 @@ def test_prepares_modular_model_in_graph_state() -> None:
             },
         ],
         "constraints": [],
+        "unresolved_requirements": [],
     }
 
     llm = Mock()
@@ -219,3 +227,142 @@ def test_prepares_modular_model_in_graph_state() -> None:
     )
 
     assert llm.invoke.call_count == 2
+
+
+@pytest.mark.parametrize(
+    (
+        "selection_status",
+        "resolution",
+        "expected_workflow_status",
+    ),
+    [
+        (
+            "needs_clarification",
+            "clarification",
+            WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
+        ),
+        (
+            "unsupported",
+            "unsupported",
+            WORKFLOW_MODEL_UNSUPPORTED,
+        ),
+    ],
+)
+def test_routes_unresolved_component_selection(
+    monkeypatch: pytest.MonkeyPatch,
+    selection_status: str,
+    resolution: str,
+    expected_workflow_status: str,
+) -> None:
+    proposal = {
+        "core_id": "eoq",
+        "selection_status": selection_status,
+        "objective_sense": "minimize",
+        "objective_components": [
+            {
+                "component_id": "annual_ordering_cost",
+                "reason": "Bestellkosten wurden genannt.",
+                "sources": ["source_1"],
+            },
+            {
+                "component_id": "annual_holding_cost",
+                "reason": "Lagerkosten wurden genannt.",
+                "sources": ["source_1"],
+            },
+        ],
+        "constraints": [],
+        "unresolved_requirements": [
+            {
+                "description": "Mengenrabatt",
+                "resolution": resolution,
+                "reason": (
+                    "Die Anforderung kann derzeit nicht "
+                    "vollständig abgebildet werden."
+                ),
+                "sources": ["source_1"],
+            }
+        ],
+    }
+
+    def prepare_model(**_kwargs):
+        return {
+            "proposal": proposal,
+        }
+
+    monkeypatch.setattr(
+        modular_workflow_nodes,
+        "create_modular_model_agent",
+        lambda _llm: prepare_model,
+    )
+
+    node = (
+        modular_workflow_nodes
+        .create_modular_model_preparation_node(Mock())
+    )
+
+    result = node(
+        {
+            "requirements": {},
+            "modular_model": {
+                "core_id": "eoq",
+                "products": [],
+                "global_facts": {},
+                "evidence": [],
+            },
+        }
+    )
+
+    modular_state = result["modular_model"]
+
+    assert modular_state["proposal"] == proposal
+    assert "specification" not in modular_state
+    assert "validation" not in modular_state
+    assert get_workflow_status(result) == (
+        expected_workflow_status
+    )
+
+
+def test_handles_failed_model_preparation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def prepare_model(**_kwargs):
+        raise ValueError(
+            "Ungültige LLM-Antwort"
+        )
+
+    monkeypatch.setattr(
+        modular_workflow_nodes,
+        "create_modular_model_agent",
+        lambda _llm: prepare_model,
+    )
+
+    node = (
+        modular_workflow_nodes
+        .create_modular_model_preparation_node(Mock())
+    )
+
+    result = node(
+        {
+            "requirements": {},
+            "modular_model": {
+                "core_id": "eoq",
+                "products": [],
+                "global_facts": {},
+                "evidence": [],
+            },
+        }
+    )
+
+    modular_state = result["modular_model"]
+
+    assert get_workflow_status(result) == (
+        WORKFLOW_MODEL_PREPARATION_FAILED
+    )
+    assert modular_state["preparation_error"] == (
+        "Die automatische Modellzusammenstellung "
+        "konnte nicht zuverlässig abgeschlossen "
+        "werden. Bitte starten Sie die Analyse erneut."
+    )
+    assert "proposal" not in modular_state
+    assert "specification" not in modular_state
+    assert "validation" not in modular_state

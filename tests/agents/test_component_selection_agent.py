@@ -24,6 +24,7 @@ def create_mock_llm(response: dict) -> Mock:
 def create_response() -> dict:
     return {
         "core_id": "single_period_newsvendor",
+        "selection_status": "complete",
         "objective_sense": "maximize",
         "objective_components": [
             {
@@ -48,6 +49,7 @@ def create_response() -> dict:
                 "sources": ["source_1"],
             }
         ],
+        "unresolved_requirements": [],
     }
 
 
@@ -210,6 +212,7 @@ def test_rejects_different_core(
 def test_builds_eoq_selection_request() -> None:
     response = {
         "core_id": "eoq",
+        "selection_status": "complete",
         "objective_sense": "minimize",
         "objective_components": [
             {
@@ -224,6 +227,7 @@ def test_builds_eoq_selection_request() -> None:
             },
         ],
         "constraints": [],
+        "unresolved_requirements": [],
     }
     llm = create_mock_llm(response)
     agent = create_component_selection_agent(llm)
@@ -283,6 +287,7 @@ def test_builds_eoq_selection_request() -> None:
 def test_builds_q_r_selection_request() -> None:
     response = {
         "core_id": "continuous_review_q_r",
+        "selection_status": "complete",
         "objective_sense": "minimize",
         "objective_components": [
             {
@@ -314,6 +319,7 @@ def test_builds_q_r_selection_request() -> None:
                 "sources": ["source_1"],
             }
         ],
+        "unresolved_requirements": [],
     }
 
     llm = create_mock_llm(response)
@@ -436,3 +442,107 @@ def test_accepts_order_multiple_constraint_proposal() -> None:
         "multiple": 60,
     }
     assert order_multiple["sources"] == ["source_1"]
+
+
+def test_returns_unsupported_requirement() -> None:
+    response = create_response()
+    response["selection_status"] = "unsupported"
+    response["unresolved_requirements"] = [
+        {
+            "description": (
+                "Mengenabhängiger Einkaufspreis"
+            ),
+            "resolution": "unsupported",
+            "reason": (
+                "Für Mengenrabatte ist kein "
+                "kompatibler Baustein verfügbar."
+            ),
+            "sources": ["source_1"],
+        }
+    ]
+
+    llm = create_mock_llm(response)
+
+    result = call_agent(llm)
+
+    assert result["selection_status"] == "unsupported"
+    assert result["unresolved_requirements"] == (
+        response["unresolved_requirements"]
+    )
+
+
+def test_rejects_unknown_source_for_unresolved_requirement() -> None:
+    response = create_response()
+    response["selection_status"] = "unsupported"
+    response["unresolved_requirements"] = [
+        {
+            "description": "Mengenrabatt",
+            "resolution": "unsupported",
+            "reason": (
+                "Kein kompatibler Baustein verfügbar."
+            ),
+            "sources": ["invented_source"],
+        }
+    ]
+
+    llm = create_mock_llm(response)
+
+    with pytest.raises(
+        ValueError,
+        match="invented_source",
+    ):
+        call_agent(llm)
+
+
+def test_corrects_invalid_response_once() -> None:
+    invalid_response = create_response()
+    invalid_response["selection_status"] = "unsupported"
+    invalid_response["unresolved_requirements"] = [
+        {}
+    ]
+
+    corrected_response = create_response()
+
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(
+            content=json.dumps(invalid_response)
+        ),
+        AIMessage(
+            content=json.dumps(corrected_response)
+        ),
+    ]
+
+    result = call_agent(llm)
+
+    assert result == corrected_response
+    assert llm.invoke.call_count == 2
+
+    correction_messages = (
+        llm.invoke.call_args_list[1].args[0]
+    )
+
+    assert "Validierungsfehler" in (
+        correction_messages[-1].content
+    )
+
+
+def test_rejects_response_after_failed_correction() -> None:
+    invalid_response = create_response()
+    invalid_response["selection_status"] = "unsupported"
+    invalid_response["unresolved_requirements"] = [
+        {}
+    ]
+
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(
+        content=json.dumps(invalid_response)
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="nach einem Korrekturversuch",
+    ):
+        call_agent(llm)
+
+    assert llm.invoke.call_count == 2

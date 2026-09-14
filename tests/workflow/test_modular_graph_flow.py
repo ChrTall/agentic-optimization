@@ -19,6 +19,7 @@ from agentic_optimization.state import (
 def test_runs_modular_model_through_graph() -> None:
     response = {
         "core_id": "continuous_review_q_r",
+        "selection_status": "complete",
         "objective_sense": "minimize",
         "objective_components": [
             {
@@ -38,6 +39,7 @@ def test_runs_modular_model_through_graph() -> None:
             },
         ],
         "constraints": [],
+        "unresolved_requirements": [],
     }
 
     llm = Mock()
@@ -210,6 +212,7 @@ def test_enters_modular_pipeline_after_model_selection() -> None:
 
     component_response = {
         "core_id": "single_period_newsvendor",
+        "selection_status": "complete",
         "objective_sense": "maximize",
         "objective_components": [
             {
@@ -224,6 +227,7 @@ def test_enters_modular_pipeline_after_model_selection() -> None:
             },
         ],
         "constraints": [],
+        "unresolved_requirements": [],
     }
 
     llm = Mock()

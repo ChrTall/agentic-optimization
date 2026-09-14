@@ -10,6 +10,18 @@ ObjectiveSense = Literal[
     "minimize",
 ]
 
+SelectionStatus = Literal[
+    "complete",
+    "needs_clarification",
+    "unsupported",
+]
+
+
+UnresolvedRequirementResolution = Literal[
+    "clarification",
+    "unsupported",
+]
+
 
 class ForecastQuantile(TypedDict):
     """Ein Nachfragequantil mit Wahrscheinlichkeitsniveau und Prognosewert."""
@@ -83,10 +95,26 @@ class SelectionEvidence(TypedDict):
     source_id: str
     content: str
 
+
+class UnresolvedRequirement(TypedDict):
+    """Eine noch nicht sicher abbildbare Anforderung."""
+
+    description: str
+    resolution: UnresolvedRequirementResolution
+    reason: str
+    sources: list[str]
+
+
 class ComponentSelectionProposal(TypedDict):
     """Nachvollziehbarer Vorschlag des Component-Selection-Agents."""
 
     core_id: str
+    selection_status: SelectionStatus
     objective_sense: ObjectiveSense
-    objective_components: list[ProposedObjectiveComponent]
+    objective_components: list[
+        ProposedObjectiveComponent
+    ]
     constraints: list[ProposedConstraint]
+    unresolved_requirements: list[
+        UnresolvedRequirement
+    ]
