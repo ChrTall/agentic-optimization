@@ -101,6 +101,7 @@ class UnresolvedRequirement(TypedDict):
 
     description: str
     resolution: UnresolvedRequirementResolution
+    candidate_component_ids: list[str]
     reason: str
     sources: list[str]
 

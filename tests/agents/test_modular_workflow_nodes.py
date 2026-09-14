@@ -275,6 +275,14 @@ def test_routes_unresolved_component_selection(
             {
                 "description": "Mengenrabatt",
                 "resolution": resolution,
+                "candidate_component_ids": (
+                    [
+                        "minimum_order_quantity",
+                        "maximum_order_quantity",
+                    ]
+                    if resolution == "clarification"
+                    else []
+                ),
                 "reason": (
                     "Die Anforderung kann derzeit nicht "
                     "vollständig abgebildet werden."

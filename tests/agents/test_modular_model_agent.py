@@ -302,6 +302,7 @@ def test_returns_unsupported_proposal_without_specification() -> None:
             {
                 "description": "Mengenrabatt",
                 "resolution": "unsupported",
+                "candidate_component_ids": [],
                 "reason": (
                     "Für Mengenrabatte ist kein "
                     "kompatibler Baustein verfügbar."

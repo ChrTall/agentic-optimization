@@ -99,9 +99,24 @@ folgende Felder enthalten:
 {
   "description": "Kurze Beschreibung der Anforderung",
   "resolution": "clarification",
-  "reason": "Warum die Anforderung noch ungelöst ist",
+  "candidate_component_ids": [
+    "erster_möglicher_baustein",
+    "zweiter_möglicher_baustein"
+  ],
+  "reason": "Warum zwischen den Bausteinen gewählt werden muss",
   "sources": ["source_1"]
 }
+
+Bei resolution "clarification" muss
+candidate_component_ids mindestens einen kompatiblen
+Katalogbaustein enthalten.
+
+Bei resolution "unsupported" muss
+candidate_component_ids eine leere Liste sein.
+
+Ein fehlender Eingabewert hat keine alternativen
+Kandidaten-Bausteine und darf daher nicht als
+clarification ausgegeben werden.
 
 Für resolution ist ausschließlich "clarification" oder
 "unsupported" erlaubt.

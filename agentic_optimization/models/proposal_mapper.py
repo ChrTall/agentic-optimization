@@ -106,6 +106,45 @@ def validate_component_selection_proposal(
             else:
                 resolutions.add(resolution)
 
+            candidate_component_ids = requirement.get(
+                "candidate_component_ids"
+            )
+
+            if (
+                not isinstance(
+                    candidate_component_ids,
+                    list,
+                )
+                or not all(
+                    _has_text(component_id)
+                    for component_id
+                    in candidate_component_ids
+                )
+            ):
+                errors.append(
+                    f"Die ungelöste Anforderung an "
+                    f"Position {index} benötigt eine Liste "
+                    "gültiger Kandidaten-Bausteine."
+                )
+            elif (
+                resolution == "clarification"
+                and not candidate_component_ids
+            ):
+                errors.append(
+                    f"Für die fachliche Rückfrage an "
+                    f"Position {index} fehlt mindestens "
+                    "ein möglicher Baustein."
+                )
+            elif (
+                resolution == "unsupported"
+                and candidate_component_ids
+            ):
+                errors.append(
+                    f"Die nicht unterstützte Anforderung "
+                    f"an Position {index} darf keine "
+                    "Kandidaten-Bausteine enthalten."
+                )
+
             if not _has_text(requirement.get("reason")):
                 errors.append(
                     f"Für die ungelöste Anforderung an "
@@ -333,6 +372,104 @@ def validate_component_selection_proposal(
                     f"Für die Nebenbedingung an Position "
                     f"{index} fehlt eine gültige Quelle."
                 )
+
+    selected_component_ids: set[str] = set()
+
+    if isinstance(objective_components, list):
+        selected_component_ids.update(
+            component.get("component_id")
+            for component in objective_components
+            if (
+                isinstance(component, dict)
+                and _has_text(
+                    component.get("component_id")
+                )
+            )
+        )
+
+    if isinstance(constraints, list):
+        selected_component_ids.update(
+            constraint.get("component_id")
+            for constraint in constraints
+            if (
+                isinstance(constraint, dict)
+                and _has_text(
+                    constraint.get("component_id")
+                )
+            )
+        )
+
+    if isinstance(unresolved_requirements, list):
+        for index, requirement in enumerate(
+            unresolved_requirements
+        ):
+            if (
+                not isinstance(requirement, dict)
+                or requirement.get("resolution")
+                != "clarification"
+            ):
+                continue
+
+            candidate_component_ids = requirement.get(
+                "candidate_component_ids"
+            )
+
+            if not isinstance(
+                candidate_component_ids,
+                list,
+            ):
+                continue
+
+            for candidate_component_id in (
+                candidate_component_ids
+            ):
+                if not _has_text(candidate_component_id):
+                    continue
+
+                component_definition = (
+                    OBJECTIVE_COMPONENTS.get(
+                        candidate_component_id
+                    )
+                    or CONSTRAINT_COMPONENTS.get(
+                        candidate_component_id
+                    )
+                )
+
+                if component_definition is None:
+                    errors.append(
+                        f"Der Kandidaten-Baustein "
+                        f"'{candidate_component_id}' der "
+                        "fachlichen Rückfrage an Position "
+                        f"{index} ist nicht registriert."
+                    )
+                    continue
+
+                if (
+                    _has_text(core_id)
+                    and core_id in CORE_REGISTRY
+                    and core_id
+                    not in component_definition[
+                        "compatible_core_ids"
+                    ]
+                ):
+                    errors.append(
+                        f"Der Kandidaten-Baustein "
+                        f"'{candidate_component_id}' der "
+                        "fachlichen Rückfrage an Position "
+                        f"{index} ist nicht mit "
+                        f"'{core_id}' kompatibel."
+                    )
+
+                if (
+                    candidate_component_id
+                    in selected_component_ids
+                ):
+                    errors.append(
+                        f"Der Kandidaten-Baustein "
+                        f"'{candidate_component_id}' der "
+                        "fachlichen Rückfrage an Position "
+                        f"{index} wurde bereits ausgewählt."
+                    )
 
     return list(dict.fromkeys(errors))
 

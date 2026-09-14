@@ -487,6 +487,7 @@ def test_builds_unsupported_selection_issue_data() -> None:
         {
             "description": "Mengenrabatt",
             "resolution": "unsupported",
+            "candidate_component_ids": [],
             "reason": (
                 "Für Mengenrabatte ist kein "
                 "kompatibler Baustein verfügbar."
@@ -511,6 +512,7 @@ def test_builds_unsupported_selection_issue_data() -> None:
             {
                 "description": "Mengenrabatt",
                 "resolution": "unsupported",
+                "candidate_component_ids": [],
                 "reason": (
                     "Für Mengenrabatte ist kein "
                     "kompatibler Baustein verfügbar."

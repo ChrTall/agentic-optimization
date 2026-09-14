@@ -60,6 +60,7 @@ def test_renders_unsupported_selection_issues(
             {
                 "description": "Mengenrabatt",
                 "resolution": "unsupported",
+                "candidate_component_ids": [],
                 "reason": (
                     "Für Mengenrabatte ist kein "
                     "kompatibler Baustein verfügbar."

@@ -271,6 +271,7 @@ def test_accepts_consistent_unsupported_proposal() -> None:
                 "Mengenabhängiger Einkaufspreis"
             ),
             "resolution": "unsupported",
+            "candidate_component_ids": [],
             "reason": (
                 "Ein Mengenrabattmodell ist für diesen "
                 "Grundmodellkern nicht registriert."
@@ -286,6 +287,61 @@ def test_accepts_consistent_unsupported_proposal() -> None:
     assert errors == []
 
 
+@pytest.mark.parametrize(
+    (
+        "candidate_component_id",
+        "expected_error",
+    ),
+    [
+        (
+            "unknown_component",
+            "nicht registriert",
+        ),
+        (
+            "annual_ordering_cost",
+            "nicht mit",
+        ),
+        (
+            "sales_revenue",
+            "bereits ausgewählt",
+        ),
+    ],
+)
+def test_rejects_invalid_clarification_candidate(
+    candidate_component_id: str,
+    expected_error: str,
+) -> None:
+    proposal = create_proposal()
+    proposal["selection_status"] = (
+        "needs_clarification"
+    )
+    proposal["unresolved_requirements"] = [
+        {
+            "description": (
+                "Fachlich mehrdeutige Anforderung"
+            ),
+            "resolution": "clarification",
+            "candidate_component_ids": [
+                candidate_component_id,
+            ],
+            "reason": (
+                "Es muss zwischen möglichen "
+                "Bausteinen gewählt werden."
+            ),
+            "sources": ["Freitext"],
+        }
+    ]
+
+    errors = validate_component_selection_proposal(
+        proposal
+    )
+
+    assert any(
+        expected_error in error
+        for error in errors
+    )
+
+
 def test_rejects_complete_status_with_unresolved_requirement() -> None:
     proposal = create_proposal()
     proposal["unresolved_requirements"] = [
@@ -299,6 +355,10 @@ def test_rejects_complete_status_with_unresolved_requirement() -> None:
                 "zurückgegeben werden kann."
             ),
             "sources": ["Freitext"],
+            "candidate_component_ids": [
+                "salvage_revenue",
+                "disposal_cost",
+            ],
         }
     ]
 
@@ -320,6 +380,7 @@ def test_mapper_rejects_unsupported_proposal() -> None:
         {
             "description": "Mengenrabatt",
             "resolution": "unsupported",
+            "candidate_component_ids": [],
             "reason": (
                 "Kein kompatibler Baustein verfügbar."
             ),
@@ -353,6 +414,10 @@ def test_mapper_rejects_proposal_needing_clarification() -> None:
                 "Rückgabe oder Entsorgung ist unklar."
             ),
             "sources": ["Freitext"],
+            "candidate_component_ids": [
+                "salvage_revenue",
+                "disposal_cost",
+            ],
         }
     ]
 
@@ -376,6 +441,7 @@ def test_rejects_malformed_unresolved_requirement() -> None:
         {
             "description": "",
             "resolution": "clarification",
+            "candidate_component_ids": [],
             "reason": "",
             "sources": [],
         }
@@ -406,16 +472,24 @@ def test_unsupported_status_dominates_mixed_requirements() -> None:
     )
     proposal["unresolved_requirements"] = [
         {
-            "description": "Rückgabewert unklar",
+            "description": (
+                "Umgang mit unverkaufter Ware unklar"
+            ),
             "resolution": "clarification",
             "reason": (
-                "Der Rückgabewert wurde nicht angegeben."
+                "Es ist unklar, ob Restbestand "
+                "zurückgegeben oder entsorgt wird."
             ),
             "sources": ["Freitext"],
+            "candidate_component_ids": [
+                "salvage_revenue",
+                "disposal_cost",
+            ],
         },
         {
             "description": "Mengenrabatt",
             "resolution": "unsupported",
+            "candidate_component_ids": [],
             "reason": (
                 "Kein kompatibles Mengenrabattmodell "
                 "ist registriert."

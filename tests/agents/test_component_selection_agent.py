@@ -542,6 +542,7 @@ def test_returns_unsupported_requirement() -> None:
                 "Mengenabhängiger Einkaufspreis"
             ),
             "resolution": "unsupported",
+            "candidate_component_ids": [],
             "reason": (
                 "Für Mengenrabatte ist kein "
                 "kompatibler Baustein verfügbar."
@@ -567,6 +568,7 @@ def test_rejects_unknown_source_for_unresolved_requirement() -> None:
         {
             "description": "Mengenrabatt",
             "resolution": "unsupported",
+            "candidate_component_ids": [],
             "reason": (
                 "Kein kompatibler Baustein verfügbar."
             ),
@@ -581,6 +583,43 @@ def test_rejects_unknown_source_for_unresolved_requirement() -> None:
         match="invented_source",
     ):
         call_agent(llm)
+
+
+def test_corrects_missing_input_reported_as_clarification() -> None:
+    invalid_response = create_response()
+    invalid_response["selection_status"] = (
+        "needs_clarification"
+    )
+    invalid_response["unresolved_requirements"] = [
+        {
+            "description": (
+                "Verkaufspreis pro Einheit"
+            ),
+            "resolution": "clarification",
+            "reason": (
+                "Der Baustein sales_revenue ist passend, "
+                "aber selling_price wurde nicht angegeben."
+            ),
+            "sources": ["source_1"],
+        }
+    ]
+
+    corrected_response = create_response()
+
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(
+            content=json.dumps(invalid_response)
+        ),
+        AIMessage(
+            content=json.dumps(corrected_response)
+        ),
+    ]
+
+    result = call_agent(llm)
+
+    assert result == corrected_response
+    assert llm.invoke.call_count == 2
 
 
 def test_corrects_invalid_response_once() -> None:
