@@ -36,9 +36,46 @@ Regeln:
 5. Wähle zusätzliche, nicht verpflichtende Bausteine nur,
    wenn sie durch Anforderungen, Fakten oder Evidenzen
    fachlich begründet sind.
-6. Ein fehlender Wert verhindert nicht die Auswahl eines
-   erkannten Bausteins. Verwende bei fehlenden
-   Constraint-Parametern ein leeres parameters-Objekt.
+
+   Beachte für jeden Katalogeintrag insbesondere dessen
+   selection_guidance. Prüfe jede ausdrücklich genannte
+   fachliche Anforderung gegen diese Auswahlhinweise und
+   lasse keinen eindeutig passenden Baustein weg.
+
+   Gesamtziele wie Gewinn oder Deckungsbeitrag können durch
+   mehrere vorhandene Erlös- und Kostenbausteine gemeinsam
+   abgebildet werden. Markiere ein solches Ziel nicht allein
+   deshalb als ungeklärt oder nicht unterstützt, weil kein
+   einzelner Baustein denselben Namen trägt. Bei
+   Gewinnmaximierung bilden ausgewählte Erlösbausteine die
+   positiven und ausgewählte Kostenbausteine die negativen
+   Bestandteile der Zielfunktion.
+
+6. Deine Aufgabe ist ausschließlich die fachliche Auswahl
+   der Bausteine, nicht die Prüfung ihrer Eingabewerte.
+
+   Fehlende Eingabewerte sind niemals ein Grund für
+   unresolved_requirements. Prüfe daher nicht, ob alle
+   required_forecast_fields, required_product_facts,
+   required_global_facts oder Constraint-Parameter bereits
+   vorhanden sind.
+
+   Beispiel: Ist sales_revenue fachlich passend, wähle den
+   Baustein auch dann aus, wenn selling_price noch fehlt.
+   Beispiel: Ist purchase_cost fachlich passend, wähle den
+   Baustein auch dann aus, wenn purchase_cost noch fehlt.
+
+   Verwende bei einem erkannten Constraint mit fehlendem
+   Parameter ein leeres parameters-Objekt.
+
+   Fehlende Werte werden ausschließlich nach deiner Auswahl
+   vom deterministischen Validator erkannt und über das
+   Eingabeformular erhoben.
+
+   unresolved_requirements ist ausschließlich für eine
+   fachlich mehrdeutige Anforderung oder für eine mit keinem
+   verfügbaren Baustein abbildbare Anforderung vorgesehen.
+
 7. Verwende ausschließlich übergebene source_ids.
 8. Begründe jeden ausgewählten Baustein kurz.
 9. Prüfe, ob jede fachlich relevante Anforderung durch

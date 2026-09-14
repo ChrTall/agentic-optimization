@@ -526,3 +526,60 @@ def test_builds_unsupported_selection_issue_data() -> None:
     assert proposal["unresolved_requirements"][0][
         "description"
     ] == "Mengenrabatt"
+
+
+def test_review_shows_cycle_service_level() -> None:
+    proposal = create_proposal()
+
+    proposal["constraints"].append(
+        {
+            "component_id": (
+                "minimum_cycle_service_level"
+            ),
+            "product_id": "product_1",
+            "parameters": {
+                "service_level_percent": 50.0,
+            },
+            "reason": (
+                "Mindestens 50 Prozent sollen ohne "
+                "Fehlbestand bedient werden."
+            ),
+            "sources": ["source_1"],
+        }
+    )
+
+    specification = build_specification_from_proposal(
+        proposal,
+        create_products(),
+        {},
+    )
+
+    review = build_modular_review_data(
+        proposal,
+        specification,
+    )
+
+    service_constraint = next(
+        constraint
+        for constraint in review["constraints"]
+        if constraint["component_id"]
+        == "minimum_cycle_service_level"
+    )
+
+    assert service_constraint == {
+        "component_id": "minimum_cycle_service_level",
+        "name": (
+            "Mindestwahrscheinlichkeit ohne Fehlbestand"
+        ),
+        "scope": "per_product",
+        "product_id": "product_1",
+        "parameters": {
+            "service_level_percent": 50.0,
+        },
+        "reason": (
+            "Mindestens 50 Prozent sollen ohne "
+            "Fehlbestand bedient werden."
+        ),
+        "sources": ["source_1"],
+    }
+    assert review["ready_for_confirmation"] is True

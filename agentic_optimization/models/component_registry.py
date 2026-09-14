@@ -76,6 +76,7 @@ class ObjectiveComponentDefinition(TypedDict):
     required_product_facts: list[ModelInputField]
     required_global_facts: list[ModelInputField]
     linear_builder: NotRequired[ObjectiveComponentBuilder]
+    selection_guidance: NotRequired[str]
 
 
 class ConstraintComponentDefinition(TypedDict):
@@ -90,6 +91,7 @@ class ConstraintComponentDefinition(TypedDict):
     required_global_facts: list[ModelInputField]
     parameters: list[ConstraintParameterDefinition]
     linear_builder: NotRequired[ConstraintComponentBuilder]
+    selection_guidance: NotRequired[str]
 
 
 def build_sales_revenue(
@@ -357,6 +359,82 @@ def build_order_multiple(
     context.model += (
         order_quantity == multiple * package_count,
         f"order_multiple_{constraint_index}",
+    )
+
+
+def build_minimum_cycle_service_level(
+    specification: ModelSpecification,
+    context: ModelBuildContext,
+    constraint: ConstraintSpecification,
+    constraint_index: int,
+) -> None:
+    """Sichert eine Mindestwahrscheinlichkeit ohne Fehlbestand."""
+
+    product_id = constraint.get("product_id")
+
+    if not product_id:
+        raise ValueError(
+            "Das Mindest-Zyklusservicelevel muss einem "
+            "Produkt zugeordnet sein."
+        )
+
+    service_level = (
+        float(
+            constraint["parameters"][
+                "service_level_percent"
+            ]
+        )
+        / 100.0
+    )
+
+    product = next(
+        (
+            product
+            for product in specification["products"]
+            if product["product_id"] == product_id
+        ),
+        None,
+    )
+
+    if product is None:
+        raise ValueError(
+            f"Das Produkt '{product_id}' ist nicht vorhanden."
+        )
+
+    quantiles = product.get(
+        "forecast",
+        {},
+    ).get(
+        "quantiles",
+        [],
+    )
+
+    eligible_quantiles = [
+        quantile
+        for quantile in quantiles
+        if float(quantile["level"]) >= service_level
+    ]
+
+    if not eligible_quantiles:
+        raise ValueError(
+            "Die Nachfrageprognose enthält kein Quantil "
+            "auf oder oberhalb des geforderten "
+            "Servicelevels."
+        )
+
+    demand_quantile = min(
+        eligible_quantiles,
+        key=lambda quantile: float(quantile["level"]),
+    )
+
+    order_quantity = context.get_quantity(
+        "order_quantity",
+        product_id,
+    )
+
+    context.model += (
+        order_quantity >= float(demand_quantile["value"]),
+        f"minimum_cycle_service_level_{constraint_index}",
     )
 
 
@@ -721,6 +799,47 @@ CONSTRAINT_COMPONENTS: dict[
             }
         ],
         "linear_builder": build_order_multiple,
+    },
+    "minimum_cycle_service_level": {
+        "component_id": "minimum_cycle_service_level",
+        "name": "Mindestwahrscheinlichkeit ohne Fehlbestand",
+        "selection_guidance": (
+            "Wähle diesen Baustein, wenn eine minimale "
+            "Wahrscheinlichkeit, Lieferfähigkeit oder "
+            "Bedarfsdeckung ohne Fehlbestand gefordert wird."
+        ),
+        "scope": "per_product",
+        "compatible_core_ids": [
+            "single_period_newsvendor",
+            "continuous_review_q_r",
+        ],
+        "required_model_quantities": [],
+        "required_product_facts": [],
+        "required_global_facts": [],
+        "parameters": [
+            {
+                "name": "service_level_percent",
+                "label": (
+                    "Mindestwahrscheinlichkeit ohne "
+                    "Fehlbestand"
+                ),
+                "type": "number",
+                "required": True,
+                "help": (
+                    "Gewünschte Mindestwahrscheinlichkeit, "
+                    "dass die Nachfrage vollständig aus "
+                    "dem verfügbaren Bestand bedient "
+                    "werden kann."
+                ),
+                "min_value": 0.01,
+                "max_value": 99.99,
+                "step": 0.1,
+                "unit": "%",
+            }
+        ],
+        "linear_builder": (
+            build_minimum_cycle_service_level
+        ),
     },
     "budget_limit": {
         "component_id": "budget_limit",

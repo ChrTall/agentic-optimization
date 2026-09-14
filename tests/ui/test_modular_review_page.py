@@ -21,6 +21,11 @@ def test_uses_component_specific_parameter_labels() -> None:
     assert labels["maximum_order_quantity"]["quantity"] == (
         "Höchstbestellmenge"
     )
+    assert labels[
+        "minimum_cycle_service_level"
+    ]["service_level_percent"] == (
+        "Mindestwahrscheinlichkeit ohne Fehlbestand"
+    )
 
 
 def test_renders_unsupported_selection_issues(

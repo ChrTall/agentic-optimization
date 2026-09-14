@@ -649,6 +649,30 @@ def get_order_multiple(
     return None
 
 
+def get_minimum_cycle_service_level(
+    specification: ModelSpecification,
+    product_id: str,
+) -> float | None:
+    """Liest das Mindest-Zyklusservicelevel eines Produkts."""
+
+    for constraint in specification["constraints"]:
+        if (
+            constraint.get("product_id") == product_id
+            and constraint["component_id"]
+            == "minimum_cycle_service_level"
+        ):
+            return (
+                float(
+                    constraint["parameters"][
+                        "service_level_percent"
+                    ]
+                )
+                / 100.0
+            )
+
+    return None
+
+
 def validate_q_r_forecast(
     forecast: DemandForecast,
 ) -> list[str]:
@@ -684,10 +708,14 @@ def validate_q_r_semantics(
             product["facts"]["lead_time_days"]
         )
 
+        prepared_forecast = None
+
         try:
-            prepare_continuous_review_forecast(
-                product["forecast"],
-                lead_time_days=lead_time_days,
+            prepared_forecast = (
+                prepare_continuous_review_forecast(
+                    product["forecast"],
+                    lead_time_days=lead_time_days,
+                )
             )
         except ValueError as error:
             errors.append(
@@ -710,6 +738,44 @@ def validate_q_r_semantics(
             specification,
             product_id,
         )
+
+        minimum_cycle_service_level = (
+            get_minimum_cycle_service_level(
+                specification,
+                product_id,
+            )
+        )
+
+        if (
+            minimum_cycle_service_level is not None
+            and maximum_reorder_point is not None
+            and prepared_forecast is not None
+        ):
+            service_reorder_point = math.ceil(
+                prepared_forecast[
+                    "lead_time_demand_mean"
+                ]
+                + prepared_forecast[
+                    "lead_time_demand_std"
+                ]
+                * _STANDARD_NORMAL.inv_cdf(
+                    minimum_cycle_service_level
+                )
+            )
+
+            if (
+                service_reorder_point
+                > maximum_reorder_point
+            ):
+                errors.append(
+                    f"Für Produkt '{product_id}' erfordert "
+                    "das gewählte Servicelevel einen "
+                    "Meldebestand von mindestens "
+                    f"{service_reorder_point}. Dieser "
+                    "überschreitet den "
+                    "Höchstmeldebestand von "
+                    f"{maximum_reorder_point}."
+                )
 
         if (
             maximum_order_quantity is not None
@@ -815,6 +881,31 @@ def execute_continuous_review_q_r(
             specification,
             product_id,
         )
+
+        minimum_cycle_service_level = (
+            get_minimum_cycle_service_level(
+                specification,
+                product_id,
+            )
+        )
+
+        if minimum_cycle_service_level is not None:
+            service_reorder_point = math.ceil(
+                prepared_forecast[
+                    "lead_time_demand_mean"
+                ]
+                + prepared_forecast[
+                    "lead_time_demand_std"
+                ]
+                * _STANDARD_NORMAL.inv_cdf(
+                    minimum_cycle_service_level
+                )
+            )
+
+            minimum_reorder_point = max(
+                minimum_reorder_point,
+                service_reorder_point,
+            )
 
         result = find_optimal_q_r_policy(
             annual_demand=prepared_forecast[

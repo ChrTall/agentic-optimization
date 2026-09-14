@@ -313,3 +313,64 @@ def test_builds_input_for_missing_order_multiple() -> None:
     )
 
     assert final_validation["is_valid"] is True
+
+
+def test_builds_input_for_missing_cycle_service_level() -> None:
+    specification = create_specification(
+        [
+            create_product("product_1"),
+        ]
+    )
+
+    specification["constraints"] = [
+        {
+            "component_id": (
+                "minimum_cycle_service_level"
+            ),
+            "product_id": "product_1",
+            "parameters": {},
+        }
+    ]
+
+    layout = build_modular_input_layout(
+        specification
+    )
+
+    assert len(layout["constraint_groups"]) == 1
+
+    constraint_group = layout["constraint_groups"][0]
+
+    assert constraint_group["component_id"] == (
+        "minimum_cycle_service_level"
+    )
+    assert constraint_group["product_id"] == "product_1"
+    assert len(constraint_group["inputs"]) == 1
+
+    missing_input = constraint_group["inputs"][0]
+
+    assert missing_input["source"] == (
+        "constraint_parameter"
+    )
+    assert missing_input["field"]["name"] == (
+        "service_level_percent"
+    )
+    assert missing_input["field"]["type"] == "number"
+    assert missing_input["field"]["unit"] == "%"
+    assert missing_input["field"]["min_value"] == 0.01
+    assert missing_input["field"]["max_value"] == 99.99
+
+    updated_specification = apply_modular_input_value(
+        specification,
+        missing_input,
+        85.0,
+    )
+
+    assert updated_specification["constraints"][0][
+        "parameters"
+    ]["service_level_percent"] == 85.0
+
+    final_validation = validate_model_specification(
+        updated_specification
+    )
+
+    assert final_validation["is_valid"] is True

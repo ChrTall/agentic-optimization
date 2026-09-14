@@ -123,6 +123,35 @@ def test_applies_minimum_order_quantity_builder() -> None:
     assert order_quantity == pytest.approx(110.0)
 
 
+def test_applies_minimum_cycle_service_level() -> None:
+    specification = create_specification(
+        [
+            create_product("product_1"),
+        ]
+    )
+
+    specification["constraints"] = [
+        {
+            "component_id": (
+                "minimum_cycle_service_level"
+            ),
+            "product_id": "product_1",
+            "parameters": {
+                "service_level_percent": 85.0,
+            },
+        }
+    ]
+
+    context = solve(specification)
+
+    order_quantity = context.get_quantity(
+        "order_quantity",
+        "product_1",
+    ).value()
+
+    assert order_quantity == pytest.approx(140.0)
+
+
 def test_compiles_same_model_for_multiple_products() -> None:
     specification = create_specification(
         [

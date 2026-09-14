@@ -52,7 +52,21 @@ def test_complete_modular_newsvendor_pipeline() -> None:
                 },
                 "reason": "Eine Mindestbestellmenge wurde erkannt.",
                 "sources": ["Lieferantenvertrag"],
-            }
+            },
+            {
+                "component_id": (
+                    "minimum_cycle_service_level"
+                ),
+                "product_id": "product_1",
+                "parameters": {
+                    "service_level_percent": 85.0,
+                },
+                "reason": (
+                    "Mindestens 85 Prozent sollen ohne "
+                    "Fehlbestand bedient werden."
+                ),
+                "sources": ["Freitext"],
+            },
         ],
         "unresolved_requirements": [],
     }
@@ -132,7 +146,7 @@ def test_complete_modular_newsvendor_pipeline() -> None:
         {
             "quantity_id": "order_quantity",
             "product_id": "product_1",
-            "value": pytest.approx(110.0),
+            "value": pytest.approx(140.0),
         }
     ]
     assert result["errors"] == []
@@ -277,6 +291,20 @@ def test_complete_modular_q_r_pipeline() -> None:
                 ),
                 "sources": ["Lieferantenvertrag"],
             },
+            {
+                "component_id": (
+                    "minimum_cycle_service_level"
+                ),
+                "product_id": "product_1",
+                "parameters": {
+                    "service_level_percent": 99.0,
+                },
+                "reason": (
+                    "Mindestens 99 Prozent der Zyklen "
+                    "sollen ohne Fehlbestand verlaufen."
+                ),
+                "sources": ["Freitext"],
+            },
         ],
         "unresolved_requirements": [],
     }
@@ -381,7 +409,7 @@ def test_complete_modular_q_r_pipeline() -> None:
     assert result["solution_method"] == "numerical"
     assert decisions["order_quantity"] >= 300
     assert decisions["order_quantity"] % 100 == 0
-    assert decisions["reorder_point"] >= 0
+    assert decisions["reorder_point"] == 71
     assert result["errors"] == []
 
 

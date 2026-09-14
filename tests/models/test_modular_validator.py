@@ -848,3 +848,31 @@ def test_rejects_incompatible_order_multiple_bounds() -> None:
         in error
         for error in result["errors"]
     )
+
+
+def test_rejects_service_level_above_available_quantiles() -> None:
+    specification = create_complete_specification()
+
+    specification["constraints"] = [
+        {
+            "component_id": (
+                "minimum_cycle_service_level"
+            ),
+            "product_id": "product_1",
+            "parameters": {
+                "service_level_percent": 95.0,
+            },
+        }
+    ]
+
+    result = validate_model_specification(
+        specification
+    )
+
+    assert result["is_valid"] is False
+    assert any(
+        "product_1" in error
+        and "kein Nachfragequantil auf oder oberhalb"
+        in error
+        for error in result["errors"]
+    )

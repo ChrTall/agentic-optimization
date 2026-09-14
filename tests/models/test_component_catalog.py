@@ -6,9 +6,9 @@ from agentic_optimization.models.component_catalog import (
     build_component_catalog,
 )
 from agentic_optimization.models.component_registry import (
+    CONSTRAINT_COMPONENTS,
     OBJECTIVE_COMPONENTS,
 )
-
 
 def test_builds_newsvendor_component_catalog() -> None:
     catalog = build_component_catalog(
@@ -41,6 +41,7 @@ def test_builds_newsvendor_component_catalog() -> None:
         "order_multiple",
         "budget_limit",
         "storage_capacity",
+        "minimum_cycle_service_level",
     }
     assert catalog["core"][
         "required_objective_component_ids"
@@ -152,6 +153,7 @@ def test_builds_continuous_review_q_r_catalog() -> None:
         "order_multiple",
         "minimum_reorder_point",
         "maximum_reorder_point",
+        "minimum_cycle_service_level",
     }
     assert catalog["core"][
         "required_objective_component_ids"
@@ -160,3 +162,24 @@ def test_builds_continuous_review_q_r_catalog() -> None:
         "annual_holding_cost",
         "annual_shortage_cost",
     ]
+
+
+def test_cycle_service_level_uses_percentage_parameter() -> None:
+    component = CONSTRAINT_COMPONENTS[
+        "minimum_cycle_service_level"
+    ]
+
+    assert component["scope"] == "per_product"
+    assert component["required_model_quantities"] == []
+    assert (
+        "Wahrscheinlichkeit"
+        in component["selection_guidance"]
+    )
+
+    parameter = component["parameters"][0]
+
+    assert parameter["name"] == "service_level_percent"
+    assert parameter["type"] == "number"
+    assert parameter["min_value"] == 0.01
+    assert parameter["max_value"] == 99.99
+    assert parameter["unit"] == "%"

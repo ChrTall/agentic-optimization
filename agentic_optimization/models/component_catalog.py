@@ -40,6 +40,7 @@ class ObjectiveComponentCatalogEntry(TypedDict):
     effect: ObjectiveEffect
     required_product_facts: list[ModelInputField]
     required_global_facts: list[ModelInputField]
+    selection_guidance: str
 
 
 class ConstraintComponentCatalogEntry(TypedDict):
@@ -51,6 +52,7 @@ class ConstraintComponentCatalogEntry(TypedDict):
     required_product_facts: list[ModelInputField]
     required_global_facts: list[ModelInputField]
     parameters: list[ConstraintParameterDefinition]
+    selection_guidance: str
 
 
 class ComponentCatalog(TypedDict):
@@ -88,6 +90,10 @@ def build_component_catalog(
                 "component_id": definition["component_id"],
                 "name": definition["name"],
                 "effect": definition["effect"],
+                "selection_guidance": definition.get(
+                    "selection_guidance",
+                    "",
+                ),
                 "required_product_facts": deepcopy(
                     definition["required_product_facts"]
                 ),
@@ -110,6 +116,10 @@ def build_component_catalog(
                 "component_id": definition["component_id"],
                 "name": definition["name"],
                 "scope": definition["scope"],
+                "selection_guidance": definition.get(
+                    "selection_guidance",
+                    "",
+                ),
                 "required_product_facts": deepcopy(
                     definition["required_product_facts"]
                 ),

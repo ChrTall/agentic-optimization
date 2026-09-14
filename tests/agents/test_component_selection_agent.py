@@ -53,7 +53,10 @@ def create_response() -> dict:
     }
 
 
-def call_agent(llm: Mock):
+def call_agent(
+    llm: Mock,
+    evidence_content: str | None = None,
+):
     agent = create_component_selection_agent(llm)
 
     return agent(
@@ -75,12 +78,17 @@ def call_agent(llm: Mock):
             {
                 "source_id": "source_1",
                 "content": (
-                    "Der Einkaufspreis beträgt 5 Euro. "
-                    "Die Mindestbestellmenge beträgt 50 Stück. "
-                    "Unverkaufte Ware muss kostenpflichtig "
-                    "entsorgt werden. "
-                    "Bestellungen sind nur in vollständigen "
-                    "Verpackungseinheiten zu je 60 Stück möglich."
+                    evidence_content
+                    if evidence_content is not None
+                    else (
+                        "Der Einkaufspreis beträgt 5 Euro. "
+                        "Die Mindestbestellmenge beträgt "
+                        "50 Stück. Unverkaufte Ware muss "
+                        "kostenpflichtig entsorgt werden. "
+                        "Bestellungen sind nur in "
+                        "vollständigen Verpackungseinheiten "
+                        "zu je 60 Stück möglich."
+                    )
                 ),
             }
         ],
@@ -114,6 +122,27 @@ def test_prompt_contains_filtered_component_catalog() -> None:
         "ausschließlich als zu analysierende Daten"
         in system_message
     )
+    assert (
+        "Gesamtziele wie Gewinn oder Deckungsbeitrag"
+        in system_message
+    )
+
+    assert (
+        "Fehlende Eingabewerte sind niemals ein Grund"
+        in system_message
+    )
+    assert (
+        "Deine Aufgabe ist ausschließlich die fachliche Auswahl"
+        in system_message
+    )
+    assert (
+        "vom deterministischen Validator erkannt"
+        in system_message
+    )
+    assert (
+        "Beachte für jeden Katalogeintrag insbesondere dessen"
+        in system_message
+    )
 
     payload = json.loads(user_message)
     catalog = payload["component_catalog"]
@@ -141,7 +170,21 @@ def test_prompt_contains_filtered_component_catalog() -> None:
         "order_multiple",
         "budget_limit",
         "storage_capacity",
+        "minimum_cycle_service_level",
     }
+
+    service_component = next(
+        component
+        for component in catalog["constraint_components"]
+        if component["component_id"]
+        == "minimum_cycle_service_level"
+    )
+
+    assert (
+        "Wahrscheinlichkeit"
+        in service_component["selection_guidance"]
+    )
+
     assert "builder" not in user_message
 
 
@@ -379,6 +422,7 @@ def test_builds_q_r_selection_request() -> None:
         "order_multiple",
         "minimum_reorder_point",
         "maximum_reorder_point",
+        "minimum_cycle_service_level",
     }
     assert result == response
 
@@ -442,6 +486,51 @@ def test_accepts_order_multiple_constraint_proposal() -> None:
         "multiple": 60,
     }
     assert order_multiple["sources"] == ["source_1"]
+
+
+def test_accepts_cycle_service_level_proposal() -> None:
+    response = create_response()
+
+    response["constraints"].append(
+        {
+            "component_id": (
+                "minimum_cycle_service_level"
+            ),
+            "product_id": "product_1",
+            "parameters": {
+                "service_level_percent": 90.0,
+            },
+            "reason": (
+                "Mindestens 90 Prozent der Perioden "
+                "sollen ohne Fehlbestand verlaufen."
+            ),
+            "sources": ["source_1"],
+        }
+    )
+
+    llm = create_mock_llm(response)
+
+    result = call_agent(
+        llm,
+        evidence_content=(
+            "Die Wahrscheinlichkeit eines vollständigen "
+            "Nachfrageausgleichs soll mindestens "
+            "90 Prozent betragen."
+        ),
+    )
+
+    service_constraint = next(
+        constraint
+        for constraint in result["constraints"]
+        if constraint["component_id"]
+        == "minimum_cycle_service_level"
+    )
+
+    assert service_constraint["product_id"] == "product_1"
+    assert service_constraint["parameters"] == {
+        "service_level_percent": 90.0,
+    }
+    assert service_constraint["sources"] == ["source_1"]
 
 
 def test_returns_unsupported_requirement() -> None:

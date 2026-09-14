@@ -188,6 +188,44 @@ def validate_single_period_newsvendor_semantics(
                 "Restwert sein."
             )
 
+    products_by_id = {
+        product["product_id"]: product
+        for product in specification["products"]
+    }
+
+    for constraint in specification["constraints"]:
+        if (
+            constraint["component_id"]
+            != "minimum_cycle_service_level"
+        ):
+            continue
+
+        product_id = constraint.get("product_id")
+        product = products_by_id[product_id]
+
+        service_level_percent = float(
+            constraint["parameters"][
+                "service_level_percent"
+            ]
+        )
+        service_level = service_level_percent / 100.0
+
+        quantiles = product["forecast"]["quantiles"]
+
+        has_sufficient_quantile = any(
+            float(quantile["level"]) >= service_level
+            for quantile in quantiles
+        )
+
+        if not has_sufficient_quantile:
+            errors.append(
+                f"Für das Produkt '{product_id}' enthält "
+                "die Nachfrageprognose kein "
+                "Nachfragequantil auf oder oberhalb des "
+                "geforderten Servicelevels von "
+                f"{service_level_percent:g} %."
+            )
+
     return errors
 
 

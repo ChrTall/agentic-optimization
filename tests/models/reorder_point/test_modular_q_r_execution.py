@@ -157,6 +157,32 @@ def test_applies_q_r_constraints() -> None:
     }
 
 
+def test_applies_minimum_cycle_service_level() -> None:
+    specification = create_specification()
+    specification["constraints"] = [
+        {
+            "component_id": (
+                "minimum_cycle_service_level"
+            ),
+            "product_id": "product_1",
+            "parameters": {
+                "service_level_percent": 99.0,
+            },
+        }
+    ]
+
+    validation = validate_model_specification(
+        specification
+    )
+    result = execute_model_specification(
+        specification
+    )
+    decisions = decision_values(result)
+
+    assert validation["is_valid"] is True
+    assert decisions["reorder_point"] == 71
+
+
 def test_rejects_missing_q_r_cost_input() -> None:
     specification = create_specification()
     specification["products"][0]["facts"].pop(
@@ -263,4 +289,38 @@ def test_applies_order_multiple() -> None:
     assert decisions["reorder_point"] == 64
     assert result["objective_value"] == pytest.approx(
         576.6824991
+    )
+
+
+def test_rejects_service_level_above_maximum_reorder_point() -> None:
+    specification = create_specification()
+    specification["constraints"] = [
+        {
+            "component_id": (
+                "minimum_cycle_service_level"
+            ),
+            "product_id": "product_1",
+            "parameters": {
+                "service_level_percent": 99.0,
+            },
+        },
+        {
+            "component_id": "maximum_reorder_point",
+            "product_id": "product_1",
+            "parameters": {
+                "reorder_point": 70.0,
+            },
+        },
+    ]
+
+    validation = validate_model_specification(
+        specification
+    )
+
+    assert validation["is_valid"] is False
+    assert any(
+        "product_1" in error
+        and "Servicelevel" in error
+        and "Höchstmeldebestand" in error
+        for error in validation["errors"]
     )
