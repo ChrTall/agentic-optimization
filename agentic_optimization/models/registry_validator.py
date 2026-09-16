@@ -150,6 +150,41 @@ def validate_registry_integrity(
         definition = registered_core["definition"]
         core_id = definition["core_id"]
 
+        for field_name, field_label in (
+            ("name", "Name"),
+            ("description", "Beschreibung"),
+            (
+                "decision_description",
+                "Entscheidungsbeschreibung",
+            ),
+        ):
+            value = definition.get(field_name)
+
+            if (
+                not isinstance(value, str)
+                or not value.strip()
+            ):
+                errors.append(
+                    f"Das Grundmodell '{core_id}' benötigt "
+                    f"eine gültige {field_label}."
+                )
+
+        assumptions = definition.get("assumptions")
+
+        if (
+            not isinstance(assumptions, list)
+            or not assumptions
+            or any(
+                not isinstance(assumption, str)
+                or not assumption.strip()
+                for assumption in assumptions
+            )
+        ):
+            errors.append(
+                f"Das Grundmodell '{core_id}' benötigt "
+                "mindestens eine gültige Modellannahme."
+            )
+
         minimum_products = definition["minimum_products"]
 
         if (

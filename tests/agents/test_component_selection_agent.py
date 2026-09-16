@@ -56,6 +56,7 @@ def create_response() -> dict:
 def call_agent(
     llm: Mock,
     evidence_content: str | None = None,
+    locked_objective_proposal: dict | None = None,
 ):
     agent = create_component_selection_agent(llm)
 
@@ -92,6 +93,9 @@ def call_agent(
                 ),
             }
         ],
+        locked_objective_proposal=(
+            locked_objective_proposal
+        ),
     )
 
 
@@ -118,6 +122,11 @@ def test_prompt_contains_filtered_component_catalog() -> None:
     system_message = messages[0].content
 
     assert isinstance(system_message, str)
+
+    normalized_system_message = " ".join(
+        system_message.split()
+    )
+
     assert (
         "ausschließlich als zu analysierende Daten"
         in system_message
@@ -143,7 +152,29 @@ def test_prompt_contains_filtered_component_catalog() -> None:
         "Beachte für jeden Katalogeintrag insbesondere dessen"
         in system_message
     )
+    assert (
+        "niemals lediglich dem ähnlichsten"
+        in system_message
+    )
 
+    assert (
+        "darf nicht gleichzeitig bereits unter "
+        "objective_components oder constraints "
+        "ausgewählt sein"
+        in normalized_system_message
+    )
+
+    assert (
+        "Liefertermine, Wochentage oder "
+        "Lieferhäufigkeiten keine Mindest- oder "
+        "Höchstbestellmenge"
+        in normalized_system_message
+    )
+    assert (
+        "Zielfunktionsauswahl für den aktuellen Vorgang "
+        "verbindlich"
+        in normalized_system_message
+    )
     payload = json.loads(user_message)
     catalog = payload["component_catalog"]
 
@@ -172,6 +203,26 @@ def test_prompt_contains_filtered_component_catalog() -> None:
         "storage_capacity",
         "minimum_cycle_service_level",
     }
+
+    minimum_quantity_component = next(
+        component
+        for component in catalog["constraint_components"]
+        if component["component_id"]
+        == "minimum_order_quantity"
+    )
+
+    assert (
+        "mengenmäßige Untergrenze"
+        in minimum_quantity_component[
+            "selection_guidance"
+        ]
+    )
+    assert (
+        "Liefertermine"
+        in minimum_quantity_component[
+            "selection_guidance"
+        ]
+    )
 
     service_component = next(
         component
@@ -654,6 +705,15 @@ def test_corrects_invalid_response_once() -> None:
         correction_messages[-1].content
     )
 
+    assert (
+        "darf nicht gleichzeitig bereits ausgewählt sein"
+        in correction_messages[-1].content
+    )
+    assert (
+        "entferne sie aus unresolved_requirements"
+        in correction_messages[-1].content
+    )
+
 
 def test_rejects_response_after_failed_correction() -> None:
     invalid_response = create_response()
@@ -674,3 +734,54 @@ def test_rejects_response_after_failed_correction() -> None:
         call_agent(llm)
 
     assert llm.invoke.call_count == 2
+
+
+def test_enforces_locked_objective_selection() -> None:
+    locked_proposal = create_response()
+
+    changed_response = create_response()
+    changed_response["objective_components"] = [
+        *changed_response["objective_components"],
+        {
+            "component_id": "shortage_cost",
+            "reason": "Fehlmengenkosten ergänzen.",
+            "sources": ["source_1"],
+        },
+    ]
+
+    corrected_response = create_response()
+
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(
+            content=json.dumps(changed_response)
+        ),
+        AIMessage(
+            content=json.dumps(corrected_response)
+        ),
+    ]
+
+    result = call_agent(
+        llm,
+        locked_objective_proposal=locked_proposal,
+    )
+
+    assert result == corrected_response
+    assert llm.invoke.call_count == 2
+
+    first_messages = llm.invoke.call_args_list[
+        0
+    ].args[0]
+    first_payload = json.loads(
+        first_messages[1].content
+    )
+
+    assert first_payload[
+        "locked_objective_selection"
+    ] == {
+        "objective_sense": "maximize",
+        "objective_component_ids": [
+            "sales_revenue",
+            "purchase_cost",
+        ],
+    }

@@ -18,6 +18,22 @@ def test_builds_modular_eoq_result_data() -> None:
             ],
         },
         "constraints": [],
+        "excluded_requirements": [
+            {
+                "description": (
+                    "Jede Lieferung muss an einem "
+                    "Dienstag eintreffen."
+                ),
+                "reason": (
+                    "Ein bestimmter Liefertag wird "
+                    "nicht unterstützt."
+                ),
+                "sources": ["raw_input"],
+                "confirmation_source": (
+                    "modular_unsupported_review"
+                ),
+            }
+        ],
     }
 
     result = {
@@ -74,6 +90,22 @@ def test_builds_modular_eoq_result_data() -> None:
     assert result_data["metrics"][1]["label"] == (
         "Jährliche relevante Gesamtkosten"
     )
+    assert result_data["excluded_requirements"] == [
+        {
+            "description": (
+                "Jede Lieferung muss an einem "
+                "Dienstag eintreffen."
+            ),
+            "reason": (
+                "Ein bestimmter Liefertag wird "
+                "nicht unterstützt."
+            ),
+            "sources": ["raw_input"],
+            "confirmation_source": (
+                "modular_unsupported_review"
+            ),
+        }
+    ]
 
 
 def test_rejects_unknown_core() -> None:

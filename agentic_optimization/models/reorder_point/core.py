@@ -45,6 +45,28 @@ class QRPolicyEvaluation:
 CORE_DEFINITION: ModelCoreDefinition = {
     "core_id": "continuous_review_q_r",
     "name": "Kontinuierliche Bestandsüberprüfung (Q,R)",
+    "description": (
+        "Dieses Modell unterstützt die laufende "
+        "Bestandsüberwachung bei unsicherer Nachfrage."
+    ),
+    "decision_description": (
+        "Berechnet werden die Bestellmenge und der "
+        "Lagerbestand, bei dem eine neue Bestellung "
+        "ausgelöst werden soll."
+    ),
+    "assumptions": [
+        (
+            "Der Lagerbestand wird laufend überwacht."
+        ),
+        (
+            "Die angegebene Lieferzeit wird als konstant "
+            "angenommen."
+        ),
+        (
+            "Die Nachfrage während der Lieferzeit wird "
+            "aus dem probabilistischen Forecast angenähert."
+        ),
+    ],
     "minimum_products": 1,
     "required_product_facts": [
         {

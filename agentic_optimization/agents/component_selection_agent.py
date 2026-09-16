@@ -42,6 +42,18 @@ Regeln:
    fachliche Anforderung gegen diese Auswahlhinweise und
    lasse keinen eindeutig passenden Baustein weg.
 
+   Ordne eine Anforderung niemals lediglich dem ähnlichsten
+   verfügbaren Baustein zu. Ein Baustein darf nur ausgewählt
+   werden, wenn seine fachliche Bedeutung durch die
+   Anforderungen oder Evidenzen tatsächlich belegt ist.
+
+   Wenn eine Anforderung nicht exakt durch einen verfügbaren
+   Baustein abgebildet werden kann, kennzeichne sie als
+   unsupported. Wähle nicht zusätzlich einen unpassenden
+   Ersatzbaustein. Insbesondere begründen Liefertermine,
+   Wochentage oder Lieferhäufigkeiten keine Mindest- oder
+   Höchstbestellmenge.
+
    Gesamtziele wie Gewinn oder Deckungsbeitrag können durch
    mehrere vorhandene Erlös- und Kostenbausteine gemeinsam
    abgebildet werden. Markiere ein solches Ziel nicht allein
@@ -50,6 +62,13 @@ Regeln:
    Gewinnmaximierung bilden ausgewählte Erlösbausteine die
    positiven und ausgewählte Kostenbausteine die negativen
    Bestandteile der Zielfunktion.
+
+   Wenn locked_objective_selection nicht null ist, ist diese
+   Zielfunktionsauswahl für den aktuellen Vorgang verbindlich.
+   Übernimm objective_sense und objective_component_ids exakt.
+   Füge keinen Zielfunktionsbaustein hinzu und entferne keinen.
+   Prüfe in diesem Fall nur noch Nebenbedingungen,
+   produktspezifische Zuordnungen und ungelöste Anforderungen.
 
 6. Deine Aufgabe ist ausschließlich die fachliche Auswahl
    der Bausteine, nicht die Prüfung ihrer Eingabewerte.
@@ -111,9 +130,17 @@ Bei resolution "clarification" muss
 candidate_component_ids mindestens einen kompatiblen
 Katalogbaustein enthalten.
 
+Ein Baustein in candidate_component_ids darf nicht
+gleichzeitig bereits unter objective_components oder
+constraints ausgewählt sein. Ist eine Anforderung durch die
+ausgewählten Bausteine bereits abgedeckt, darf sie nicht
+zusätzlich in unresolved_requirements erscheinen. Ist eine
+echte Klärung zwischen mehreren Bausteinen erforderlich,
+dürfen diese Kandidaten bis zur Klärung noch nicht ausgewählt
+werden.
+
 Bei resolution "unsupported" muss
 candidate_component_ids eine leere Liste sein.
-
 Ein fehlender Eingabewert hat keine alternativen
 Kandidaten-Bausteine und darf daher nicht als
 clarification ausgegeben werden.
@@ -196,6 +223,9 @@ def _build_user_message(
     products: list[ProductSpecification],
     global_facts: dict[str, Any],
     evidence: list[SelectionEvidence],
+    locked_objective_proposal: (
+        ComponentSelectionProposal | None
+    ) = None,
 ) -> str:
     """Erzeugt die strukturierte Eingabe für das LLM."""
 
@@ -208,6 +238,25 @@ def _build_user_message(
         "products": products,
         "global_facts": global_facts,
         "evidence": evidence,
+        "locked_objective_selection": (
+            {
+                "objective_sense": (
+                    locked_objective_proposal[
+                        "objective_sense"
+                    ]
+                ),
+                "objective_component_ids": [
+                    component["component_id"]
+                    for component in (
+                        locked_objective_proposal[
+                            "objective_components"
+                        ]
+                    )
+                ],
+            }
+            if locked_objective_proposal is not None
+            else None
+        ),
     }
 
     return json.dumps(
@@ -222,6 +271,9 @@ def _parse_and_validate_proposal(
     *,
     expected_core_id: str,
     evidence: list[SelectionEvidence],
+    locked_objective_proposal: (
+        ComponentSelectionProposal | None
+    ) = None,
 ) -> ComponentSelectionProposal:
     """Prüft eine einzelne Antwort des Auswahlagenten."""
 
@@ -272,6 +324,35 @@ def _parse_and_validate_proposal(
             f"{unknown_sources}."
         )
 
+    if locked_objective_proposal is not None:
+        expected_sense = locked_objective_proposal[
+            "objective_sense"
+        ]
+        expected_component_ids = [
+            component["component_id"]
+            for component in locked_objective_proposal[
+                "objective_components"
+            ]
+        ]
+        actual_component_ids = [
+            component["component_id"]
+            for component in raw_proposal[
+                "objective_components"
+            ]
+        ]
+
+        if raw_proposal["objective_sense"] != expected_sense:
+            raise ValueError(
+                "Die verbindliche Zielrichtung wurde "
+                "verändert."
+            )
+
+        if actual_component_ids != expected_component_ids:
+            raise ValueError(
+                "Die verbindlichen Zielfunktionsbausteine "
+                "wurden verändert."
+            )
+
     return cast(
         ComponentSelectionProposal,
         raw_proposal,
@@ -290,6 +371,9 @@ def create_component_selection_agent(
         products: list[ProductSpecification],
         global_facts: dict[str, Any],
         evidence: list[SelectionEvidence],
+        locked_objective_proposal: (
+            ComponentSelectionProposal | None
+        ) = None,
     ) -> ComponentSelectionProposal:
         user_message = _build_user_message(
             core_id,
@@ -297,6 +381,7 @@ def create_component_selection_agent(
             products,
             global_facts,
             evidence,
+            locked_objective_proposal,
         )
 
         messages = [
@@ -312,6 +397,9 @@ def create_component_selection_agent(
                     response.content,
                     expected_core_id=core_id,
                     evidence=evidence,
+                    locked_objective_proposal=(
+                        locked_objective_proposal
+                    ),
                 )
             except (TypeError, ValueError) as error:
                 if attempt == 1:
@@ -331,7 +419,17 @@ def create_component_selection_agent(
                                 "formal ungültig.\n\n"
                                 f"Validierungsfehler: {error}\n\n"
                                 "Korrigiere ausschließlich das "
-                                "JSON-Objekt. Beachte exakt das "
+                                "JSON-Objekt. Ein Kandidaten-"
+                                "Baustein darf nicht gleichzeitig "
+                                "bereits ausgewählt sein. Ist die "
+                                "Anforderung durch ausgewählte "
+                                "Bausteine bereits abgedeckt, "
+                                "entferne sie aus "
+                                "unresolved_requirements. Ist "
+                                "eine echte Klärung erforderlich, "
+                                "entferne die Kandidaten zunächst "
+                                "aus objective_components und "
+                                "constraints. Beachte exakt das "
                                 "vorgegebene Antwortformat und "
                                 "gib erneut ausschließlich JSON "
                                 "zurück."

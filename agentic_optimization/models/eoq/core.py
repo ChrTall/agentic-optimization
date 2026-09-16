@@ -22,6 +22,29 @@ from agentic_optimization.models.types import (
 CORE_DEFINITION: ModelCoreDefinition = {
     "core_id": "eoq",
     "name": "Wirtschaftliche Bestellmenge (EOQ)",
+    "description": (
+        "Dieses Modell unterstützt wiederkehrende "
+        "Bestellzyklen bei einem gleichmäßig angenommenen "
+        "Bedarf."
+    ),
+    "decision_description": (
+        "Berechnet wird, wie viele Einheiten bei jeder "
+        "Bestellung bestellt werden sollen."
+    ),
+    "assumptions": [
+        (
+            "Der Bedarf wird über die Zeit als gleichmäßig "
+            "und planbar angenommen."
+        ),
+        (
+            "Der angegebene Prognosezeitraum wird zur "
+            "Ermittlung des Jahresbedarfs hochgerechnet."
+        ),
+        (
+            "Fehlbestände und Mengenrabatte werden im "
+            "aktuellen Grundmodell nicht berücksichtigt."
+        ),
+    ],
     "minimum_products": 1,
     "required_product_facts": [],
     "required_global_facts": [],

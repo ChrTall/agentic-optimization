@@ -25,6 +25,30 @@ from agentic_optimization.models.types import (
 CORE_DEFINITION: ModelCoreDefinition = {
     "core_id": "single_period_newsvendor",
     "name": "Einperiodiges Newsvendor-Modell",
+    "description": (
+        "Dieses Modell unterstützt eine einmalige "
+        "Bestellentscheidung vor einem begrenzten "
+        "Verkaufszeitraum mit unsicherer Nachfrage."
+    ),
+    "decision_description": (
+        "Berechnet wird, wie viele Einheiten vor Beginn "
+        "des Verkaufszeitraums bestellt werden sollen."
+    ),
+    "assumptions": [
+        (
+            "Die Bestellmenge wird einmal vor Beginn "
+            "des Verkaufszeitraums festgelegt."
+        ),
+        (
+            "Während des betrachteten Verkaufszeitraums "
+            "wird nicht nachbestellt."
+        ),
+        (
+            "Die unsichere Nachfrage wird durch den "
+            "angegebenen probabilistischen Forecast "
+            "beschrieben."
+        ),
+    ],
     "minimum_products": 1,
     "required_product_facts": [],
     "required_global_facts": [],

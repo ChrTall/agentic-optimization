@@ -1,5 +1,8 @@
 import streamlit as st
 
+from agentic_optimization.agents.business_intake import (
+    create_initial_business_intake_state,
+)
 from agentic_optimization.configuration.llm_config import load_llm_configuration
 from agentic_optimization.graph import build_graph
 from agentic_optimization.llm.factory import create_chat_model
@@ -8,32 +11,49 @@ from agentic_optimization.models.registry import (
     get_model_variant_definition,
 )
 from agentic_optimization.state import (
+    EVENT_BUSINESS_INTAKE_REQUESTED,
     EVENT_MODEL_INPUTS_SUBMITTED,
     EVENT_MODULAR_INPUTS_SUBMITTED,
+    EVENT_MODULAR_MODEL_PREPARATION_REQUESTED,
     EVENT_MODULAR_OPTIMIZATION_REQUESTED,
+    EVENT_MODULAR_REQUIREMENT_EXCLUSIONS_CONFIRMED,
     EVENT_NEW_PROBLEM,
     EVENT_OPTIMIZATION_REQUESTED,
+    WORKFLOW_BUSINESS_CORE_SELECTED,
     WORKFLOW_MODEL_INPUTS_INVALID,
     WORKFLOW_MODEL_PREPARATION_FAILED,
     WORKFLOW_MODEL_UNSUPPORTED,
+    WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT,
     WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
     WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS,
     WORKFLOW_OPTIMIZATION_COMPLETED,
     WORKFLOW_OPTIMIZATION_FAILED,
     WORKFLOW_READY_FOR_RESULT,
     WORKFLOW_READY_FOR_REVIEW,
+    EVENT_MODULAR_PRODUCT_SCHEMA_REQUESTED,
+    WORKFLOW_PRODUCT_TABLE_READY,
     get_workflow_status,
     invalidate_optimization_state,
+)
+from agentic_optimization.ui.business_clarification_page import (
+    render_business_clarification_page,
+)
+from agentic_optimization.ui.business_intake_page import (
+    render_business_intake_page,
 )
 from agentic_optimization.ui.field_renderer import (
     parse_input_value,
     render_input_field,
 )
 from agentic_optimization.ui.modular_input_page import render_modular_input_page
+from agentic_optimization.ui.modular_product_list_page import (
+    render_dynamic_product_table_page,
+)
 from agentic_optimization.ui.modular_result_page import (
     render_modular_result_page,
 )
 from agentic_optimization.ui.modular_review_page import (
+    render_modular_exclusion_confirmation,
     render_modular_review_page,
     render_modular_selection_issues,
 )
@@ -122,6 +142,19 @@ def format_selectbox_value(
     return labels.get(value, value)
 
 
+def get_or_create_llm():
+    """Lädt das konfigurierte Sprachmodell höchstens einmal."""
+
+    llm = st.session_state.get("llm")
+
+    if llm is None:
+        llm_config = load_llm_configuration()
+        llm = create_chat_model(llm_config)
+        st.session_state.llm = llm
+
+    return llm
+
+
 # ── Seitenkonfiguration ───────────────────────────────────────────────────────
 
 st.set_page_config(
@@ -140,16 +173,48 @@ if "graph_state" not in st.session_state:
     st.session_state.graph_state = None
 if "raw_problem_description" not in st.session_state:
     st.session_state.raw_problem_description = ""
+if "uses_business_intake" not in st.session_state:
+    st.session_state.uses_business_intake = False
 
 # ── Fortschrittsanzeige ───────────────────────────────────────────────────────
 
-STEPS = ["form", "freitext", "model_input_form", "review", "result"]
-STEP_LABELS = ["① Formular", "② Beschreibung", "③ Modellinput", "④ Überprüfung", "⑤ Ergebnis"]
+STEPS = [
+    "form",
+    "freitext",
+    "model_input_form",
+    "review",
+    "result",
+]
 
-step_for_progress = (
-    "form"
-    if st.session_state.step == "model_unsupported"
-    else st.session_state.step
+LEGACY_STEP_LABELS = [
+    "① Formular",
+    "② Beschreibung",
+    "③ Modellinput",
+    "④ Überprüfung",
+    "⑤ Ergebnis",
+]
+
+BUSINESS_STEP_LABELS = [
+    "① Situation",
+    "② Rückfragen",
+    "③ Modellinput",
+    "④ Überprüfung",
+    "⑤ Ergebnis",
+]
+
+STEP_LABELS = (
+    BUSINESS_STEP_LABELS
+    if st.session_state.uses_business_intake
+    else LEGACY_STEP_LABELS
+)
+step_for_progress = {
+    "model_unsupported": "form",
+    "business_intake": "form",
+    "business_clarification": "freitext",
+    "product_table": "model_input_form",
+}.get(
+    st.session_state.step,
+    st.session_state.step,
 )
 step_index = STEPS.index(step_for_progress) if step_for_progress in STEPS else 1
 cols = st.columns(len(STEP_LABELS))
@@ -183,6 +248,9 @@ def route_ui_from_graph_state(graph_state: dict) -> str:
     }:
         return "freitext"
 
+    if status == WORKFLOW_PRODUCT_TABLE_READY:
+        return "product_table"
+
     if status in {
         WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS,
         WORKFLOW_MODEL_INPUTS_INVALID,
@@ -204,12 +272,110 @@ def route_ui_from_graph_state(graph_state: dict) -> str:
 
     return "freitext"
 
+def advance_after_business_intake(
+    workflow,
+    graph_state: dict,
+) -> None:
+    """
+    Wechselt nach der Geschäftsanalyse zur passenden UI-Seite.
+
+    Offene Geschäftsfragen führen zu Formular 2. Ist das
+    Grundmodell bereits eindeutig, wird Formular 2 übersprungen.
+    """
+
+    st.session_state.graph_state = graph_state
+    workflow_status = get_workflow_status(graph_state)
+
+    if (
+        workflow_status
+        == WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT
+    ):
+        st.session_state.step = "business_clarification"
+        return
+
+    if workflow_status != WORKFLOW_BUSINESS_CORE_SELECTED:
+        st.session_state.step = "business_intake"
+        return
+
+    modular_state = graph_state.get(
+        "modular_model",
+        {},
+    )
+    products = modular_state.get(
+        "products",
+        [],
+    )
+
+    if not products:
+        schema_state = {
+            **graph_state,
+            "control": {
+                **graph_state.get("control", {}),
+                "event": (
+                    EVENT_MODULAR_PRODUCT_SCHEMA_REQUESTED
+                ),
+            },
+        }
+
+        prepared_schema_state = workflow.invoke(
+            schema_state
+        )
+
+        st.session_state.graph_state = (
+            prepared_schema_state
+        )
+        st.session_state.step = (
+            route_ui_from_graph_state(
+                prepared_schema_state
+            )
+        )
+        return
+
+    next_state = {
+        **graph_state,
+        "control": {
+            **graph_state.get("control", {}),
+            "event": (
+                EVENT_MODULAR_MODEL_PREPARATION_REQUESTED
+            ),
+        },
+    }
+
+    prepared_state = workflow.invoke(next_state)
+
+    st.session_state.graph_state = prepared_state
+    st.session_state.step = route_ui_from_graph_state(
+        prepared_state
+    )
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # SCHRITT 1: Grundlegende Angaben
 # ═══════════════════════════════════════════════════════════════════════════════
 
 if st.session_state.step == "form":
     st.subheader("Grundlegende Angaben")
+
+    if st.button(
+        "Neuen adaptiven Einstieg ausprobieren",
+        use_container_width=True,
+        key="open_business_intake",
+    ):
+        st.session_state.uses_business_intake = True
+        st.session_state.graph_state = {
+            "business_intake": (
+                create_initial_business_intake_state()
+            ),
+        }
+        st.session_state.raw_problem_description = ""
+        st.session_state.step = "business_intake"
+        st.rerun()
+
+    st.caption(
+        "Alternativ können Sie weiterhin das bisherige "
+        "Formular verwenden."
+    )
+    st.divider()
+
     st.caption(
         "Beantworten Sie die Fragen so gut wie möglich. "
         "Fehlende Angaben können anschließend ergänzt werden."
@@ -298,11 +464,218 @@ if st.session_state.step == "form":
         st.rerun()
 
 
+elif st.session_state.step == "business_intake":
+    graph_state = st.session_state.graph_state
+
+    if (
+        graph_state is None
+        or "business_intake" not in graph_state
+    ):
+        graph_state = {
+            "business_intake": (
+                create_initial_business_intake_state()
+            ),
+        }
+        st.session_state.graph_state = graph_state
+
+    intake_state = graph_state["business_intake"]
+
+    submission = render_business_intake_page(
+        intake_state,
+        raw_input_value=(
+            st.session_state.raw_problem_description
+        ),
+        show_questions=not bool(
+            intake_state.get("asked_question_ids")
+            or intake_state.get("analyzed_raw_input")
+        ),
+    )
+
+    if submission is not None:
+        try:
+            llm = get_or_create_llm()
+        except ValueError as error:
+            st.error(str(error))
+            st.stop()
+
+        workflow = build_graph(llm)
+
+        next_state = {
+            **graph_state,
+            "control": {
+                **graph_state.get("control", {}),
+                "event": EVENT_BUSINESS_INTAKE_REQUESTED,
+            },
+            "raw_input": submission["raw_input"],
+            "business_intake": {
+                **intake_state,
+                "pending_answers": submission["answers"],
+            },
+        }
+
+        result_state = workflow.invoke(next_state)
+
+        st.session_state.raw_problem_description = (
+            submission["raw_input"]
+        )
+
+        advance_after_business_intake(
+            workflow,
+            result_state,
+        )
+        st.rerun()
+
+    workflow_status = get_workflow_status(
+        graph_state
+    )
+
+    if (
+        workflow_status
+        == WORKFLOW_PRODUCT_TABLE_READY
+    ):
+        st.session_state.step = "product_table"
+        st.rerun()
+
+    if st.button(
+        "Bisheriges Formular verwenden",
+        use_container_width=True,
+        key="return_to_legacy_form",
+    ):
+        st.session_state.uses_business_intake = False
+        st.session_state.graph_state = None
+        st.session_state.raw_problem_description = ""
+        st.session_state.step = "form"
+        st.rerun()
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # SCHRITT 2: Freitext + Graph ausführen
 # ═══════════════════════════════════════════════════════════════════════════════
 
+elif st.session_state.step == "product_table":
+    graph_state = st.session_state.graph_state or {}
+    modular_state = graph_state.get(
+        "modular_model",
+        {},
+    )
+
+    core_id = modular_state.get("core_id")
+    preliminary_proposal = modular_state.get(
+        "preliminary_proposal"
+    )
+
+    if not core_id or preliminary_proposal is None:
+        st.error(
+            "Die Produkttabelle konnte nicht vorbereitet "
+            "werden. Bitte starten Sie die Erfassung erneut."
+        )
+        st.stop()
+
+    products = render_dynamic_product_table_page(
+        core_id=core_id,
+        proposal=preliminary_proposal,
+    )
+
+    if products is None:
+        st.stop()
+
+    try:
+        llm = get_or_create_llm()
+    except ValueError as error:
+        st.error(str(error))
+        st.stop()
+
+    workflow = build_graph(llm)
+
+    preparation_state = {
+        **graph_state,
+        "control": {
+            **graph_state.get("control", {}),
+            "event": (
+                EVENT_MODULAR_MODEL_PREPARATION_REQUESTED
+            ),
+        },
+        "modular_model": {
+            **modular_state,
+            "products": products,
+        },
+    }
+
+    prepared_state = workflow.invoke(
+        preparation_state
+    )
+
+    st.session_state.graph_state = prepared_state
+    st.session_state.step = route_ui_from_graph_state(
+        prepared_state
+    )
+    st.rerun()
+
+# =============================================================================
+# SCHRITT 2: Offene Rückfragen
+# =============================================================================
+
+elif st.session_state.step == "business_clarification":
+    graph_state = st.session_state.graph_state or {}
+    intake_state = graph_state.get("business_intake")
+
+    if intake_state is None:
+        st.error(
+            "Die offenen Rückfragen konnten nicht geladen "
+            "werden. Bitte starten Sie die Erfassung erneut."
+        )
+        st.stop()
+
+    answers = render_business_clarification_page(
+        intake_state
+    )
+
+    if answers is not None:
+        try:
+            llm = get_or_create_llm()
+        except ValueError as error:
+            st.error(str(error))
+            st.stop()
+
+        workflow = build_graph(llm)
+
+        next_state = {
+            **graph_state,
+            "control": {
+                **graph_state.get("control", {}),
+                "event": EVENT_BUSINESS_INTAKE_REQUESTED,
+            },
+            "raw_input": (
+                st.session_state.raw_problem_description
+            ),
+            "business_intake": {
+                **intake_state,
+                "pending_answers": answers,
+            },
+        }
+
+        result_state = workflow.invoke(next_state)
+
+        advance_after_business_intake(
+            workflow,
+            result_state,
+        )
+        st.rerun()
+
+    if st.button(
+        "Beschreibung bearbeiten",
+        use_container_width=True,
+        key="edit_business_description",
+    ):
+        st.session_state.step = "business_intake"
+        st.rerun()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ALTER SCHRITT 2: Freitext des bisherigen Ablaufs
+# ═══════════════════════════════════════════════════════════════════════════════
+
 elif st.session_state.step == "freitext":
+
     st.subheader("Problembeschreibung")
 
     graph_state = st.session_state.graph_state or {}
@@ -501,7 +874,6 @@ elif st.session_state.step == "freitext":
 # ═══════════════════════════════════════════════════════════════════════════════
 
 elif st.session_state.step == "model_unsupported":
-    st.subheader("Problemart noch nicht unterstützt")
 
     graph_state = (
         st.session_state.graph_state
@@ -515,20 +887,35 @@ elif st.session_state.step == "model_unsupported":
         else None
     )
 
-    selected_review_type = graph_state.get(
-        "requirements",
-        {},
-    ).get("review_type")
-
-    if (
+    has_unsupported_requirements = (
         modular_proposal is not None
         and modular_proposal.get(
             "selection_status"
         )
         == "unsupported"
-    ):
+    )
+
+    st.subheader(
+        "Anforderung derzeit nicht unterstützt"
+        if has_unsupported_requirements
+        else "Problemart noch nicht unterstützt"
+    )
+
+    selected_review_type = graph_state.get(
+        "requirements",
+        {},
+    ).get("review_type")
+
+    continue_without_requirements = False
+
+    if has_unsupported_requirements:
         render_modular_selection_issues(
             modular_proposal
+        )
+        continue_without_requirements = (
+            render_modular_exclusion_confirmation(
+                modular_proposal
+            )
         )
     elif selected_review_type == "periodic_review":
         st.success(
@@ -550,10 +937,42 @@ elif st.session_state.step == "model_unsupported":
             )
         )
 
-    st.info(
-        "Passen Sie die grundlegenden Angaben oder die "
-        "Problembeschreibung an."
-    )
+    if continue_without_requirements:
+        try:
+            llm = get_or_create_llm()
+        except ValueError as error:
+            st.error(str(error))
+            st.stop()
+
+        workflow = build_graph(llm)
+
+        next_state = {
+            **graph_state,
+            "control": {
+                **graph_state.get("control", {}),
+                "event": (
+                    EVENT_MODULAR_REQUIREMENT_EXCLUSIONS_CONFIRMED
+                ),
+            },
+        }
+
+        continued_state = workflow.invoke(
+            next_state
+        )
+
+        st.session_state.graph_state = continued_state
+        st.session_state.step = (
+            route_ui_from_graph_state(
+                continued_state
+            )
+        )
+        st.rerun()
+
+    if not has_unsupported_requirements:
+        st.info(
+            "Passen Sie die grundlegenden Angaben oder die "
+            "Problembeschreibung an."
+        )
 
     if st.button(
         "← Grundlegende Angaben bearbeiten",
@@ -566,7 +985,11 @@ elif st.session_state.step == "model_unsupported":
         "Problembeschreibung bearbeiten",
         use_container_width=True,
     ):
-        st.session_state.step = "freitext"
+        st.session_state.step = (
+            "business_intake"
+            if st.session_state.uses_business_intake
+            else "freitext"
+        )
         st.rerun()
 
     st.stop()
@@ -1425,9 +1848,10 @@ elif st.session_state.step == "review":
     st.subheader("Angaben prüfen")
 
     st.write(
-        "Bitte prüfen Sie die drei Bereiche. Die Berechnung "
-        "kann gestartet werden, sobald alle Angaben "
-        "bestätigt sind."
+        "Bitte prüfen Sie die Berechnungsgrundlage, "
+        "Modellbausteine und Modellannahmen. Die "
+        "Berechnung kann gestartet werden, sobald alle "
+        "Angaben bestätigt sind."
     )
 
     graph_state = st.session_state.graph_state or {}

@@ -20,6 +20,7 @@ from agentic_optimization.models.specification import (
     ModelSpecification,
     SelectionStatus,
     UnresolvedRequirement,
+    ExcludedRequirement,
 )
 from agentic_optimization.models.validator import (
     MissingInput,
@@ -73,7 +74,11 @@ class ModularReviewData(TypedDict):
 
     core_id: str
     core_name: str
+    core_description: str
+    decision_description: str
+    assumptions: list[str]
     objective_sense: str
+    objective_summary: str
     objective_components: list[ReviewObjectiveComponent]
     constraints: list[ReviewConstraint]
     missing_inputs: list[MissingInput]
@@ -179,6 +184,55 @@ def build_modular_selection_issue_data(
     }
 
 
+def _build_objective_summary(
+    objective_sense: str,
+    components: list[ReviewObjectiveComponent],
+) -> str:
+    """Beschreibt die zusammengesetzte Zielfunktion verständlich."""
+
+    if not components:
+        return (
+            "Es wurden keine Zielfunktionsbausteine "
+            "ausgewählt."
+        )
+
+    positive_effect = (
+        "benefit"
+        if objective_sense == "maximize"
+        else "cost"
+    )
+    expression_parts: list[str] = []
+
+    for component in components:
+        is_positive = (
+            component["effect"] == positive_effect
+        )
+        component_name = component["name"]
+
+        if not expression_parts:
+            expression_parts.append(
+                component_name
+                if is_positive
+                else f"− {component_name}"
+            )
+        elif is_positive:
+            expression_parts.append(
+                f" + {component_name}"
+            )
+        else:
+            expression_parts.append(
+                f" − {component_name}"
+            )
+
+    action = (
+        "maximieren"
+        if objective_sense == "maximize"
+        else "minimieren"
+    )
+
+    return f"{''.join(expression_parts)} {action}"
+
+
 def build_modular_review_data(
     proposal: ComponentSelectionProposal,
     specification: ModelSpecification,
@@ -229,6 +283,11 @@ def build_modular_review_data(
             }
         )
 
+    objective_summary = _build_objective_summary(
+        specification["objective"]["sense"],
+        objective_components,
+    )
+
     constraints: list[ReviewConstraint] = []
 
     for index, proposed_constraint in enumerate(
@@ -261,6 +320,12 @@ def build_modular_review_data(
     return {
         "core_id": specification["core_id"],
         "core_name": registered_core["definition"]["name"],
+        "core_description": registered_core[
+            "definition"
+        ]["description"],
+        "decision_description": registered_core[
+            "definition"
+        ]["decision_description"],
         "products": [
             {
                 "product_id": product["product_id"],
@@ -273,12 +338,22 @@ def build_modular_review_data(
             }
             for product in specification["products"]
         ],
+        "assumptions": list(
+            registered_core["definition"]["assumptions"]
+        ),
+        "excluded_requirements": deepcopy(
+            specification.get(
+                "excluded_requirements",
+                [],
+            )
+        ),
         "global_facts": deepcopy(
             specification["global_facts"]
         ),
         "objective_sense": specification[
             "objective"
         ]["sense"],
+        "objective_summary": objective_summary,
         "objective_components": objective_components,
         "constraints": constraints,
         "missing_inputs": validation_result["missing_inputs"],

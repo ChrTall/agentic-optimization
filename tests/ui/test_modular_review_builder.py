@@ -83,6 +83,15 @@ def test_builds_review_data() -> None:
     assert review["core_name"] == (
         "Einperiodiges Newsvendor-Modell"
     )
+    assert review["core_description"] == (
+        "Dieses Modell unterstützt eine einmalige "
+        "Bestellentscheidung vor einem begrenzten "
+        "Verkaufszeitraum mit unsicherer Nachfrage."
+    )
+    assert review["decision_description"] == (
+        "Berechnet wird, wie viele Einheiten vor Beginn "
+        "des Verkaufszeitraums bestellt werden sollen."
+    )
     assert review["objective_sense"] == "maximize"
     assert review["ready_for_confirmation"] is True
     assert review["validation_errors"] == []
@@ -109,6 +118,9 @@ def test_builds_review_data() -> None:
             "sources": ["source_1"],
         }
     ]
+    assert review["objective_summary"] == (
+        "Verkaufserlös − Einkaufskosten maximieren"
+    )
 
 
 def test_review_reports_missing_component_input() -> None:
@@ -272,6 +284,10 @@ def test_builds_eoq_review_data() -> None:
         "annual_ordering_cost",
         "annual_holding_cost",
     }
+    assert review["objective_summary"] == (
+        "Jährliche Bestellkosten + Jährliche "
+        "Lagerhaltungskosten minimieren"
+    )
 
 
 def test_builds_q_r_review_data() -> None:
@@ -585,3 +601,39 @@ def test_review_shows_cycle_service_level() -> None:
         "sources": ["source_1"],
     }
     assert review["ready_for_confirmation"] is True
+
+
+def test_review_contains_confirmed_exclusions() -> None:
+    proposal = create_proposal()
+    excluded_requirements = [
+        {
+            "description": (
+                "Die Lieferung muss an einem Dienstag "
+                "erfolgen."
+            ),
+            "reason": (
+                "Für feste Liefertage ist kein "
+                "kompatibler Baustein verfügbar."
+            ),
+            "sources": ["raw_input"],
+            "confirmation_source": (
+                "user_review_confirmation"
+            ),
+        }
+    ]
+
+    specification = build_specification_from_proposal(
+        proposal,
+        create_products(),
+        {},
+        excluded_requirements=excluded_requirements,
+    )
+
+    review = build_modular_review_data(
+        proposal,
+        specification,
+    )
+
+    assert review["excluded_requirements"] == (
+        excluded_requirements
+    )

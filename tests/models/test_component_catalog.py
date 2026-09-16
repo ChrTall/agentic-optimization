@@ -18,6 +18,19 @@ def test_builds_newsvendor_component_catalog() -> None:
     assert catalog["core"]["core_id"] == (
         "single_period_newsvendor"
     )
+    assert (
+        "einmalige Bestellentscheidung"
+        in catalog["core"]["description"]
+    )
+    assert (
+        "wie viele Einheiten"
+        in catalog["core"]["decision_description"]
+    )
+    assert any(
+        "nicht nachbestellt"
+        in assumption
+        for assumption in catalog["core"]["assumptions"]
+    )
 
     objective_ids = {
         component["component_id"]
@@ -162,6 +175,19 @@ def test_builds_continuous_review_q_r_catalog() -> None:
         "annual_holding_cost",
         "annual_shortage_cost",
     ]
+
+
+def test_minimum_order_quantity_has_precise_selection_guidance(
+) -> None:
+    component = CONSTRAINT_COMPONENTS[
+        "minimum_order_quantity"
+    ]
+
+    guidance = component["selection_guidance"]
+
+    assert "mengenmäßige Untergrenze" in guidance
+    assert "Liefertermine" in guidance
+    assert "jede Lieferung" in guidance
 
 
 def test_cycle_service_level_uses_percentage_parameter() -> None:

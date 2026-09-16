@@ -727,6 +727,15 @@ CONSTRAINT_COMPONENTS: dict[
         ],
         "required_product_facts": [],
         "required_global_facts": [],
+        "selection_guidance": (
+            "Wähle diesen Baustein nur, wenn ausdrücklich "
+            "eine mengenmäßige Untergrenze für die "
+            "Bestellmenge gefordert wird, zum Beispiel "
+            "'mindestens 50 Einheiten'. Wähle ihn nicht "
+            "für Liefertermine, Wochentage, "
+            "Lieferhäufigkeiten oder Formulierungen wie "
+            "'jede Lieferung'."
+        ),
         "parameters": [
             {
                 "name": "quantity",

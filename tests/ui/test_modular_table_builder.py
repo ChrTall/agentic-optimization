@@ -88,7 +88,7 @@ def test_marks_missing_product_data_in_table_row() -> None:
     }
 
     assert second_row["values"]["selling_price"] is None
-    assert "quantiles" not in second_row["values"]
+    assert second_row["values"]["quantiles"] is None
 
 
 def test_builds_rows_for_thirty_products() -> None:
@@ -113,5 +113,9 @@ def test_builds_rows_for_thirty_products() -> None:
 
     assert all(
         row["status"] == "complete"
+        for row in rows
+    )
+    assert all(
+        "quantiles" in row["values"]
         for row in rows
     )

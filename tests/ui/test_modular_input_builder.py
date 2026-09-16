@@ -8,7 +8,11 @@ from agentic_optimization.models.validator import (
 from agentic_optimization.ui.modular_input_builder import (
     apply_modular_input_value,
     build_modular_input_layout,
+    build_product_input_table_rows,
+    can_render_product_input_table,
+    build_dynamic_product_table_schema,
 )
+
 
 def create_product(
     product_id: str,
@@ -145,6 +149,50 @@ def test_uses_table_for_many_products() -> None:
         == ["selling_price"]
         for product_group in layout["product_groups"]
     )
+
+
+def test_builds_shared_input_table_for_many_products() -> None:
+    products = [
+        create_product(f"product_{index}")
+        for index in range(30)
+    ]
+
+    for product in products:
+        del product["facts"]["selling_price"]
+
+    specification = create_specification(products)
+    layout = build_modular_input_layout(specification)
+
+    assert can_render_product_input_table(layout) is True
+
+    rows = build_product_input_table_rows(layout)
+
+    assert len(rows) == 30
+    assert rows[0] == {
+        "product_id": "product_0",
+        "selling_price": None,
+    }
+    assert rows[-1] == {
+        "product_id": "product_29",
+        "selling_price": None,
+    }
+
+
+def test_rejects_table_for_different_missing_fields() -> None:
+    products = [
+        create_product(f"product_{index}")
+        for index in range(4)
+    ]
+
+    for product in products:
+        del product["facts"]["selling_price"]
+
+    del products[0]["facts"]["purchase_cost"]
+
+    specification = create_specification(products)
+    layout = build_modular_input_layout(specification)
+
+    assert can_render_product_input_table(layout) is False
 
 
 def test_switches_to_table_above_card_limit() -> None:
@@ -374,3 +422,47 @@ def test_builds_input_for_missing_cycle_service_level() -> None:
     )
 
     assert final_validation["is_valid"] is True
+
+
+def test_builds_dynamic_product_schema_without_products(
+) -> None:
+    proposal = {
+        "core_id": "single_period_newsvendor",
+        "selection_status": "complete",
+        "objective_sense": "maximize",
+        "objective_components": [
+            {
+                "component_id": "sales_revenue",
+                "reason": "Verkaufserlöse berücksichtigen.",
+                "sources": ["raw_input"],
+            },
+            {
+                "component_id": "purchase_cost",
+                "reason": "Einkaufskosten berücksichtigen.",
+                "sources": ["raw_input"],
+            },
+        ],
+        "constraints": [],
+        "unresolved_requirements": [],
+    }
+
+    schema = build_dynamic_product_table_schema(
+        "single_period_newsvendor",
+        proposal,
+    )
+
+    assert [
+        field["name"]
+        for field in schema["forecast_fields"]
+    ] == [
+        "expected_value",
+        "quantiles",
+        "horizon_days",
+    ]
+    assert [
+        field["name"]
+        for field in schema["fact_fields"]
+    ] == [
+        "selling_price",
+        "purchase_cost",
+    ]

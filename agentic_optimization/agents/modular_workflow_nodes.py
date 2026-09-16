@@ -2,6 +2,8 @@
 LangGraph-kompatible Knoten der modularen Modellpipeline.
 """
 
+import logging
+
 from collections.abc import Callable
 
 from langchain_core.language_models import BaseChatModel
@@ -11,6 +13,7 @@ from agentic_optimization.agents.modular_model_agent import (
     create_modular_model_agent,
     execute_modular_model_draft,
     update_modular_model_draft,
+    create_preliminary_component_selection_agent
 )
 from agentic_optimization.state import (
     WORKFLOW_MODEL_INPUTS_INVALID,
@@ -21,12 +24,104 @@ from agentic_optimization.state import (
     WORKFLOW_MODEL_UNSUPPORTED,
     WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
     WORKFLOW_MODEL_PREPARATION_FAILED,
+    WORKFLOW_PRODUCT_TABLE_READY,
     GraphState,
     with_control,
 )
 from agentic_optimization.models.validator import (
     validate_model_specification,
 )
+from agentic_optimization.models.proposal_mapper import (
+    build_specification_from_proposal,
+    exclude_unsupported_requirements,
+)
+
+LOGGER = logging.getLogger(__name__)
+
+
+def create_modular_product_schema_node(
+    llm: BaseChatModel,
+) -> Callable[[GraphState], GraphState]:
+    """
+    Wählt vorläufige Bausteine zur Bestimmung der Tabellenspalten.
+    """
+
+    select_components = (
+        create_preliminary_component_selection_agent(llm)
+    )
+
+    def prepare_product_schema_node(
+        state: GraphState,
+    ) -> GraphState:
+        modular_state = state.get("modular_model")
+
+        if modular_state is None:
+            raise ValueError(
+                "Der modulare Modellzustand fehlt."
+            )
+
+        core_id = modular_state.get("core_id")
+
+        if not core_id:
+            raise ValueError(
+                "Das ausgewählte Grundmodell fehlt."
+            )
+
+        try:
+            proposal = select_components(
+                core_id=core_id,
+                requirements=dict(
+                    state.get("requirements", {})
+                ),
+                global_facts=modular_state.get(
+                    "global_facts",
+                    {},
+                ),
+                evidence=modular_state.get(
+                    "evidence",
+                    [],
+                ),
+            )
+        except (TypeError, ValueError) as error:
+            LOGGER.exception(
+                "Die vorläufige Bausteinauswahl ist "
+                "fehlgeschlagen: %s",
+                error,
+            )
+
+            return with_control(
+                {
+                    **state,
+                    "modular_model": {
+                        **modular_state,
+                        "preparation_error": (
+                            "Die benötigten Tabellenspalten "
+                            "konnten nicht zuverlässig bestimmt "
+                            "werden. Bitte starten Sie die "
+                            "Analyse erneut."
+                        ),
+                    },
+                },
+                event=None,
+                workflow_status=(
+                    WORKFLOW_MODEL_PREPARATION_FAILED
+                ),
+            )
+
+        return with_control(
+            {
+                **state,
+                "modular_model": {
+                    **modular_state,
+                    "preliminary_proposal": proposal,
+                    "preparation_error": None,
+                },
+            },
+            event=None,
+            workflow_status=WORKFLOW_PRODUCT_TABLE_READY,
+        )
+
+    return prepare_product_schema_node
 
 
 def create_modular_model_preparation_node(
@@ -75,8 +170,18 @@ def create_modular_model_preparation_node(
                     "evidence",
                     [],
                 ),
+                preliminary_proposal=(
+                    modular_state.get(
+                        "preliminary_proposal"
+                    )
+                ),
             )
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as error:
+            LOGGER.exception(
+                "Die modulare Modellvorbereitung ist "
+                "fehlgeschlagen: %s",
+                error,
+            )
             preparation_error = (
                 "Die automatische Modellzusammenstellung "
                 "konnte nicht zuverlässig abgeschlossen "
@@ -115,6 +220,8 @@ def create_modular_model_preparation_node(
             )
 
         proposal = draft["proposal"]
+        extracted_products = draft["products"]
+        extracted_global_facts = draft["global_facts"]
         selection_status = proposal[
             "selection_status"
         ]
@@ -134,6 +241,8 @@ def create_modular_model_preparation_node(
 
             updated_modular_state = {
                 **modular_state,
+                "products": extracted_products,
+                "global_facts": extracted_global_facts,
                 "proposal": proposal,
                 "review_confirmed": False,
                 "optimization_result": None,
@@ -178,6 +287,8 @@ def create_modular_model_preparation_node(
             **state,
             "modular_model": {
                 **modular_state,
+                "products": extracted_products,
+                "global_facts": extracted_global_facts,
                 "proposal": proposal,
                 "specification": draft["specification"],
                 "validation": validation,
@@ -194,6 +305,121 @@ def create_modular_model_preparation_node(
         )
 
     return prepare_modular_model_node
+
+
+def confirm_modular_requirement_exclusions_node(
+    state: GraphState,
+) -> GraphState:
+    """
+    Setzt die Modellvorbereitung nach einer ausdrücklichen
+    Bestätigung nicht unterstützter Anforderungen fort.
+    """
+
+    modular_state = state.get("modular_model")
+
+    if modular_state is None:
+        raise ValueError(
+            "Der modulare Modellzustand fehlt."
+        )
+
+    proposal = modular_state.get("proposal")
+
+    if proposal is None:
+        raise ValueError(
+            "Der zu prüfende Bausteinvorschlag fehlt."
+        )
+
+    updated_proposal, new_exclusions = (
+        exclude_unsupported_requirements(
+            proposal,
+            confirmation_source=(
+                "modular_unsupported_review"
+            ),
+        )
+    )
+
+    excluded_requirements = [
+        *modular_state.get(
+            "excluded_requirements",
+            [],
+        ),
+        *new_exclusions,
+    ]
+
+    if (
+        updated_proposal["selection_status"]
+        != "complete"
+    ):
+        updated_modular_state = {
+            **modular_state,
+            "proposal": updated_proposal,
+            "excluded_requirements": (
+                excluded_requirements
+            ),
+            "review_confirmed": False,
+            "optimization_result": None,
+        }
+        updated_modular_state.pop(
+            "specification",
+            None,
+        )
+        updated_modular_state.pop(
+            "validation",
+            None,
+        )
+
+        return with_control(
+            {
+                **state,
+                "modular_model": updated_modular_state,
+            },
+            event=None,
+            workflow_status=(
+                WORKFLOW_NEEDS_GENERAL_CLARIFICATION
+            ),
+        )
+
+    specification = build_specification_from_proposal(
+        updated_proposal,
+        modular_state.get("products", []),
+        modular_state.get("global_facts", {}),
+        excluded_requirements=excluded_requirements,
+    )
+    validation = validate_model_specification(
+        specification
+    )
+
+    if validation["is_valid"]:
+        workflow_status = WORKFLOW_READY_FOR_REVIEW
+    elif (
+        validation["missing_inputs"]
+        and not validation["errors"]
+    ):
+        workflow_status = (
+            WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS
+        )
+    else:
+        workflow_status = WORKFLOW_MODEL_INPUTS_INVALID
+
+    return with_control(
+        {
+            **state,
+            "modular_model": {
+                **modular_state,
+                "proposal": updated_proposal,
+                "specification": specification,
+                "validation": validation,
+                "excluded_requirements": (
+                    excluded_requirements
+                ),
+                "review_confirmed": False,
+                "optimization_result": None,
+                "preparation_error": None,
+            },
+        },
+        event=None,
+        workflow_status=workflow_status,
+    )
 
 
 def apply_modular_model_inputs_node(

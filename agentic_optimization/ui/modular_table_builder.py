@@ -79,6 +79,9 @@ def build_product_table_rows(
             "expected_value": forecast.get(
                 "expected_value"
             ),
+            "quantiles": forecast.get(
+                "quantiles"
+            ),
             "horizon_days": forecast.get(
                 "horizon_days"
             ),
@@ -88,11 +91,10 @@ def build_product_table_rows(
         for missing_input in product_missing_inputs:
             field = missing_input["field"]
 
-            if field["type"] != "forecast_quantiles":
-                values.setdefault(
-                    field["name"],
-                    None,
-                )
+            values.setdefault(
+                field["name"],
+                None,
+            )
 
         rows.append(
             {

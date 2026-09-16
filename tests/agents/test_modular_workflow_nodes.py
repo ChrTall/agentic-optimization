@@ -6,8 +6,10 @@ from langchain_core.messages import AIMessage
 import pytest
 from agentic_optimization.agents.modular_workflow_nodes import (
     apply_modular_model_inputs_node,
+    confirm_modular_requirement_exclusions_node,
     create_modular_model_preparation_node,
     execute_modular_model_node,
+    create_modular_product_schema_node,
 )
 from agentic_optimization.state import (
     WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS,
@@ -16,6 +18,7 @@ from agentic_optimization.state import (
     WORKFLOW_MODEL_UNSUPPORTED,
     WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
     WORKFLOW_MODEL_PREPARATION_FAILED,
+    WORKFLOW_PRODUCT_TABLE_READY,
     get_workflow_status,
 )
 from agentic_optimization.agents import (
@@ -61,6 +64,13 @@ def test_prepares_modular_model_in_graph_state() -> None:
         ),
         AIMessage(
             content=json.dumps(response)
+        ),
+        AIMessage(
+            content=json.dumps(
+                {
+                    "uncovered_requirements": [],
+                }
+            )
         ),
     ]
 
@@ -109,6 +119,7 @@ def test_prepares_modular_model_in_graph_state() -> None:
                     ),
                 }
             ],
+            "preliminary_proposal": response,
         },
     }
 
@@ -138,7 +149,7 @@ def test_prepares_modular_model_in_graph_state() -> None:
     assert modular_result["review_confirmed"] is False
     assert modular_result["optimization_result"] is None
 
-    assert llm.invoke.call_count == 2
+    assert llm.invoke.call_count == 3
 
     values = {
         "ordering_cost": 50.0,
@@ -185,7 +196,7 @@ def test_prepares_modular_model_in_graph_state() -> None:
     assert product_facts["holding_cost"] == 2.0
     assert product_facts["shortage_cost"] == 20.0
 
-    assert llm.invoke.call_count == 2
+    assert llm.invoke.call_count == 3
 
     with pytest.raises(
         ValueError,
@@ -226,7 +237,7 @@ def test_prepares_modular_model_in_graph_state() -> None:
         WORKFLOW_OPTIMIZATION_COMPLETED
     )
 
-    assert llm.invoke.call_count == 2
+    assert llm.invoke.call_count == 3
 
 
 @pytest.mark.parametrize(
@@ -292,11 +303,12 @@ def test_routes_unresolved_component_selection(
         ],
     }
 
-    def prepare_model(**_kwargs):
+    def prepare_model(**kwargs):
         return {
             "proposal": proposal,
+            "products": kwargs["products"],
+            "global_facts": kwargs["global_facts"],
         }
-
     monkeypatch.setattr(
         modular_workflow_nodes,
         "create_modular_model_agent",
@@ -323,6 +335,8 @@ def test_routes_unresolved_component_selection(
     modular_state = result["modular_model"]
 
     assert modular_state["proposal"] == proposal
+    assert modular_state["products"] == []
+    assert modular_state["global_facts"] == {}
     assert "specification" not in modular_state
     assert "validation" not in modular_state
     assert get_workflow_status(result) == (
@@ -374,3 +388,159 @@ def test_handles_failed_model_preparation(
     assert "proposal" not in modular_state
     assert "specification" not in modular_state
     assert "validation" not in modular_state
+
+
+def test_continues_after_confirmed_requirement_exclusion(
+) -> None:
+    proposal = {
+        "core_id": "eoq",
+        "selection_status": "unsupported",
+        "objective_sense": "minimize",
+        "objective_components": [
+            {
+                "component_id": "annual_ordering_cost",
+                "reason": "Bestellkosten wurden genannt.",
+                "sources": ["raw_input"],
+            },
+            {
+                "component_id": "annual_holding_cost",
+                "reason": "Lagerkosten wurden genannt.",
+                "sources": ["raw_input"],
+            },
+        ],
+        "constraints": [],
+        "unresolved_requirements": [
+            {
+                "description": (
+                    "Die Lieferung muss an einem "
+                    "Dienstag erfolgen."
+                ),
+                "resolution": "unsupported",
+                "candidate_component_ids": [],
+                "reason": (
+                    "Für feste Liefertage ist kein "
+                    "kompatibler Baustein verfügbar."
+                ),
+                "sources": ["raw_input"],
+            }
+        ],
+    }
+
+    state = {
+        "modular_model": {
+            "core_id": "eoq",
+            "products": [
+                {
+                    "product_id": "product_1",
+                    "forecast": {
+                        "expected_value": 3500.0,
+                        "horizon_days": 365,
+                    },
+                    "facts": {
+                        "ordering_cost": 120.0,
+                        "holding_cost": 12.0,
+                    },
+                }
+            ],
+            "global_facts": {},
+            "proposal": proposal,
+            "excluded_requirements": [],
+            "review_confirmed": False,
+            "optimization_result": None,
+        },
+    }
+
+    result = (
+        confirm_modular_requirement_exclusions_node(
+            state
+        )
+    )
+
+    modular_result = result["modular_model"]
+
+    assert modular_result["proposal"][
+        "selection_status"
+    ] == "complete"
+    assert modular_result["proposal"][
+        "unresolved_requirements"
+    ] == []
+
+    assert modular_result[
+        "excluded_requirements"
+    ][0]["description"] == (
+        "Die Lieferung muss an einem Dienstag erfolgen."
+    )
+
+    assert modular_result["specification"][
+        "excluded_requirements"
+    ] == modular_result["excluded_requirements"]
+
+    assert modular_result["validation"]["is_valid"] is True
+    assert get_workflow_status(result) == (
+        WORKFLOW_READY_FOR_REVIEW
+    )
+
+    assert proposal["selection_status"] == "unsupported"
+    assert len(proposal["unresolved_requirements"]) == 1
+
+
+def test_prepares_product_table_schema_before_products_exist(
+) -> None:
+    proposal = {
+        "core_id": "single_period_newsvendor",
+        "selection_status": "complete",
+        "objective_sense": "maximize",
+        "objective_components": [
+            {
+                "component_id": "sales_revenue",
+                "reason": "Verkaufserlöse berücksichtigen.",
+                "sources": ["raw_input"],
+            },
+            {
+                "component_id": "purchase_cost",
+                "reason": "Einkaufskosten berücksichtigen.",
+                "sources": ["raw_input"],
+            },
+        ],
+        "constraints": [],
+        "unresolved_requirements": [],
+    }
+
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(
+        content=json.dumps(proposal)
+    )
+
+    node = create_modular_product_schema_node(llm)
+
+    result = node(
+        {
+            "requirements": {
+                "objective": "Gewinn maximieren",
+            },
+            "modular_model": {
+                "core_id": "single_period_newsvendor",
+                "products": [],
+                "global_facts": {},
+                "evidence": [
+                    {
+                        "source_id": "raw_input",
+                        "content": (
+                            "Der erwartete Gewinn soll "
+                            "maximiert werden."
+                        ),
+                    }
+                ],
+            },
+        }
+    )
+
+    assert get_workflow_status(result) == (
+        WORKFLOW_PRODUCT_TABLE_READY
+    )
+    assert result["modular_model"][
+        "preliminary_proposal"
+    ] == proposal
+    assert result["modular_model"][
+        "products"
+    ] == []

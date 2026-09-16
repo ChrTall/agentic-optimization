@@ -25,6 +25,9 @@ class CoreCatalogEntry(TypedDict):
 
     core_id: str
     name: str
+    description: str
+    decision_description: str
+    assumptions: list[str]
     minimum_products: int
     required_forecast_fields: list[ModelInputField]
     required_objective_component_ids: list[str]
@@ -136,6 +139,13 @@ def build_component_catalog(
         "core": {
             "core_id": core_definition["core_id"],
             "name": core_definition["name"],
+            "description": core_definition["description"],
+            "decision_description": core_definition[
+                "decision_description"
+            ],
+            "assumptions": list(
+                core_definition["assumptions"]
+            ),
             "minimum_products": core_definition[
                 "minimum_products"
             ],

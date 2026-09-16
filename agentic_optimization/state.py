@@ -11,10 +11,17 @@ from agentic_optimization.models.specification import (
     ModelSpecification,
     ProductSpecification,
     SelectionEvidence,
+    ExcludedRequirement,
 )
 from agentic_optimization.models.validator import (
     MissingInput,
     SpecificationValidationResult,
+)
+from agentic_optimization.models.core_selector import (
+    CoreSelectionDecision,
+)
+from agentic_optimization.models.problem_profile import (
+    BusinessProblemProfile,
 )
 
 # ---------------------------------------------------------------------------
@@ -41,6 +48,11 @@ WORKFLOW_OPTIMIZATION_FAILED: Final = "optimization_failed"
 WORKFLOW_READY_FOR_REVIEW: Final = "ready_for_review"
 WORKFLOW_MODEL_UNSUPPORTED: Final = "model_unsupported"
 WORKFLOW_MODEL_PREPARATION_FAILED: Final = "model_preparation_failed"
+WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT: Final = "needs_business_profile_input"
+WORKFLOW_BUSINESS_CORE_SELECTED: Final = "business_core_selected"
+WORKFLOW_PRODUCT_TABLE_READY: Final = "product_table_ready"
+WORKFLOW_BUSINESS_CASE_UNSUPPORTED: Final = "business_case_unsupported"
+WORKFLOW_BUSINESS_PROFILE_ANALYSIS_FAILED: Final = "business_profile_analysis_failed"
 
 
 
@@ -58,8 +70,13 @@ EVENT_GENERAL_CLARIFICATION_SUBMITTED: Final = "general_clarification_submitted"
 EVENT_MODEL_INPUTS_SUBMITTED: Final = "model_inputs_submitted"
 EVENT_OPTIMIZATION_REQUESTED: Final = "optimization_requested"
 EVENT_MODULAR_MODEL_PREPARATION_REQUESTED: Final = "modular_model_preparation_requested"
+EVENT_MODULAR_PRODUCT_SCHEMA_REQUESTED: Final = "modular_product_schema_requested"
 EVENT_MODULAR_INPUTS_SUBMITTED: Final = "modular_inputs_submitted"
 EVENT_MODULAR_OPTIMIZATION_REQUESTED: Final = "modular_optimization_requested"
+EVENT_BUSINESS_INTAKE_REQUESTED: Final = "business_intake_requested"
+EVENT_MODULAR_REQUIREMENT_EXCLUSIONS_CONFIRMED: Final = "modular_requirement_exclusions_confirmed"
+
+
 
 
 
@@ -88,6 +105,12 @@ WorkflowStatus = Literal[
     "ready_for_review",
     "model_unsupported",
     "model_preparation_failed",
+    "needs_business_profile_input",
+    "business_core_selected",
+    "product_table_ready",
+    "business_case_unsupported",
+    "business_profile_analysis_failed",
+    "modular_requirement_exclusions_confirmed",
 ]
 
 WorkflowEvent = Literal[
@@ -96,8 +119,11 @@ WorkflowEvent = Literal[
     "model_inputs_submitted",
     "optimization_requested",
     "modular_model_preparation_requested",
+    "modular_product_schema_requested",
     "modular_inputs_submitted",
     "modular_optimization_requested",
+    "business_intake_requested",
+    "modular_requirement_exclusions_confirmed",
 ]
 
 DecisionType = Literal[
@@ -192,6 +218,25 @@ class ModelConfig(TypedDict, total=False):
     decision: Any
 
 
+class BusinessQuestionAnswer(TypedDict):
+    """Antwort auf eine aktuell offene Geschäftsfrage."""
+
+    question_id: str
+    option_id: str
+    source_id: str
+
+class BusinessIntakeState(TypedDict, total=False):
+    """Zustand des modellneutralen Geschäftseinstiegs."""
+
+    profile: BusinessProblemProfile
+    asked_question_ids: list[str]
+    pending_question_ids: list[str]
+    core_selection: CoreSelectionDecision
+    analysis_error: str | None
+    pending_answers: list[BusinessQuestionAnswer]
+    analyzed_raw_input: str
+
+
 class ModularInputSubmission(TypedDict):
     """Ein vom Nutzer ergänzter Wert für ein fehlendes Feld."""
 
@@ -207,12 +252,14 @@ class ModularModelState(TypedDict, total=False):
     global_facts: dict[str, Any]
     evidence: list[SelectionEvidence]
     proposal: ComponentSelectionProposal
+    preliminary_proposal: ComponentSelectionProposal
     specification: ModelSpecification
     validation: SpecificationValidationResult
     review_confirmed: bool
     optimization_result: OptimizationExecutionResult | None
     pending_input_submissions: list[ModularInputSubmission]
     preparation_error: str | None
+    excluded_requirements: list[ExcludedRequirement]
 
 class GraphState(TypedDict, total=False):
     """
@@ -221,7 +268,7 @@ class GraphState(TypedDict, total=False):
     Dieser State wird von Knoten zu Knoten weitergegeben.
     Jeder Agent liest relevante Felder aus und ergänzt neue Ergebnisse.
     """
-
+    business_intake: BusinessIntakeState
     modular_model: ModularModelState
 
     use_modular_pipeline: bool

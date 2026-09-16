@@ -2,6 +2,7 @@ import pytest
 
 from agentic_optimization.models.proposal_mapper import (
     build_specification_from_proposal,
+    exclude_unsupported_requirements,
     validate_component_selection_proposal,
 )
 from agentic_optimization.models.specification import (
@@ -505,4 +506,120 @@ def test_unsupported_status_dominates_mixed_requirements() -> None:
     assert any(
         "erwartet wird 'unsupported'" in error
         for error in errors
+    )
+
+
+def test_excludes_user_confirmed_unsupported_requirement(
+) -> None:
+    proposal = create_proposal()
+    proposal["selection_status"] = "unsupported"
+    proposal["unresolved_requirements"] = [
+        {
+            "description": (
+                "Die Lieferung muss an einem Dienstag "
+                "erfolgen."
+            ),
+            "resolution": "unsupported",
+            "candidate_component_ids": [],
+            "reason": (
+                "Für feste Liefertage ist kein "
+                "kompatibler Baustein verfügbar."
+            ),
+            "sources": ["raw_input"],
+        }
+    ]
+
+    updated, excluded = (
+        exclude_unsupported_requirements(
+            proposal,
+            confirmation_source=(
+                "user_review_confirmation"
+            ),
+        )
+    )
+
+    assert updated["selection_status"] == "complete"
+    assert updated["unresolved_requirements"] == []
+
+    assert excluded == [
+        {
+            "description": (
+                "Die Lieferung muss an einem Dienstag "
+                "erfolgen."
+            ),
+            "reason": (
+                "Für feste Liefertage ist kein "
+                "kompatibler Baustein verfügbar."
+            ),
+            "sources": ["raw_input"],
+            "confirmation_source": (
+                "user_review_confirmation"
+            ),
+        }
+    ]
+
+    assert proposal["selection_status"] == "unsupported"
+    assert len(proposal["unresolved_requirements"]) == 1
+
+
+def test_rejects_exclusion_without_confirmation_source(
+) -> None:
+    proposal = create_proposal()
+    proposal["selection_status"] = "unsupported"
+    proposal["unresolved_requirements"] = [
+        {
+            "description": "Fester Liefertag",
+            "resolution": "unsupported",
+            "candidate_component_ids": [],
+            "reason": "Kein kompatibler Baustein.",
+            "sources": ["raw_input"],
+        }
+    ]
+
+    with pytest.raises(
+        ValueError,
+        match="Bestätigungsquelle",
+    ):
+        exclude_unsupported_requirements(
+            proposal,
+            confirmation_source="",
+        )
+
+
+def test_copies_confirmed_exclusions_into_specification(
+) -> None:
+    excluded_requirements = [
+        {
+            "description": (
+                "Die Lieferung muss an einem Dienstag "
+                "erfolgen."
+            ),
+            "reason": (
+                "Für feste Liefertage ist kein "
+                "kompatibler Baustein verfügbar."
+            ),
+            "sources": ["raw_input"],
+            "confirmation_source": (
+                "user_review_confirmation"
+            ),
+        }
+    ]
+
+    specification = build_specification_from_proposal(
+        create_proposal(),
+        create_products(),
+        {},
+        excluded_requirements=excluded_requirements,
+    )
+
+    assert specification[
+        "excluded_requirements"
+    ] == excluded_requirements
+
+    specification["excluded_requirements"][0][
+        "description"
+    ] = "Geändert"
+
+    assert excluded_requirements[0]["description"] == (
+        "Die Lieferung muss an einem Dienstag erfolgen."
     )

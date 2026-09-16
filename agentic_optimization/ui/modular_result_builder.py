@@ -1,7 +1,7 @@
 """
 Bereitet modulare Optimierungsergebnisse für die UI auf.
 """
-
+from copy import deepcopy
 from typing import TypedDict
 
 from agentic_optimization.models.core_registry import (
@@ -11,6 +11,7 @@ from agentic_optimization.models.execution import (
     OptimizationExecutionResult,
 )
 from agentic_optimization.models.specification import (
+    ExcludedRequirement,
     ModelSpecification,
 )
 
@@ -79,6 +80,7 @@ class ModularResultData(TypedDict):
     objective_value: float | None
     decisions: list[ModularResultValue]
     metrics: list[ModularResultValue]
+    excluded_requirements: list[ExcludedRequirement]
     technical_representation: str | None
     errors: list[str]
 
@@ -172,6 +174,12 @@ def build_modular_result_data(
         "objective_value": result["objective_value"],
         "decisions": decisions,
         "metrics": metrics,
+        "excluded_requirements": deepcopy(
+            specification.get(
+                "excluded_requirements",
+                [],
+            )
+        ),
         "technical_representation": result[
             "technical_representation"
         ],

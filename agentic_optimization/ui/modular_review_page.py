@@ -14,6 +14,8 @@ from agentic_optimization.models.specification import (
     ModelSpecification,
 )
 from agentic_optimization.ui.modular_review_builder import (
+    ReviewConstraint,
+    ReviewProduct,
     build_modular_review_data,
     build_modular_selection_issue_data,
 )
@@ -42,6 +44,127 @@ def _format_value(value: Any) -> str:
         return ", ".join(str(item) for item in value)
 
     return str(value)
+
+
+def _build_product_overview_rows(
+    products: list[ReviewProduct],
+    field_labels: dict[str, str],
+) -> list[dict[str, str]]:
+    """Erzeugt eine kompakte Tabellenzeile je Produkt."""
+
+    rows: list[dict[str, str]] = []
+
+    for product in products:
+        row = {
+            "Produkt": product["product_id"],
+        }
+
+        for field_name, value in product[
+            "forecast"
+        ].items():
+            row[
+                field_labels.get(
+                    field_name,
+                    field_name,
+                )
+            ] = _format_value(value)
+
+        for field_name, value in product[
+            "facts"
+        ].items():
+            row[
+                field_labels.get(
+                    field_name,
+                    field_name,
+                )
+            ] = _format_value(value)
+
+        rows.append(row)
+
+    return rows
+
+
+def _build_constraint_overview_rows(
+    constraints: list[ReviewConstraint],
+    parameter_labels: dict[str, dict[str, str]],
+) -> list[dict[str, str]]:
+    """Erzeugt eine kompakte Zeile je Nebenbedingung."""
+
+    rows: list[dict[str, str]] = []
+
+    for constraint in constraints:
+        row = {
+            "Nebenbedingung": constraint["name"],
+            "Produkt": (
+                constraint["product_id"]
+                or "Gesamtmodell"
+            ),
+        }
+        labels = parameter_labels.get(
+            constraint["component_id"],
+            {},
+        )
+
+        for parameter_name, value in constraint[
+            "parameters"
+        ].items():
+            row[
+                labels.get(
+                    parameter_name,
+                    parameter_name,
+                )
+            ] = _format_value(value)
+
+        rows.append(row)
+
+    return rows
+
+
+def _render_product_details(
+    product: ReviewProduct,
+    field_labels: dict[str, str],
+) -> None:
+    """Zeigt Forecast und wirtschaftliche Angaben eines Produkts."""
+
+    forecast_column, facts_column = st.columns(2)
+
+    with forecast_column:
+        st.markdown("#### Nachfrageprognose")
+
+        if product["forecast"]:
+            for field_name, value in product[
+                "forecast"
+            ].items():
+                label = field_labels.get(
+                    field_name,
+                    field_name,
+                )
+                st.markdown(
+                    f"**{label}:** {_format_value(value)}"
+                )
+        else:
+            st.caption(
+                "Keine Nachfrageangaben vorhanden."
+            )
+
+    with facts_column:
+        st.markdown("#### Wirtschaftliche Angaben")
+
+        if product["facts"]:
+            for field_name, value in product[
+                "facts"
+            ].items():
+                label = field_labels.get(
+                    field_name,
+                    field_name,
+                )
+                st.markdown(
+                    f"**{label}:** {_format_value(value)}"
+                )
+        else:
+            st.caption(
+                "Keine wirtschaftlichen Angaben vorhanden."
+            )
 
 
 def _build_field_labels(
@@ -133,6 +256,49 @@ def render_modular_selection_issues(
         )
 
 
+def render_modular_exclusion_confirmation(
+    proposal: ComponentSelectionProposal,
+) -> bool:
+    """
+    Fragt nach einer ausdrücklichen Bestätigung, bevor
+    nicht unterstützte Anforderungen ausgeschlossen werden.
+    """
+
+    issue_data = build_modular_selection_issue_data(
+        proposal
+    )
+
+    if issue_data["selection_status"] != "unsupported":
+        return False
+
+    st.warning(
+        "Sie können die Berechnung ohne die oben "
+        "genannten Anforderungen fortsetzen. Diese "
+        "Vorgaben werden dann nicht in der Empfehlung "
+        "berücksichtigt und später deutlich als "
+        "Ausschlüsse ausgewiesen."
+    )
+
+    confirmed = st.checkbox(
+        "Ich bestätige, dass die genannten Anforderungen "
+        "für diese Berechnung nicht berücksichtigt werden "
+        "sollen.",
+        key="confirm_modular_requirement_exclusions",
+    )
+
+    continue_without_requirements = st.button(
+        "Ohne diese Anforderungen fortfahren",
+        use_container_width=True,
+        disabled=not confirmed,
+        key="continue_without_unsupported_requirements",
+    )
+
+    return bool(
+        confirmed
+        and continue_without_requirements
+    )
+
+
 def render_modular_review_page(
     proposal: ComponentSelectionProposal,
     specification: ModelSpecification,
@@ -167,49 +333,70 @@ def render_modular_review_page(
         )
 
     with st.container(border=True):
-        st.markdown("### 1. Grundmodell")
-        st.markdown(f"**{review['core_name']}**")
+        st.markdown("### 1. Was wird berechnet?")
 
-        objective_label = (
-            "Maximierung"
-            if review["objective_sense"] == "maximize"
-            else "Minimierung"
-        )
-        st.write(f"Zielrichtung: {objective_label}")
+        st.markdown(f"**{review['core_name']}**")
+        st.write(review["core_description"])
+
+        st.info(review["decision_description"])
 
     with st.container(border=True):
-        st.markdown("### 2. Eingabedaten")
+        st.markdown("### 2. Berechnungsgrundlage")
 
-        for product in review["products"]:
+        products = review["products"]
+
+        if len(products) == 1:
+            product = products[0]
+
             with st.expander(
                 f"Produkt: {product['product_id']}",
                 expanded=True,
             ):
-                st.markdown("#### Nachfrageprognose")
+                _render_product_details(
+                    product,
+                    field_labels,
+                )
+        else:
+            st.caption(
+                f"{len(products)} Produkte werden in "
+                "dieser Berechnung berücksichtigt."
+            )
 
-                for field_name, value in product[
-                    "forecast"
-                ].items():
-                    label = field_labels.get(
-                        field_name,
-                        field_name,
-                    )
-                    st.markdown(
-                        f"**{label}:** {_format_value(value)}"
-                    )
+            st.dataframe(
+                _build_product_overview_rows(
+                    products,
+                    field_labels,
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
 
-                st.markdown("#### Wirtschaftliche Angaben")
+            product_ids = [
+                product["product_id"]
+                for product in products
+            ]
 
-                for field_name, value in product[
-                    "facts"
-                ].items():
-                    label = field_labels.get(
-                        field_name,
-                        field_name,
-                    )
-                    st.markdown(
-                        f"**{label}:** {_format_value(value)}"
-                    )
+            selected_product_id = st.selectbox(
+                "Produktdetails anzeigen",
+                product_ids,
+                key="modular_review_product_details",
+            )
+
+            selected_product = next(
+                product
+                for product in products
+                if product["product_id"]
+                == selected_product_id
+            )
+
+            with st.expander(
+                f"Details: {selected_product_id}",
+                expanded=True,
+            ):
+                _render_product_details(
+                    selected_product,
+                    field_labels,
+                )
 
         if review["global_facts"]:
             st.markdown("#### Modellübergreifende Angaben")
@@ -226,57 +413,151 @@ def render_modular_review_page(
                 )
 
     with st.container(border=True):
-        st.markdown("### 3. Zusammensetzung des Modells")
+        st.markdown(
+            "### 3. Berücksichtigte Modellbausteine"
+        )
 
-        st.markdown("#### Zielfunktionsbausteine")
+        core_column, objective_column, constraint_column = (
+            st.columns(3)
+        )
 
-        for component in review[
-            "objective_components"
-        ]:
-            effect = (
-                "wirkt positiv"
-                if component["effect"] == "benefit"
-                else "wirkt als Kosten"
-            )
+        with core_column:
+            st.markdown("**Grundmodell**")
+            st.write(review["core_name"])
 
-            st.markdown(
-                f"**{component['name']}** – {effect}"
-            )
-            st.caption(component["reason"])
+        with objective_column:
+            st.markdown("**Optimierungsziel**")
+            st.write(review["objective_summary"])
 
-        st.markdown("#### Betriebliche Rahmenbedingungen")
+        with constraint_column:
+            st.markdown("**Nebenbedingungen**")
+
+            if review["constraints"]:
+                for constraint in review["constraints"]:
+                    st.markdown(
+                        f"- {constraint['name']}"
+                    )
+            else:
+                st.write("Keine zusätzlichen Vorgaben")
+
+        st.markdown(
+            "#### Betriebliche Rahmenbedingungen"
+        )
 
         if review["constraints"]:
-            for constraint in review["constraints"]:
-                st.markdown(f"**{constraint['name']}**")
+            constraint_product_ids = {
+                constraint["product_id"]
+                for constraint in review["constraints"]
+                if constraint["product_id"] is not None
+            }
 
-                if constraint["product_id"]:
-                    st.write(
-                        "Produkt: "
-                        f"{constraint['product_id']}"
-                    )
+            if len(constraint_product_ids) > 1:
+                st.dataframe(
+                    _build_constraint_overview_rows(
+                        review["constraints"],
+                        constraint_parameter_labels,
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                for constraint in review["constraints"]:
+                    with st.container(border=True):
+                        st.markdown(
+                            f"**{constraint['name']}**"
+                        )
 
-                for parameter_name, value in constraint[
-                    "parameters"
-                ].items():
-                    labels = constraint_parameter_labels.get(
-                        constraint["component_id"],
-                        {},
-                    )
-                    label = labels.get(
-                        parameter_name,
-                        parameter_name,
-                    )
-                    st.write(
-                        f"{label}: {_format_value(value)}"
-                    )
+                        if constraint["product_id"]:
+                            st.write(
+                                "Produkt: "
+                                f"{constraint['product_id']}"
+                            )
 
-                st.caption(constraint["reason"])
+                        for (
+                            parameter_name,
+                            value,
+                        ) in constraint[
+                            "parameters"
+                        ].items():
+                            labels = (
+                                constraint_parameter_labels.get(
+                                    constraint["component_id"],
+                                    {},
+                                )
+                            )
+                            label = labels.get(
+                                parameter_name,
+                                parameter_name,
+                            )
+                            st.write(
+                                f"{label}: "
+                                f"{_format_value(value)}"
+                            )
         else:
             st.info(
-                "Es wurden keine zusätzlichen betrieblichen "
-                "Rahmenbedingungen ausgewählt."
+                "Es wurden keine zusätzlichen "
+                "betrieblichen Rahmenbedingungen "
+                "berücksichtigt."
             )
+
+        with st.expander(
+            "Warum wurden diese Bausteine ausgewählt?"
+        ):
+            st.markdown(
+                "**Kosten- und Erlösbausteine**"
+            )
+
+            for component in review[
+                "objective_components"
+            ]:
+                effect = (
+                    "wirkt positiv"
+                    if component["effect"] == "benefit"
+                    else "wirkt als Kosten"
+                )
+
+                st.markdown(
+                    f"**{component['name']}** – {effect}"
+                )
+                st.caption(component["reason"])
+
+            if review["constraints"]:
+                st.markdown("**Nebenbedingungen**")
+
+                for constraint in review["constraints"]:
+                    st.markdown(
+                        f"**{constraint['name']}**"
+                    )
+                    st.caption(constraint["reason"])
+
+    with st.container(border=True):
+        st.markdown(
+            "### 4. Modellannahmen und Hinweise"
+        )
+        st.write(
+            "Die Berechnung basiert auf folgenden "
+            "fachlichen Annahmen:"
+        )
+
+        for assumption in review["assumptions"]:
+            st.markdown(f"- {assumption}")
+
+        if review["excluded_requirements"]:
+            st.warning(
+                "Die folgenden Anforderungen werden in "
+                "dieser Berechnung nicht berücksichtigt. "
+                "Die Ergebnisse gelten daher nur ohne "
+                "diese Vorgaben."
+            )
+
+            for requirement in review[
+                "excluded_requirements"
+            ]:
+                st.markdown(
+                    f"**Nicht berücksichtigt:** "
+                    f"{requirement['description']}"
+                )
+                st.caption(requirement["reason"])
 
     if not review["ready_for_confirmation"]:
         st.error(

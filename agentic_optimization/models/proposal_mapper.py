@@ -10,6 +10,7 @@ from agentic_optimization.models.specification import (
     ConstraintSpecification,
     ModelSpecification,
     ProductSpecification,
+    ExcludedRequirement,
 )
 from agentic_optimization.models.component_registry import (
     CONSTRAINT_COMPONENTS,
@@ -474,10 +475,110 @@ def validate_component_selection_proposal(
     return list(dict.fromkeys(errors))
 
 
+def exclude_unsupported_requirements(
+    proposal: ComponentSelectionProposal,
+    *,
+    confirmation_source: str,
+) -> tuple[
+    ComponentSelectionProposal,
+    list[ExcludedRequirement],
+]:
+    """
+    Entfernt ausschließlich ausdrücklich bestätigte,
+    nicht unterstützte Anforderungen aus einem Vorschlag.
+    """
+
+    if not _has_text(confirmation_source):
+        raise ValueError(
+            "Für den Ausschluss wird eine gültige "
+            "Bestätigungsquelle benötigt."
+        )
+
+    proposal_errors = (
+        validate_component_selection_proposal(proposal)
+    )
+
+    if proposal_errors:
+        raise ValueError(
+            "Ungültiger Bausteinvorschlag: "
+            + "; ".join(proposal_errors)
+        )
+
+    if proposal["selection_status"] != "unsupported":
+        raise ValueError(
+            "Nur ein nicht unterstützter "
+            "Bausteinvorschlag kann auf diese Weise "
+            "fortgesetzt werden."
+        )
+
+    unsupported_requirements = [
+        requirement
+        for requirement in proposal[
+            "unresolved_requirements"
+        ]
+        if requirement["resolution"] == "unsupported"
+    ]
+
+    if not unsupported_requirements:
+        raise ValueError(
+            "Der Vorschlag enthält keine nicht "
+            "unterstützten Anforderungen."
+        )
+
+    remaining_requirements = [
+        deepcopy(requirement)
+        for requirement in proposal[
+            "unresolved_requirements"
+        ]
+        if requirement["resolution"] != "unsupported"
+    ]
+
+    excluded_requirements: list[
+        ExcludedRequirement
+    ] = [
+        {
+            "description": requirement["description"],
+            "reason": requirement["reason"],
+            "sources": list(requirement["sources"]),
+            "confirmation_source": confirmation_source,
+        }
+        for requirement in unsupported_requirements
+    ]
+
+    updated_proposal = deepcopy(proposal)
+    updated_proposal["unresolved_requirements"] = (
+        remaining_requirements
+    )
+    updated_proposal["selection_status"] = (
+        "needs_clarification"
+        if remaining_requirements
+        else "complete"
+    )
+
+    updated_errors = (
+        validate_component_selection_proposal(
+            updated_proposal
+        )
+    )
+
+    if updated_errors:
+        raise ValueError(
+            "Der bereinigte Bausteinvorschlag ist "
+            "ungültig: "
+            + "; ".join(updated_errors)
+        )
+
+    return updated_proposal, excluded_requirements
+
+
 def build_specification_from_proposal(
     proposal: ComponentSelectionProposal,
     products: list[ProductSpecification],
     global_facts: dict[str, Any],
+    *,
+    excluded_requirements: (
+        list[ExcludedRequirement] | None
+    ) = None,
 ) -> ModelSpecification:
     """Erzeugt deterministisch eine Modellspezifikation."""
 
@@ -538,4 +639,7 @@ def build_specification_from_proposal(
             ],
         },
         "constraints": constraints,
+        "excluded_requirements": deepcopy(
+            excluded_requirements or []
+        ),
     }

@@ -11,6 +11,7 @@ from agentic_optimization.models.specification import (
     ModelSpecification,
 )
 from agentic_optimization.ui.modular_result_builder import (
+    ModularResultValue,
     build_modular_result_data,
 )
 
@@ -26,6 +27,36 @@ def _format_result_value(value: int | float) -> str:
         .replace(".", ",")
         .replace("_", ".")
     )
+
+
+def _build_result_overview_rows(
+    values: list[ModularResultValue],
+) -> list[dict[str, str]]:
+    """Gruppiert Ergebniswerte zu einer Zeile je Produkt."""
+
+    rows_by_product: dict[
+        str,
+        dict[str, str],
+    ] = {}
+
+    for item in values:
+        product_label = (
+            item["product_id"]
+            if item["product_id"] is not None
+            else "Gesamtmodell"
+        )
+
+        row = rows_by_product.setdefault(
+            product_label,
+            {
+                "Produkt": product_label,
+            },
+        )
+        row[item["label"]] = _format_result_value(
+            item["value"]
+        )
+
+    return list(rows_by_product.values())
 
 
 def render_modular_result_page(
@@ -70,35 +101,81 @@ def render_modular_result_page(
     if result_data["decisions"]:
         st.markdown("### Empfohlene Entscheidungen")
 
-        for decision in result_data["decisions"]:
-            product_label = (
-                f" – {decision['product_id']}"
-                if decision["product_id"]
-                else ""
-            )
+        decision_product_ids = {
+            decision["product_id"]
+            for decision in result_data["decisions"]
+            if decision["product_id"] is not None
+        }
 
-            st.metric(
-                f"{decision['label']}{product_label}",
-                _format_result_value(
-                    decision["value"]
+        if len(decision_product_ids) > 1:
+            st.dataframe(
+                _build_result_overview_rows(
+                    result_data["decisions"]
                 ),
+                use_container_width=True,
+                hide_index=True,
             )
+        else:
+            for decision in result_data["decisions"]:
+                product_label = (
+                    f" – {decision['product_id']}"
+                    if decision["product_id"]
+                    else ""
+                )
+
+                st.metric(
+                    f"{decision['label']}{product_label}",
+                    _format_result_value(
+                        decision["value"]
+                    ),
+                )
+
+    if result_data["excluded_requirements"]:
+        st.markdown("### Geltungsbereich der Empfehlung")
+
+        st.warning(
+            "Die folgenden Anforderungen wurden bei der "
+            "Berechnung nicht berücksichtigt. Die Empfehlung "
+            "gilt daher nur, wenn diese Vorgaben außer Acht "
+            "gelassen werden können."
+        )
+
+        for requirement in result_data[
+            "excluded_requirements"
+        ]:
+            st.markdown(
+                "**Nicht berücksichtigt:** "
+                f"{requirement['description']}"
+            )
+            st.write(requirement["reason"])
 
     if result_data["metrics"]:
         st.markdown("### Weitere Kennzahlen")
 
-        metric_rows = [
-            {
-                "Produkt": (
-                    metric["product_id"] or "Gesamtmodell"
-                ),
-                "Kennzahl": metric["label"],
-                "Wert": _format_result_value(
-                    metric["value"]
-                ),
-            }
+        metric_product_ids = {
+            metric["product_id"]
             for metric in result_data["metrics"]
-        ]
+            if metric["product_id"] is not None
+        }
+
+        if len(metric_product_ids) > 1:
+            metric_rows = _build_result_overview_rows(
+                result_data["metrics"]
+            )
+        else:
+            metric_rows = [
+                {
+                    "Produkt": (
+                        metric["product_id"]
+                        or "Gesamtmodell"
+                    ),
+                    "Kennzahl": metric["label"],
+                    "Wert": _format_result_value(
+                        metric["value"]
+                    ),
+                }
+                for metric in result_data["metrics"]
+            ]
 
         st.dataframe(
             metric_rows,

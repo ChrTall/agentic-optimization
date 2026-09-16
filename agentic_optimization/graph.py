@@ -12,8 +12,10 @@ from agentic_optimization.agents.model_input_extraction_agent import (
 from agentic_optimization.agents.modeling_agent import modeling_agent
 from agentic_optimization.agents.modular_workflow_nodes import (
     apply_modular_model_inputs_node,
+    confirm_modular_requirement_exclusions_node,
     create_modular_model_preparation_node,
     execute_modular_model_node,
+    create_modular_product_schema_node,
 )
 from agentic_optimization.agents.requirement_agent import create_requirement_agent
 from agentic_optimization.agents.result_node import result_node
@@ -31,6 +33,7 @@ from agentic_optimization.state import (
     EVENT_MODULAR_INPUTS_SUBMITTED,
     EVENT_MODULAR_MODEL_PREPARATION_REQUESTED,
     EVENT_MODULAR_OPTIMIZATION_REQUESTED,
+    EVENT_MODULAR_PRODUCT_SCHEMA_REQUESTED,
     WORKFLOW_GENERAL_INPUTS_VALID,
     WORKFLOW_MODEL_INPUTS_INVALID,
     WORKFLOW_MODEL_INPUTS_VALID,
@@ -42,6 +45,12 @@ from agentic_optimization.state import (
     WORKFLOW_OPTIMIZATION_COMPLETED,
     WORKFLOW_OPTIMIZATION_FAILED,
     WORKFLOW_READY_FOR_REVIEW,
+    EVENT_BUSINESS_INTAKE_REQUESTED,
+    EVENT_MODULAR_REQUIREMENT_EXCLUSIONS_CONFIRMED,
+    WORKFLOW_BUSINESS_CASE_UNSUPPORTED,
+    WORKFLOW_BUSINESS_CORE_SELECTED,
+    WORKFLOW_BUSINESS_PROFILE_ANALYSIS_FAILED,
+    WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT,
     GraphState,
     get_event,
     get_workflow_status,
@@ -49,12 +58,18 @@ from agentic_optimization.state import (
 from agentic_optimization.agents.modular_state_adapter import (
     initialize_modular_model_state,
 )
-
+from agentic_optimization.agents.business_intake_nodes import (
+    create_business_intake_node,
+    initialize_modular_core_node,
+)
 
 def route_workflow(state: GraphState) -> str:
     """Entscheidet, an welcher Stelle der Graph gestartet wird."""
 
     event = get_event(state)
+
+    if event == EVENT_BUSINESS_INTAKE_REQUESTED:
+        return "business_intake"
 
     if event == EVENT_NEW_PROBLEM:
         return "requirement_agent"
@@ -68,8 +83,14 @@ def route_workflow(state: GraphState) -> str:
     if event == EVENT_OPTIMIZATION_REQUESTED:
         return "optimize_model"
 
+    if event == EVENT_MODULAR_PRODUCT_SCHEMA_REQUESTED:
+        return "prepare_modular_product_schema"
+
     if event == EVENT_MODULAR_MODEL_PREPARATION_REQUESTED:
         return "prepare_modular_model"
+
+    if event == EVENT_MODULAR_REQUIREMENT_EXCLUSIONS_CONFIRMED:
+        return "confirm_modular_requirement_exclusions"
 
     if event == EVENT_MODULAR_INPUTS_SUBMITTED:
         return "apply_modular_model_inputs"
@@ -78,6 +99,29 @@ def route_workflow(state: GraphState) -> str:
         return "execute_modular_model"
 
     raise ValueError(f"Unexpected workflow event: {event}")
+
+
+def route_after_business_intake(
+    state: GraphState,
+) -> str:
+    """Routet nach der Analyse des Geschäftsprofils."""
+
+    status = get_workflow_status(state)
+
+    if status == WORKFLOW_BUSINESS_CORE_SELECTED:
+        return "initialize_core"
+
+    if status in {
+        WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT,
+        WORKFLOW_BUSINESS_CASE_UNSUPPORTED,
+        WORKFLOW_BUSINESS_PROFILE_ANALYSIS_FAILED,
+    }:
+        return "stop"
+
+    raise ValueError(
+        "Unexpected workflow_status after business intake: "
+        f"{status}"
+    )
 
 
 def route_after_general_validation(state: GraphState) -> str:
@@ -210,8 +254,24 @@ def build_graph(llm: BaseChatModel):
     graph = StateGraph(GraphState)
 
     graph.add_node(
+        "business_intake",
+        create_business_intake_node(llm),
+    )
+    graph.add_node(
+        "initialize_business_modular_core",
+        initialize_modular_core_node,
+    )
+    graph.add_node(
+        "prepare_modular_product_schema",
+        create_modular_product_schema_node(llm),
+    )
+    graph.add_node(
         "prepare_modular_model",
         create_modular_model_preparation_node(llm),
+    )
+    graph.add_node(
+        "confirm_modular_requirement_exclusions",
+        confirm_modular_requirement_exclusions_node,
     )
     graph.add_node(
         "apply_modular_model_inputs",
@@ -258,11 +318,15 @@ def build_graph(llm: BaseChatModel):
         START,
         route_workflow,
         {
+            "business_intake": "business_intake",
             "requirement_agent": "requirement_agent",
             "validate_model_specific_inputs": (
                 "validate_model_specific_inputs"
             ),
             "optimize_model": "optimize_model",
+            "prepare_modular_product_schema": (
+                "prepare_modular_product_schema"
+            ),
             "prepare_modular_model": (
                 "prepare_modular_model"
             ),
@@ -272,13 +336,40 @@ def build_graph(llm: BaseChatModel):
             "execute_modular_model": (
                 "execute_modular_model"
             ),
+            "confirm_modular_requirement_exclusions": (
+                "confirm_modular_requirement_exclusions"
+            ),
         },
     )
 
+    graph.add_conditional_edges(
+        "business_intake",
+        route_after_business_intake,
+        {
+            "initialize_core": (
+                "initialize_business_modular_core"
+            ),
+            "stop": END,
+        },
+    )
+    graph.add_edge(
+        "initialize_business_modular_core",
+        END,
+    )
+
     # Modulare Aufrufe sind zunächst eigenständige Graph-Durchläufe.
+    graph.add_edge(
+        "prepare_modular_product_schema",
+        END,
+    )
     graph.add_edge("prepare_modular_model", END)
+    graph.add_edge(
+        "confirm_modular_requirement_exclusions",
+        END,
+    )
     graph.add_edge("apply_modular_model_inputs", END)
     graph.add_edge("execute_modular_model", END)
+
 
 
     # Nach der Requirement-Extraktion immer allgemein validieren.

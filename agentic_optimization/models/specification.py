@@ -61,6 +61,15 @@ class ConstraintSpecification(TypedDict):
     product_id: NotRequired[str | None]
 
 
+class ExcludedRequirement(TypedDict):
+    """Eine vom Nutzer bewusst ausgeschlossene Anforderung."""
+
+    description: str
+    reason: str
+    sources: list[str]
+    confirmation_source: str
+
+
 class ModelSpecification(TypedDict):
     """Vollständige Spezifikation eines modularen Optimierungsmodells."""
 
@@ -69,6 +78,9 @@ class ModelSpecification(TypedDict):
     global_facts: dict[str, Any]
     objective: ObjectiveSpecification
     constraints: list[ConstraintSpecification]
+    excluded_requirements: NotRequired[
+        list[ExcludedRequirement]
+    ]
 
 
 class ProposedObjectiveComponent(TypedDict):

@@ -156,6 +156,42 @@ def test_rejects_invalid_minimum_product_count() -> None:
     )
 
 
+def test_rejects_empty_core_description() -> None:
+    cores = deepcopy(CORE_REGISTRY)
+
+    cores["single_period_newsvendor"][
+        "definition"
+    ]["description"] = ""
+
+    errors = validate_registry_integrity(
+        registered_cores=cores
+    )
+
+    assert any(
+        "single_period_newsvendor" in error
+        and "Beschreibung" in error
+        for error in errors
+    )
+
+
+def test_rejects_empty_core_decision_description() -> None:
+    cores = deepcopy(CORE_REGISTRY)
+
+    cores["single_period_newsvendor"][
+        "definition"
+    ]["decision_description"] = "   "
+
+    errors = validate_registry_integrity(
+        registered_cores=cores
+    )
+
+    assert any(
+        "single_period_newsvendor" in error
+        and "Entscheidungsbeschreibung" in error
+        for error in errors
+    )
+
+
 def test_rejects_missing_semantic_validator() -> None:
     cores = deepcopy(CORE_REGISTRY)
 
@@ -305,5 +341,23 @@ def test_rejects_duplicate_required_component() -> None:
         "eoq" in error
         and "annual_ordering_cost" in error
         and "mehrfach" in error
+        for error in errors
+    )
+
+
+def test_rejects_empty_core_assumptions() -> None:
+    cores = deepcopy(CORE_REGISTRY)
+
+    cores["single_period_newsvendor"][
+        "definition"
+    ]["assumptions"] = []
+
+    errors = validate_registry_integrity(
+        registered_cores=cores
+    )
+
+    assert any(
+        "single_period_newsvendor" in error
+        and "Modellannahme" in error
         for error in errors
     )

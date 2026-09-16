@@ -76,6 +76,9 @@ class ModelCoreDefinition(TypedDict):
 
     core_id: str
     name: str
+    description: str
+    decision_description: str
+    assumptions: list[str]
     minimum_products: int
     required_forecast_fields: list[ModelInputField]
     required_product_facts: list[ModelInputField]

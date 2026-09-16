@@ -8,7 +8,69 @@ from agentic_optimization.agents.modular_model_agent import (
     create_modular_model_agent,
     execute_modular_model_draft,
     update_modular_model_draft,
+    create_preliminary_component_selection_agent,
 )
+
+
+def test_selects_preliminary_components_without_products(
+) -> None:
+    response = {
+        "core_id": "single_period_newsvendor",
+        "selection_status": "complete",
+        "objective_sense": "maximize",
+        "objective_components": [
+            {
+                "component_id": "sales_revenue",
+                "reason": "Verkaufserlöse berücksichtigen.",
+                "sources": ["raw_input"],
+            },
+            {
+                "component_id": "purchase_cost",
+                "reason": "Einkaufskosten berücksichtigen.",
+                "sources": ["raw_input"],
+            },
+        ],
+        "constraints": [],
+        "unresolved_requirements": [],
+    }
+
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(
+        content=json.dumps(response)
+    )
+
+    agent = (
+        create_preliminary_component_selection_agent(
+            llm
+        )
+    )
+
+    proposal = agent(
+        core_id="single_period_newsvendor",
+        requirements={
+            "objective": "Gewinn maximieren",
+        },
+        global_facts={},
+        evidence=[
+            {
+                "source_id": "raw_input",
+                "content": (
+                    "Der erwartete Gewinn soll maximiert "
+                    "werden."
+                ),
+            }
+        ],
+    )
+
+    assert proposal == response
+    assert llm.invoke.call_count == 1
+
+    messages = llm.invoke.call_args.args[0]
+    user_message = json.loads(
+        messages[1].content
+    )
+
+    assert user_message["products"] == []
 
 
 def test_prepares_modular_q_r_model_draft() -> None:
@@ -49,6 +111,13 @@ def test_prepares_modular_q_r_model_draft() -> None:
         ),
         AIMessage(
             content=json.dumps(response)
+        ),
+        AIMessage(
+            content=json.dumps(
+                {
+                    "uncovered_requirements": [],
+                }
+            )
         ),
     ]
 
@@ -96,6 +165,7 @@ def test_prepares_modular_q_r_model_draft() -> None:
                 ),
             }
         ],
+        preliminary_proposal=response,
     )
 
     assert draft["proposal"] == response
@@ -171,7 +241,25 @@ def test_prepares_modular_q_r_model_draft() -> None:
     assert result["status"] == "optimal"
     assert result["solution_method"] == "numerical"
 
-    assert llm.invoke.call_count == 2
+    assert llm.invoke.call_count == 3
+
+    selection_messages = (
+        llm.invoke.call_args_list[1].args[0]
+    )
+    selection_payload = json.loads(
+        selection_messages[1].content
+    )
+
+    assert selection_payload[
+        "locked_objective_selection"
+    ] == {
+        "objective_sense": "minimize",
+        "objective_component_ids": [
+            "annual_ordering_cost",
+            "annual_holding_cost",
+            "annual_shortage_cost",
+        ],
+    }
 
 
 def test_uses_extracted_facts_in_model_specification() -> None:
@@ -234,6 +322,13 @@ def test_uses_extracted_facts_in_model_specification() -> None:
         AIMessage(
             content=json.dumps(component_response)
         ),
+        AIMessage(
+            content=json.dumps(
+                {
+                    "uncovered_requirements": [],
+                }
+            )
+        ),
     ]
 
     agent = create_modular_model_agent(llm)
@@ -277,7 +372,7 @@ def test_uses_extracted_facts_in_model_specification() -> None:
     assert draft["validation"]["is_valid"] is True
     assert draft["validation"]["errors"] == []
     assert draft["validation"]["missing_inputs"] == []
-    assert llm.invoke.call_count == 2
+    assert llm.invoke.call_count == 3
 
 
 def test_returns_unsupported_proposal_without_specification() -> None:
@@ -323,6 +418,13 @@ def test_returns_unsupported_proposal_without_specification() -> None:
             )
         ),
         AIMessage(content=json.dumps(response)),
+        AIMessage(
+            content=json.dumps(
+                {
+                    "uncovered_requirements": [],
+                }
+            )
+        ),
     ]
 
     agent = create_modular_model_agent(llm)
@@ -351,6 +453,121 @@ def test_returns_unsupported_proposal_without_specification() -> None:
     )
 
     assert draft["proposal"] == response
+    assert draft["products"] == [
+        {
+            "product_id": "product_1",
+            "forecast": {},
+            "facts": {},
+        }
+    ]
+    assert draft["global_facts"] == {}
     assert "specification" not in draft
     assert "validation" not in draft
-    assert llm.invoke.call_count == 2
+    assert llm.invoke.call_count == 3
+
+
+def test_coverage_audit_detects_overlooked_requirement(
+) -> None:
+    component_response = {
+        "core_id": "eoq",
+        "selection_status": "complete",
+        "objective_sense": "minimize",
+        "objective_components": [
+            {
+                "component_id": "annual_ordering_cost",
+                "reason": "Bestellkosten wurden genannt.",
+                "sources": ["raw_input"],
+            },
+            {
+                "component_id": "annual_holding_cost",
+                "reason": "Lagerkosten wurden genannt.",
+                "sources": ["raw_input"],
+            },
+        ],
+        "constraints": [],
+        "unresolved_requirements": [],
+    }
+
+    uncovered_requirement = {
+        "description": (
+            "Jede Lieferung muss an einem "
+            "Dienstag eintreffen."
+        ),
+        "resolution": "unsupported",
+        "candidate_component_ids": [],
+        "reason": (
+            "Es ist kein Baustein für einen "
+            "bestimmten Liefertag vorhanden."
+        ),
+        "sources": ["raw_input"],
+    }
+
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(
+            content=json.dumps(
+                {
+                    "products": [],
+                    "global_facts": {},
+                }
+            )
+        ),
+        AIMessage(
+            content=json.dumps(component_response)
+        ),
+        AIMessage(
+            content=json.dumps(
+                {
+                    "uncovered_requirements": [
+                        uncovered_requirement
+                    ],
+                }
+            )
+        ),
+    ]
+
+    agent = create_modular_model_agent(llm)
+
+    draft = agent(
+        core_id="eoq",
+        requirements={
+            "objective": "Gesamtkosten minimieren",
+        },
+        products=[
+            {
+                "product_id": "product_1",
+                "forecast": {
+                    "expected_value": 3500.0,
+                    "horizon_days": 365,
+                },
+                "facts": {
+                    "ordering_cost": 120.0,
+                    "holding_cost": 12.0,
+                },
+            }
+        ],
+        global_facts={},
+        evidence=[
+            {
+                "source_id": "raw_input",
+                "content": (
+                    "Bestell- und Lagerhaltungskosten sollen "
+                    "minimiert werden. Jede Lieferung muss "
+                    "an einem Dienstag eintreffen."
+                ),
+            }
+        ],
+    )
+
+    assert draft["proposal"]["selection_status"] == (
+        "unsupported"
+    )
+    assert draft["proposal"]["constraints"] == []
+    assert draft["proposal"][
+        "unresolved_requirements"
+    ] == [
+        uncovered_requirement
+    ]
+    assert "specification" not in draft
+    assert "validation" not in draft
+    assert llm.invoke.call_count == 3

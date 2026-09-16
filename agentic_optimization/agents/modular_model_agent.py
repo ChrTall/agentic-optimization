@@ -6,6 +6,9 @@ from typing import Any, NotRequired, TypedDict
 
 from langchain_core.language_models import BaseChatModel
 
+from agentic_optimization.agents.component_coverage_agent import (
+    create_component_coverage_agent,
+)
 from agentic_optimization.agents.component_selection_agent import (
     create_component_selection_agent,
 )
@@ -39,13 +42,53 @@ class ModularModelDraft(TypedDict):
     """Ergebnis der agentischen Modellvorbereitung."""
 
     proposal: ComponentSelectionProposal
+    products: list[ProductSpecification]
+    global_facts: dict[str, Any]
     specification: NotRequired[ModelSpecification]
     validation: NotRequired[
         SpecificationValidationResult
     ]
 
-
 ModularModelAgent = Callable[..., ModularModelDraft]
+
+
+PreliminaryComponentSelectionAgent = Callable[
+    ...,
+    ComponentSelectionProposal,
+]
+
+
+def create_preliminary_component_selection_agent(
+    llm: BaseChatModel,
+) -> PreliminaryComponentSelectionAgent:
+    """
+    Wählt Bausteine vorläufig aus, bevor Produkte existieren.
+
+    Diese Auswahl dient ausschließlich zur Bestimmung der
+    Tabellenspalten. Nach der Produkteingabe wird die vollständige
+    Modellvorbereitung erneut ausgeführt.
+    """
+
+    component_selection_agent = (
+        create_component_selection_agent(llm)
+    )
+
+    def select_preliminary_components(
+        *,
+        core_id: str,
+        requirements: dict[str, Any],
+        global_facts: dict[str, Any],
+        evidence: list[SelectionEvidence],
+    ) -> ComponentSelectionProposal:
+        return component_selection_agent(
+            core_id=core_id,
+            requirements=requirements,
+            products=[],
+            global_facts=global_facts,
+            evidence=evidence,
+        )
+
+    return select_preliminary_components
 
 
 def create_modular_model_agent(
@@ -61,6 +104,10 @@ def create_modular_model_agent(
         create_component_selection_agent(llm)
     )
 
+    component_coverage_agent = (
+        create_component_coverage_agent(llm)
+    )
+
     def prepare_model(
         *,
         core_id: str,
@@ -68,6 +115,9 @@ def create_modular_model_agent(
         products: list[ProductSpecification],
         global_facts: dict[str, Any],
         evidence: list[SelectionEvidence],
+        preliminary_proposal: (
+            ComponentSelectionProposal | None
+        ) = None,
     ) -> ModularModelDraft:
         extracted_products, extracted_global_facts = (
             fact_extraction_agent(
@@ -85,11 +135,24 @@ def create_modular_model_agent(
             products=extracted_products,
             global_facts=extracted_global_facts,
             evidence=evidence,
+            locked_objective_proposal=(
+                preliminary_proposal
+            ),
+        )
+
+        proposal = component_coverage_agent(
+            core_id=core_id,
+            requirements=requirements,
+            products=extracted_products,
+            evidence=evidence,
+            proposal=proposal,
         )
 
         if proposal["selection_status"] != "complete":
             return {
                 "proposal": proposal,
+                "products": extracted_products,
+                "global_facts": extracted_global_facts,
             }
 
         specification = build_specification_from_proposal(
@@ -104,6 +167,8 @@ def create_modular_model_agent(
 
         return {
             "proposal": proposal,
+            "products": extracted_products,
+            "global_facts": extracted_global_facts,
             "specification": specification,
             "validation": validation,
         }
@@ -126,6 +191,10 @@ def update_modular_model_draft(
 
     return {
         "proposal": draft["proposal"],
+        "products": updated_specification["products"],
+        "global_facts": updated_specification[
+            "global_facts"
+        ],
         "specification": updated_specification,
         "validation": validate_model_specification(
             updated_specification
