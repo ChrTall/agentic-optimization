@@ -31,6 +31,8 @@ from agentic_optimization.state import (
     WORKFLOW_READY_FOR_RESULT,
     WORKFLOW_READY_FOR_REVIEW,
     EVENT_MODULAR_PRODUCT_SCHEMA_REQUESTED,
+    EVENT_MODULAR_REVIEW_EXPLANATION_REQUESTED,
+    EVENT_MODULAR_RESULT_EXPLANATION_REQUESTED,
     WORKFLOW_PRODUCT_TABLE_READY,
     get_workflow_status,
     invalidate_optimization_state,
@@ -1873,11 +1875,66 @@ elif st.session_state.step == "review":
         and modular_proposal is not None
         and modular_specification is not None
     ):
+
+        review_explanation = modular_state.get(
+            "review_explanation"
+        )
+
+        if (
+            not isinstance(review_explanation, str)
+            or not review_explanation.strip()
+        ):
+            llm = st.session_state.get("llm")
+
+            if llm is not None:
+                explanation_state = {
+                    **graph_state,
+                    "control": {
+                        **graph_state.get(
+                            "control",
+                            {},
+                        ),
+                        "event": (
+                            EVENT_MODULAR_REVIEW_EXPLANATION_REQUESTED
+                        ),
+                    },
+                }
+
+                with st.spinner(
+                    "Die Modellzusammenstellung wird "
+                    "verständlich erklärt …"
+                ):
+                    workflow = build_graph(llm)
+                    graph_state = workflow.invoke(
+                        explanation_state
+                    )
+
+                st.session_state.graph_state = graph_state
+
+                modular_state = graph_state.get(
+                    "modular_model",
+                    {},
+                )
+                modular_proposal = modular_state.get(
+                    "proposal"
+                )
+                modular_specification = (
+                    modular_state.get(
+                        "specification"
+                    )
+                )
+                review_explanation = (
+                    modular_state.get(
+                        "review_explanation"
+                    )
+                )
+
         try:
             start_optimization = (
                 render_modular_review_page(
                     modular_proposal,
                     modular_specification,
+                    explanation=review_explanation,
                 )
             )
         except ValueError as error:
@@ -2243,10 +2300,48 @@ elif st.session_state.step == "result":
         and modular_specification is not None
         and modular_result is not None
     ):
-        render_modular_result_page(
-            modular_specification,
-            modular_result,
+        explanation_requested = (
+            render_modular_result_page(
+                modular_specification,
+                modular_result,
+                explanation=modular_state.get(
+                    "result_explanation"
+                ),
+            )
         )
+
+        if explanation_requested:
+            try:
+                llm = get_or_create_llm()
+            except ValueError as error:
+                st.error(str(error))
+                st.stop()
+
+            explanation_state = {
+                **graph_state,
+                "control": {
+                    **graph_state.get(
+                        "control",
+                        {},
+                    ),
+                    "event": (
+                        EVENT_MODULAR_RESULT_EXPLANATION_REQUESTED
+                    ),
+                },
+            }
+
+            with st.spinner(
+                "Das Optimierungsergebnis wird "
+                "verständlich erklärt …"
+            ):
+                workflow = build_graph(llm)
+                st.session_state.graph_state = (
+                    workflow.invoke(
+                        explanation_state
+                    )
+                )
+
+            st.rerun()
 
         st.divider()
 

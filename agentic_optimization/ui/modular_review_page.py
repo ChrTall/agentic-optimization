@@ -16,6 +16,7 @@ from agentic_optimization.models.specification import (
 from agentic_optimization.ui.modular_review_builder import (
     ReviewConstraint,
     ReviewProduct,
+    build_default_review_explanation,
     build_modular_review_data,
     build_modular_selection_issue_data,
 )
@@ -302,6 +303,8 @@ def render_modular_exclusion_confirmation(
 def render_modular_review_page(
     proposal: ComponentSelectionProposal,
     specification: ModelSpecification,
+    *,
+    explanation: str | None = None,
 ) -> bool:
     """
     Rendert Formular 4.
@@ -315,6 +318,13 @@ def render_modular_review_page(
     )
     field_labels = _build_field_labels(
         review["core_id"]
+    )
+
+    explanation_text = (
+        explanation.strip()
+        if isinstance(explanation, str)
+        and explanation.strip()
+        else build_default_review_explanation(review)
     )
 
     constraint_parameter_labels = (
@@ -338,7 +348,8 @@ def render_modular_review_page(
         st.markdown(f"**{review['core_name']}**")
         st.write(review["core_description"])
 
-        st.info(review["decision_description"])
+        st.markdown("#### Kurz erklärt")
+        st.info(explanation_text)
 
     with st.container(border=True):
         st.markdown("### 2. Berechnungsgrundlage")

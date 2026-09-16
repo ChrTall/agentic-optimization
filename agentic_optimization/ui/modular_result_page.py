@@ -62,8 +62,14 @@ def _build_result_overview_rows(
 def render_modular_result_page(
     specification: ModelSpecification,
     result: OptimizationExecutionResult,
-) -> None:
-    """Rendert das Ergebnis eines modularen Modells."""
+    *,
+    explanation: str | None = None,
+) -> bool:
+    """
+    Rendert das Ergebnis eines modularen Modells.
+
+    True bedeutet, dass eine Erklärung angefordert wurde.
+    """
 
     result_data = build_modular_result_data(
         specification,
@@ -183,6 +189,28 @@ def render_modular_result_page(
             hide_index=True,
         )
 
+    explanation_requested = False
+
+    if result_data["successful"]:
+        st.markdown("### Ergebnis verstehen")
+
+        if (
+            isinstance(explanation, str)
+            and explanation.strip()
+        ):
+            st.info(explanation.strip())
+        else:
+            st.write(
+                "Lassen Sie sich die Empfehlung und die "
+                "wichtigsten Kennzahlen in verständlicher "
+                "Form erklären."
+            )
+            explanation_requested = st.button(
+                "Optimierungsergebnis erklären",
+                use_container_width=True,
+                key="explain_modular_optimization_result",
+            )
+
     with st.expander("Technische Details"):
         st.markdown(
             f"**Status:** {result_data['status']}"
@@ -202,3 +230,5 @@ def render_modular_result_page(
                 "Für diese Berechnung ist keine technische "
                 "Darstellung verfügbar."
             )
+
+    return bool(explanation_requested)

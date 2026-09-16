@@ -85,6 +85,74 @@ class ModularResultData(TypedDict):
     errors: list[str]
 
 
+def build_default_result_explanation(
+    result_data: ModularResultData,
+) -> str:
+    """Erklärt ein Ergebnis ohne Sprachmodell."""
+
+    if not result_data["successful"]:
+        return (
+            "Für dieses Modell konnte keine erfolgreiche "
+            "Empfehlung berechnet werden. Prüfen Sie den "
+            "Status und die angezeigten Fehlermeldungen."
+        )
+
+    decisions = result_data["decisions"]
+
+    if not decisions:
+        decision_text = (
+            "Es wurde keine konkrete Entscheidungsgröße "
+            "ausgegeben."
+        )
+    elif len(decisions) == 1:
+        decision = decisions[0]
+        product_text = (
+            f" für {decision['product_id']}"
+            if decision["product_id"]
+            else ""
+        )
+        decision_text = (
+            f"Die zentrale Empfehlung lautet{product_text}: "
+            f"{decision['label']} = "
+            f"{float(decision['value']):g}."
+        )
+    else:
+        product_ids = {
+            decision["product_id"]
+            for decision in decisions
+            if decision["product_id"] is not None
+        }
+
+        if len(product_ids) > 1:
+            decision_text = (
+                "Die Berechnung liefert für "
+                f"{len(product_ids)} Produkte jeweils "
+                "eine eigene Empfehlung."
+            )
+        else:
+            decision_text = (
+                "Die Berechnung liefert mehrere "
+                "aufeinander abgestimmte "
+                "Entscheidungswerte."
+            )
+
+    explanation = (
+        f"{result_data['status_label']}. "
+        f"{decision_text} "
+        "Die weiteren Kennzahlen zeigen die "
+        "betrieblichen Auswirkungen dieser Empfehlung."
+    )
+
+    if result_data["excluded_requirements"]:
+        explanation += (
+            " Die ausgewiesenen, nicht berücksichtigten "
+            "Anforderungen sind nicht Bestandteil der "
+            "Empfehlung."
+        )
+
+    return explanation
+
+
 def build_modular_result_data(
     specification: ModelSpecification,
     result: OptimizationExecutionResult,

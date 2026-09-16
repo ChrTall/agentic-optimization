@@ -77,6 +77,7 @@ class ModularReviewData(TypedDict):
     core_description: str
     decision_description: str
     assumptions: list[str]
+    excluded_requirements: list[ExcludedRequirement]
     objective_sense: str
     objective_summary: str
     objective_components: list[ReviewObjectiveComponent]
@@ -231,6 +232,58 @@ def _build_objective_summary(
     )
 
     return f"{''.join(expression_parts)} {action}"
+
+
+def build_default_review_explanation(
+    review: ModularReviewData,
+) -> str:
+    """
+    Erzeugt eine verständliche Erklärung ohne Sprachmodell.
+    """
+
+    product_count = len(review["products"])
+
+    if product_count == 1:
+        product_text = "Für ein Produkt"
+    else:
+        product_text = f"Für {product_count} Produkte"
+
+    explanation = (
+        f"{product_text} wird das Modell "
+        f"„{review['core_name']}“ verwendet. "
+        f"{review['decision_description']} "
+        f"Das Ziel lautet: "
+        f"{review['objective_summary']}."
+    )
+
+    constraint_names = list(
+        dict.fromkeys(
+            constraint["name"]
+            for constraint in review["constraints"]
+        )
+    )
+
+    if constraint_names:
+        explanation += (
+            " Zusätzlich berücksichtigt das Modell "
+            "folgende betriebliche Vorgaben: "
+            + ", ".join(constraint_names)
+            + "."
+        )
+    else:
+        explanation += (
+            " Weitere betriebliche Vorgaben werden "
+            "nicht berücksichtigt."
+        )
+
+    if review["excluded_requirements"]:
+        explanation += (
+            " Mindestens eine weitere Anforderung "
+            "wird bei der Berechnung ausdrücklich "
+            "nicht berücksichtigt."
+        )
+
+    return explanation
 
 
 def build_modular_review_data(

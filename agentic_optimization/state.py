@@ -71,6 +71,8 @@ EVENT_MODEL_INPUTS_SUBMITTED: Final = "model_inputs_submitted"
 EVENT_OPTIMIZATION_REQUESTED: Final = "optimization_requested"
 EVENT_MODULAR_MODEL_PREPARATION_REQUESTED: Final = "modular_model_preparation_requested"
 EVENT_MODULAR_PRODUCT_SCHEMA_REQUESTED: Final = "modular_product_schema_requested"
+EVENT_MODULAR_REVIEW_EXPLANATION_REQUESTED: Final = "modular_review_explanation_requested"
+EVENT_MODULAR_RESULT_EXPLANATION_REQUESTED: Final = "modular_result_explanation_requested"
 EVENT_MODULAR_INPUTS_SUBMITTED: Final = "modular_inputs_submitted"
 EVENT_MODULAR_OPTIMIZATION_REQUESTED: Final = "modular_optimization_requested"
 EVENT_BUSINESS_INTAKE_REQUESTED: Final = "business_intake_requested"
@@ -120,6 +122,8 @@ WorkflowEvent = Literal[
     "optimization_requested",
     "modular_model_preparation_requested",
     "modular_product_schema_requested",
+    "modular_review_explanation_requested",
+    "modular_result_explanation_requested",
     "modular_inputs_submitted",
     "modular_optimization_requested",
     "business_intake_requested",
@@ -260,6 +264,10 @@ class ModularModelState(TypedDict, total=False):
     pending_input_submissions: list[ModularInputSubmission]
     preparation_error: str | None
     excluded_requirements: list[ExcludedRequirement]
+    review_explanation: str
+    review_explanation_source: str
+    result_explanation: str
+    result_explanation_source: str
 
 class GraphState(TypedDict, total=False):
     """
@@ -430,6 +438,9 @@ def invalidate_optimization_state(
             **state["modular_model"],
             "review_confirmed": False,
             "optimization_result": None,
+            "review_explanation": "",
+            "review_explanation_source": "",
+            "result_explanation": "",
+            "result_explanation_source": "",
         }
-
     return updated_state

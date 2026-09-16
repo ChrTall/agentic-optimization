@@ -3,7 +3,6 @@ LangGraph-kompatible Knoten der modularen Modellpipeline.
 """
 
 import logging
-
 from collections.abc import Callable
 
 from langchain_core.language_models import BaseChatModel
@@ -11,29 +10,43 @@ from langchain_core.language_models import BaseChatModel
 from agentic_optimization.agents.modular_model_agent import (
     ModularModelDraft,
     create_modular_model_agent,
+    create_preliminary_component_selection_agent,
     execute_modular_model_draft,
     update_modular_model_draft,
-    create_preliminary_component_selection_agent
 )
-from agentic_optimization.state import (
-    WORKFLOW_MODEL_INPUTS_INVALID,
-    WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS,
-    WORKFLOW_READY_FOR_REVIEW,
-    WORKFLOW_OPTIMIZATION_COMPLETED,
-    WORKFLOW_OPTIMIZATION_FAILED,
-    WORKFLOW_MODEL_UNSUPPORTED,
-    WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
-    WORKFLOW_MODEL_PREPARATION_FAILED,
-    WORKFLOW_PRODUCT_TABLE_READY,
-    GraphState,
-    with_control,
+from agentic_optimization.agents.modular_result_explanation_agent import (
+    create_modular_result_explanation_agent,
 )
-from agentic_optimization.models.validator import (
-    validate_model_specification,
+from agentic_optimization.agents.modular_review_explanation_agent import (
+    create_modular_review_explanation_agent,
 )
 from agentic_optimization.models.proposal_mapper import (
     build_specification_from_proposal,
     exclude_unsupported_requirements,
+)
+from agentic_optimization.models.validator import (
+    validate_model_specification,
+)
+from agentic_optimization.state import (
+    WORKFLOW_MODEL_INPUTS_INVALID,
+    WORKFLOW_MODEL_PREPARATION_FAILED,
+    WORKFLOW_MODEL_UNSUPPORTED,
+    WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
+    WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS,
+    WORKFLOW_OPTIMIZATION_COMPLETED,
+    WORKFLOW_OPTIMIZATION_FAILED,
+    WORKFLOW_PRODUCT_TABLE_READY,
+    WORKFLOW_READY_FOR_REVIEW,
+    GraphState,
+    with_control,
+)
+from agentic_optimization.ui.modular_result_builder import (
+    build_default_result_explanation,
+    build_modular_result_data,
+)
+from agentic_optimization.ui.modular_review_builder import (
+    build_default_review_explanation,
+    build_modular_review_data,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -122,6 +135,200 @@ def create_modular_product_schema_node(
         )
 
     return prepare_product_schema_node
+
+
+def create_modular_review_explanation_node(
+    llm: BaseChatModel,
+) -> Callable[[GraphState], GraphState]:
+    """
+    Erzeugt und speichert die Erklärung für Formular 4.
+
+    Bei einem Fehler des Sprachmodells wird ein
+    deterministischer Standardtext gespeichert.
+    """
+
+    explanation_agent = (
+        create_modular_review_explanation_agent(llm)
+    )
+
+    def explain_modular_review_node(
+        state: GraphState,
+    ) -> GraphState:
+        modular_state = state.get("modular_model")
+
+        if modular_state is None:
+            raise ValueError(
+                "Der modulare Modellzustand fehlt."
+            )
+
+        existing_explanation = modular_state.get(
+            "review_explanation"
+        )
+
+        if (
+            isinstance(existing_explanation, str)
+            and existing_explanation.strip()
+        ):
+            return with_control(
+                state,
+                event=None,
+                workflow_status=WORKFLOW_READY_FOR_REVIEW,
+            )
+
+        proposal = modular_state.get("proposal")
+        specification = modular_state.get(
+            "specification"
+        )
+
+        if proposal is None or specification is None:
+            raise ValueError(
+                "Für die Erklärung fehlt der vollständige "
+                "modulare Modellentwurf."
+            )
+
+        review_data = build_modular_review_data(
+            proposal,
+            specification,
+        )
+        fallback_explanation = (
+            build_default_review_explanation(
+                review_data
+            )
+        )
+
+        try:
+            explanation = explanation_agent(
+                review_data=dict(review_data)
+            )
+            explanation_source = "llm"
+        except Exception as error:  # noqa: BLE001
+            LOGGER.exception(
+                "Die automatische Review-Erklärung ist "
+                "fehlgeschlagen. Der Standardtext wird "
+                "verwendet: %s",
+                error,
+            )
+            explanation = fallback_explanation
+            explanation_source = "fallback"
+
+        return with_control(
+            {
+                **state,
+                "modular_model": {
+                    **modular_state,
+                    "review_explanation": explanation,
+                    "review_explanation_source": (
+                        explanation_source
+                    ),
+                },
+            },
+            event=None,
+            workflow_status=WORKFLOW_READY_FOR_REVIEW,
+        )
+
+    return explain_modular_review_node
+
+
+def create_modular_result_explanation_node(
+    llm: BaseChatModel,
+) -> Callable[[GraphState], GraphState]:
+    """
+    Erzeugt und speichert die Erklärung für Formular 5.
+
+    Bei einem Fehler des Sprachmodells wird ein
+    deterministischer Standardtext gespeichert.
+    """
+
+    explanation_agent = (
+        create_modular_result_explanation_agent(llm)
+    )
+
+    def explain_modular_result_node(
+        state: GraphState,
+    ) -> GraphState:
+        modular_state = state.get("modular_model")
+
+        if modular_state is None:
+            raise ValueError(
+                "Der modulare Modellzustand fehlt."
+            )
+
+        existing_explanation = modular_state.get(
+            "result_explanation"
+        )
+
+        if (
+            isinstance(existing_explanation, str)
+            and existing_explanation.strip()
+        ):
+            return with_control(
+                state,
+                event=None,
+            )
+
+        proposal = modular_state.get("proposal")
+        specification = modular_state.get(
+            "specification"
+        )
+        optimization_result = modular_state.get(
+            "optimization_result"
+        )
+
+        if (
+            proposal is None
+            or specification is None
+            or optimization_result is None
+        ):
+            raise ValueError(
+                "Für die Ergebnis-Erklärung fehlen "
+                "Modell oder Optimierungsergebnis."
+            )
+
+        review_data = build_modular_review_data(
+            proposal,
+            specification,
+        )
+        result_data = build_modular_result_data(
+            specification,
+            optimization_result,
+        )
+        fallback_explanation = (
+            build_default_result_explanation(
+                result_data
+            )
+        )
+
+        try:
+            explanation = explanation_agent(
+                review_data=dict(review_data),
+                result_data=dict(result_data),
+            )
+            explanation_source = "llm"
+        except Exception as error:  # noqa: BLE001
+            LOGGER.exception(
+                "Die automatische Ergebnis-Erklärung ist "
+                "fehlgeschlagen. Der Standardtext wird "
+                "verwendet: %s",
+                error,
+            )
+            explanation = fallback_explanation
+            explanation_source = "fallback"
+
+        return with_control(
+            {
+                **state,
+                "modular_model": {
+                    **modular_state,
+                    "result_explanation": explanation,
+                    "result_explanation_source": (
+                        explanation_source
+                    ),
+                },
+            },
+            event=None,
+        )
+
+    return explain_modular_result_node
 
 
 def create_modular_model_preparation_node(
@@ -294,6 +501,8 @@ def create_modular_model_preparation_node(
                 "validation": validation,
                 "review_confirmed": False,
                 "optimization_result": None,
+                "review_explanation": "",
+                "review_explanation_source": "",
                 "preparation_error": None,
             },
         }
@@ -414,6 +623,8 @@ def confirm_modular_requirement_exclusions_node(
                 ),
                 "review_confirmed": False,
                 "optimization_result": None,
+                "review_explanation": "",
+                "review_explanation_source": "",
                 "preparation_error": None,
             },
         },
@@ -510,6 +721,8 @@ def apply_modular_model_inputs_node(
             "pending_input_submissions": [],
             "review_confirmed": False,
             "optimization_result": None,
+            "review_explanation": "",
+            "review_explanation_source": "",
         },
     }
 
@@ -569,6 +782,8 @@ def execute_modular_model_node(
             **modular_state,
             "validation": validation,
             "optimization_result": optimization_result,
+            "result_explanation": "",
+            "result_explanation_source": "",
         },
     }
 

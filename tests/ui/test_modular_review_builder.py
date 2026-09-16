@@ -8,6 +8,7 @@ from agentic_optimization.models.specification import (
     ProductSpecification,
 )
 from agentic_optimization.ui.modular_review_builder import (
+    build_default_review_explanation,
     build_modular_review_data,
     build_modular_selection_issue_data,
 )
@@ -120,6 +121,34 @@ def test_builds_review_data() -> None:
     ]
     assert review["objective_summary"] == (
         "Verkaufserlös − Einkaufskosten maximieren"
+    )
+
+
+def test_builds_default_review_explanation() -> None:
+    proposal = create_proposal()
+    specification = build_specification_from_proposal(
+        proposal,
+        create_products(),
+        {},
+    )
+    review = build_modular_review_data(
+        proposal,
+        specification,
+    )
+
+    explanation = build_default_review_explanation(
+        review
+    )
+
+    assert explanation == (
+        "Für ein Produkt wird das Modell "
+        "„Einperiodiges Newsvendor-Modell“ verwendet. "
+        "Berechnet wird, wie viele Einheiten vor Beginn "
+        "des Verkaufszeitraums bestellt werden sollen. "
+        "Das Ziel lautet: Verkaufserlös − "
+        "Einkaufskosten maximieren. Zusätzlich "
+        "berücksichtigt das Modell folgende betriebliche "
+        "Vorgaben: Mindestbestellmenge."
     )
 
 

@@ -16,6 +16,8 @@ from agentic_optimization.agents.modular_workflow_nodes import (
     create_modular_model_preparation_node,
     execute_modular_model_node,
     create_modular_product_schema_node,
+    create_modular_review_explanation_node,
+    create_modular_result_explanation_node,
 )
 from agentic_optimization.agents.requirement_agent import create_requirement_agent
 from agentic_optimization.agents.result_node import result_node
@@ -34,6 +36,8 @@ from agentic_optimization.state import (
     EVENT_MODULAR_MODEL_PREPARATION_REQUESTED,
     EVENT_MODULAR_OPTIMIZATION_REQUESTED,
     EVENT_MODULAR_PRODUCT_SCHEMA_REQUESTED,
+    EVENT_MODULAR_REVIEW_EXPLANATION_REQUESTED,
+    EVENT_MODULAR_RESULT_EXPLANATION_REQUESTED,
     WORKFLOW_GENERAL_INPUTS_VALID,
     WORKFLOW_MODEL_INPUTS_INVALID,
     WORKFLOW_MODEL_INPUTS_VALID,
@@ -85,6 +89,12 @@ def route_workflow(state: GraphState) -> str:
 
     if event == EVENT_MODULAR_PRODUCT_SCHEMA_REQUESTED:
         return "prepare_modular_product_schema"
+
+    if event == EVENT_MODULAR_REVIEW_EXPLANATION_REQUESTED:
+        return "prepare_modular_review_explanation"
+
+    if event == EVENT_MODULAR_RESULT_EXPLANATION_REQUESTED:
+        return "prepare_modular_result_explanation"
 
     if event == EVENT_MODULAR_MODEL_PREPARATION_REQUESTED:
         return "prepare_modular_model"
@@ -266,6 +276,14 @@ def build_graph(llm: BaseChatModel):
         create_modular_product_schema_node(llm),
     )
     graph.add_node(
+        "prepare_modular_review_explanation",
+        create_modular_review_explanation_node(llm),
+    )
+    graph.add_node(
+        "prepare_modular_result_explanation",
+        create_modular_result_explanation_node(llm),
+    )
+    graph.add_node(
         "prepare_modular_model",
         create_modular_model_preparation_node(llm),
     )
@@ -327,6 +345,12 @@ def build_graph(llm: BaseChatModel):
             "prepare_modular_product_schema": (
                 "prepare_modular_product_schema"
             ),
+            "prepare_modular_review_explanation": (
+                "prepare_modular_review_explanation"
+            ),
+            "prepare_modular_result_explanation": (
+                "prepare_modular_result_explanation"
+            ),
             "prepare_modular_model": (
                 "prepare_modular_model"
             ),
@@ -360,6 +384,14 @@ def build_graph(llm: BaseChatModel):
     # Modulare Aufrufe sind zunächst eigenständige Graph-Durchläufe.
     graph.add_edge(
         "prepare_modular_product_schema",
+        END,
+    )
+    graph.add_edge(
+        "prepare_modular_review_explanation",
+        END,
+    )
+    graph.add_edge(
+        "prepare_modular_result_explanation",
         END,
     )
     graph.add_edge("prepare_modular_model", END)

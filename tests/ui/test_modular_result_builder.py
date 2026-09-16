@@ -1,6 +1,7 @@
 import pytest
 
 from agentic_optimization.ui.modular_result_builder import (
+    build_default_result_explanation,
     build_modular_result_data,
 )
 
@@ -106,6 +107,45 @@ def test_builds_modular_eoq_result_data() -> None:
             ),
         }
     ]
+
+
+def test_builds_default_result_explanation() -> None:
+    result_data = {
+        "core_id": "eoq",
+        "core_name": "Wirtschaftliche Bestellmenge (EOQ)",
+        "status": "optimal",
+        "status_label": "Optimale Lösung gefunden",
+        "successful": True,
+        "solution_method": "analytical",
+        "solution_method_label": (
+            "Analytische Berechnung"
+        ),
+        "objective_value": 3174.9,
+        "decisions": [
+            {
+                "value_id": "order_quantity",
+                "label": "Bestellmenge",
+                "value": 264.58,
+                "product_id": "product_1",
+                "aggregation": None,
+            }
+        ],
+        "metrics": [],
+        "excluded_requirements": [],
+        "technical_representation": None,
+        "errors": [],
+    }
+
+    explanation = build_default_result_explanation(
+        result_data
+    )
+
+    assert explanation == (
+        "Optimale Lösung gefunden. Die zentrale Empfehlung "
+        "lautet für product_1: Bestellmenge = 264.58. "
+        "Die weiteren Kennzahlen zeigen die betrieblichen "
+        "Auswirkungen dieser Empfehlung."
+    )
 
 
 def test_rejects_unknown_core() -> None:

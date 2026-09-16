@@ -16,6 +16,8 @@ from agentic_optimization.state import (
     EVENT_MODULAR_REQUIREMENT_EXCLUSIONS_CONFIRMED,
     WORKFLOW_BUSINESS_CORE_SELECTED,
     EVENT_MODULAR_PRODUCT_SCHEMA_REQUESTED,
+    EVENT_MODULAR_REVIEW_EXPLANATION_REQUESTED,
+    EVENT_MODULAR_RESULT_EXPLANATION_REQUESTED,
     WORKFLOW_PRODUCT_TABLE_READY,
     get_workflow_status,
 )
@@ -23,6 +25,10 @@ from agentic_optimization.models.problem_profile import (
     create_empty_business_problem_profile,
     create_profile_field,
 )
+from agentic_optimization.models.proposal_mapper import (
+    build_specification_from_proposal,
+)
+
 
 def test_runs_modular_model_through_graph() -> None:
     response = {
@@ -535,3 +541,197 @@ def test_prepares_dynamic_product_table_through_graph(
     assert result["modular_model"][
         "preliminary_proposal"
     ] == proposal
+
+
+def test_generates_review_explanation_through_graph(
+) -> None:
+    proposal = {
+        "core_id": "single_period_newsvendor",
+        "selection_status": "complete",
+        "objective_sense": "maximize",
+        "objective_components": [
+            {
+                "component_id": "sales_revenue",
+                "reason": "Verkaufserlöse berücksichtigen.",
+                "sources": ["raw_input"],
+            },
+            {
+                "component_id": "purchase_cost",
+                "reason": "Einkaufskosten berücksichtigen.",
+                "sources": ["raw_input"],
+            },
+        ],
+        "constraints": [],
+        "unresolved_requirements": [],
+    }
+    products = [
+        {
+            "product_id": "product_1",
+            "forecast": {
+                "expected_value": 100.0,
+                "quantiles": [
+                    {
+                        "level": 0.5,
+                        "value": 100.0,
+                    }
+                ],
+                "horizon_days": 30,
+            },
+            "facts": {
+                "selling_price": 12.0,
+                "purchase_cost": 5.0,
+            },
+        }
+    ]
+    specification = build_specification_from_proposal(
+        proposal,
+        products,
+        {},
+    )
+
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(
+        content=json.dumps(
+            {
+                "explanation": (
+                    "Das Newsvendor-Modell berechnet die "
+                    "einmalige Bestellmenge bei unsicherer "
+                    "Nachfrage."
+                )
+            }
+        )
+    )
+    graph = build_graph(llm)
+
+    result = graph.invoke(
+        {
+            "control": {
+                "event": (
+                    EVENT_MODULAR_REVIEW_EXPLANATION_REQUESTED
+                ),
+            },
+            "modular_model": {
+                "core_id": "single_period_newsvendor",
+                "products": products,
+                "global_facts": {},
+                "proposal": proposal,
+                "specification": specification,
+            },
+        }
+    )
+
+    assert get_workflow_status(result) == (
+        WORKFLOW_READY_FOR_REVIEW
+    )
+    assert "event" not in result["control"]
+    assert result["modular_model"][
+        "review_explanation"
+    ].startswith("Das Newsvendor-Modell")
+    assert result["modular_model"][
+        "review_explanation_source"
+    ] == "llm"
+    assert llm.invoke.call_count == 1
+
+
+def test_generates_result_explanation_through_graph(
+) -> None:
+    proposal = {
+        "core_id": "eoq",
+        "selection_status": "complete",
+        "objective_sense": "minimize",
+        "objective_components": [
+            {
+                "component_id": "annual_ordering_cost",
+                "reason": "Bestellkosten berücksichtigen.",
+                "sources": ["raw_input"],
+            },
+            {
+                "component_id": "annual_holding_cost",
+                "reason": "Lagerkosten berücksichtigen.",
+                "sources": ["raw_input"],
+            },
+        ],
+        "constraints": [],
+        "unresolved_requirements": [],
+    }
+    products = [
+        {
+            "product_id": "product_1",
+            "forecast": {
+                "expected_value": 3500.0,
+                "horizon_days": 365,
+            },
+            "facts": {
+                "ordering_cost": 120.0,
+                "holding_cost": 12.0,
+            },
+        }
+    ]
+    specification = build_specification_from_proposal(
+        proposal,
+        products,
+        {},
+    )
+    optimization_result = {
+        "status": "optimal",
+        "solution_method": "analytical",
+        "objective_value": 3174.9,
+        "decisions": [
+            {
+                "quantity_id": "order_quantity",
+                "product_id": "product_1",
+                "value": 264.58,
+            }
+        ],
+        "metrics": [],
+        "technical_representation": None,
+        "errors": [],
+    }
+
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(
+        content=json.dumps(
+            {
+                "explanation": (
+                    "Empfohlen wird eine Bestellmenge "
+                    "von 264,58 Einheiten."
+                )
+            }
+        )
+    )
+    graph = build_graph(llm)
+
+    result = graph.invoke(
+        {
+            "control": {
+                "event": (
+                    EVENT_MODULAR_RESULT_EXPLANATION_REQUESTED
+                ),
+                "workflow_status": (
+                    WORKFLOW_OPTIMIZATION_COMPLETED
+                ),
+            },
+            "modular_model": {
+                "core_id": "eoq",
+                "products": products,
+                "global_facts": {},
+                "proposal": proposal,
+                "specification": specification,
+                "optimization_result": (
+                    optimization_result
+                ),
+            },
+        }
+    )
+
+    assert get_workflow_status(result) == (
+        WORKFLOW_OPTIMIZATION_COMPLETED
+    )
+    assert "event" not in result["control"]
+    assert result["modular_model"][
+        "result_explanation"
+    ].startswith("Empfohlen wird")
+    assert result["modular_model"][
+        "result_explanation_source"
+    ] == "llm"
+    assert llm.invoke.call_count == 1

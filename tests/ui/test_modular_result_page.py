@@ -244,6 +244,60 @@ def test_renders_excluded_requirements_prominently(
         "Jede Lieferung muss an einem Dienstag "
         "eintreffen."
     )
-    streamlit.write.assert_called_once_with(
+    streamlit.write.assert_any_call(
         "Ein bestimmter Liefertag wird nicht unterstützt."
+    )
+
+
+def test_requests_result_explanation_on_button_click(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    streamlit = MagicMock()
+    streamlit.button.return_value = True
+
+    monkeypatch.setattr(
+        modular_result_page,
+        "st",
+        streamlit,
+    )
+
+    specification = {
+        "core_id": "eoq",
+        "products": [],
+        "global_facts": {},
+        "objective": {
+            "sense": "minimize",
+            "component_ids": [
+                "annual_ordering_cost",
+                "annual_holding_cost",
+            ],
+        },
+        "constraints": [],
+    }
+    result = {
+        "status": "optimal",
+        "solution_method": "analytical",
+        "objective_value": 3174.9,
+        "decisions": [
+            {
+                "quantity_id": "order_quantity",
+                "product_id": "product_1",
+                "value": 264.58,
+            }
+        ],
+        "metrics": [],
+        "technical_representation": None,
+        "errors": [],
+    }
+
+    requested = render_modular_result_page(
+        specification,
+        result,
+    )
+
+    assert requested is True
+    streamlit.button.assert_called_once_with(
+        "Optimierungsergebnis erklären",
+        use_container_width=True,
+        key="explain_modular_optimization_result",
     )
