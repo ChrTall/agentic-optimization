@@ -65,13 +65,6 @@ def test_prepares_modular_model_in_graph_state() -> None:
         AIMessage(
             content=json.dumps(response)
         ),
-        AIMessage(
-            content=json.dumps(
-                {
-                    "uncovered_requirements": [],
-                }
-            )
-        ),
     ]
 
     node = create_modular_model_preparation_node(llm)
@@ -149,7 +142,7 @@ def test_prepares_modular_model_in_graph_state() -> None:
     assert modular_result["review_confirmed"] is False
     assert modular_result["optimization_result"] is None
 
-    assert llm.invoke.call_count == 3
+    assert llm.invoke.call_count == 2
 
     values = {
         "ordering_cost": 50.0,
@@ -196,7 +189,7 @@ def test_prepares_modular_model_in_graph_state() -> None:
     assert product_facts["holding_cost"] == 2.0
     assert product_facts["shortage_cost"] == 20.0
 
-    assert llm.invoke.call_count == 3
+    assert llm.invoke.call_count == 2
 
     with pytest.raises(
         ValueError,
@@ -237,7 +230,7 @@ def test_prepares_modular_model_in_graph_state() -> None:
         WORKFLOW_OPTIMIZATION_COMPLETED
     )
 
-    assert llm.invoke.call_count == 3
+    assert llm.invoke.call_count == 2
 
 
 @pytest.mark.parametrize(
@@ -312,7 +305,7 @@ def test_routes_unresolved_component_selection(
     monkeypatch.setattr(
         modular_workflow_nodes,
         "create_modular_model_agent",
-        lambda _llm: prepare_model,
+        lambda _llm, **_kwargs: prepare_model,
     )
 
     node = (
@@ -355,7 +348,7 @@ def test_handles_failed_model_preparation(
     monkeypatch.setattr(
         modular_workflow_nodes,
         "create_modular_model_agent",
-        lambda _llm: prepare_model,
+        lambda _llm, **_kwargs: prepare_model,
     )
 
     node = (

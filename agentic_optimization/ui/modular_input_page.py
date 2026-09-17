@@ -4,6 +4,10 @@ Streamlit-Darstellung für fehlende modulare Modelleingaben.
 
 import streamlit as st
 
+from agentic_optimization.models.component_registry import (
+    CONSTRAINT_COMPONENTS,
+)
+
 from agentic_optimization.models.specification import (
     ModelSpecification,
 )
@@ -224,7 +228,12 @@ def render_modular_input_page(
             _render_product_input_table(layout)
         )
 
-    with st.form("modular_model_input_form"):
+    # Die Eingabefelder werden bewusst nicht in einem Streamlit-
+    # Formular gebündelt. Dadurch ist der aktuelle Widgetwert bereits
+    # im Session State angekommen, bevor der Prüfbutton ausgewertet
+    # wird. Andernfalls konnte insbesondere bei Zahlenfeldern der
+    # zuletzt eingegebene Wert erst beim zweiten Absenden vorliegen.
+    with st.container():
         if not use_product_table:
             for product_group in layout[
                 "product_groups"
@@ -297,7 +306,11 @@ def render_modular_input_page(
                     "constraint_index"
                 ]
 
-                st.markdown(f"**{component_id}**")
+                component_name = CONSTRAINT_COMPONENTS[
+                    component_id
+                ]["name"]
+
+                st.markdown(f"**{component_name}**")
 
                 for missing_input in constraint_group[
                     "inputs"
@@ -312,10 +325,11 @@ def render_modular_input_page(
                         )
                     )
 
-        submitted = st.form_submit_button(
+        submitted = st.button(
             "Angaben prüfen",
             type="primary",
             use_container_width=True,
+            key="submit_modular_model_inputs",
         )
 
     if not submitted:

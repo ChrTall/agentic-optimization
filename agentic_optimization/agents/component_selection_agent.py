@@ -63,6 +63,14 @@ Regeln:
    positiven und ausgewählte Kostenbausteine die negativen
    Bestandteile der Zielfunktion.
 
+   Die Aussage, dass nicht gedeckte Nachfrage zu entgangenen
+   Verkäufen oder entgangenem Umsatz führt, ist bei ausgewähltem
+   sales_revenue bereits durch den ausbleibenden Verkaufserlös
+   abgebildet. Wähle shortage_cost dafür nicht aus und erzeuge
+   keine ungelöste Anforderung. shortage_cost ist nur fachlich
+   begründet, wenn zusätzliche Fehlmengenkosten oder eine Strafe
+   je nicht gedeckter Einheit ausdrücklich gefordert werden.
+
    Wenn locked_objective_selection nicht null ist, ist diese
    Zielfunktionsauswahl für den aktuellen Vorgang verbindlich.
    Übernimm objective_sense und objective_component_ids exakt.

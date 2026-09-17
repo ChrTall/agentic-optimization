@@ -54,8 +54,20 @@ Regeln:
 
 1. Melde ausschließlich Anforderungen, die im vorhandenen
    Vorschlag noch nicht behandelt werden.
-2. Fehlende Eingabewerte sind keine unberücksichtigten
-   Anforderungen.
+2. Fehlende Eingabewerte oder Constraint-Parameter sind
+   keine unberücksichtigten Anforderungen und dürfen nicht
+   als clarification ausgegeben werden.
+
+   Ist eine Anforderung fachlich eindeutig durch einen
+   bereits ausgewählten Baustein abgedeckt, gilt sie auch
+   dann als behandelt, wenn ein dafür benötigter Zahlenwert
+   noch fehlt. Der fehlende Wert wird später durch den
+   deterministischen Validator erkannt und in Formular 3
+   abgefragt.
+
+   Beispiel: Wurde minimum_order_quantity ausgewählt, ist
+   die Anforderung an eine Mindestbestellmenge abgedeckt,
+   auch wenn der Parameter quantity noch nicht vorliegt.
 3. Gesamtziele wie Gewinn oder Deckungsbeitrag können durch
    mehrere ausgewählte Erlös- und Kostenbausteine gemeinsam
    abgedeckt sein. Markiere ein solches Ziel nicht allein
@@ -64,6 +76,13 @@ Regeln:
    Berücksichtige ausschließlich Bestandteile, für die es in
    requirements oder evidence einen konkreten fachlichen
    Hinweis gibt.
+   Die Aussage, dass nicht gedeckte Nachfrage zu entgangenen
+   Verkäufen oder entgangenem Umsatz führt, ist durch einen
+   ausgewählten sales_revenue-Baustein bereits abgedeckt. Sie
+   begründet weder shortage_cost noch eine clarification.
+   shortage_cost kommt nur bei ausdrücklich genannten
+   zusätzlichen Fehlmengenkosten oder Strafen je nicht gedeckter
+   Einheit infrage.
 4. Erfinde keine Anforderungen, Fakten oder Werte.
 5. Ist ein kompatibler Katalogbaustein möglicherweise
    geeignet, verwende resolution "clarification" und nenne
@@ -86,19 +105,19 @@ Regeln:
     "clarification" und candidate_component_ids [].
 12. Gib ausschließlich ein JSON-Objekt zurück.
 
-Erwartetes Format mit zwei möglichen Eintragsarten:
+Beispiel für einen fehlenden Parameter, der nicht gemeldet
+werden darf:
+
+Die Anforderung verlangt eine Mindestbestellmenge,
+minimum_order_quantity wurde bereits ausgewählt, aber der
+Parameter quantity fehlt. Gib dafür keinen Eintrag unter
+uncovered_requirements aus. Der Validator erhebt quantity
+später in Formular 3.
+
+Erwartetes Format:
 
 {
   "uncovered_requirements": [
-    {
-      "description": "Die Mindestbestellmenge ist unklar.",
-      "resolution": "clarification",
-      "candidate_component_ids": [
-        "minimum_order_quantity"
-      ],
-      "reason": "Eine Untergrenze wurde erwähnt, aber nicht eindeutig beschrieben.",
-      "sources": ["raw_input"]
-    },
     {
       "description": "Die Lieferung muss dienstags erfolgen.",
       "resolution": "unsupported",
@@ -170,6 +189,76 @@ def _derive_selection_status(
     return "complete"
 
 
+def _declares_requirement_as_covered(
+    requirement: object,
+) -> bool:
+    """
+    Erkennt widersprüchliche Prüfergebnisse.
+
+    Ein Eintrag darf nicht als offen übernommen werden, wenn
+    seine eigene Begründung ausdrücklich erklärt, dass die
+    Anforderung bereits abgedeckt oder gar nicht offen ist.
+    """
+
+    if not isinstance(requirement, dict):
+        return False
+
+    raw_reason = requirement.get("reason")
+
+    if not isinstance(raw_reason, str):
+        return False
+
+    normalized_reason = " ".join(
+        raw_reason.lower().split()
+    )
+
+    explicitly_not_covered = any(
+        marker in normalized_reason
+        for marker in (
+            "nicht abgedeckt",
+            "noch nicht abgedeckt",
+            "nicht vollständig abgedeckt",
+            "nur teilweise abgedeckt",
+            "möglicherweise abgedeckt",
+            "nicht modelliert",
+            "noch nicht modelliert",
+            "nicht berücksichtigt",
+            "noch nicht berücksichtigt",
+        )
+    )
+
+    if explicitly_not_covered:
+        return False
+
+    if any(
+        marker in normalized_reason
+        for marker in (
+            "keine offene anforderung",
+            "kein offener punkt",
+            "keine ungeklärte anforderung",
+            "bedarf ist nicht offen",
+            "anforderung ist nicht offen",
+            "kein weiterer fachlicher bedarf",
+        )
+    ):
+        return True
+
+    explicitly_covered = any(
+        marker in normalized_reason
+        for marker in (
+            "abgedeckt",
+            "modelliert",
+            "berücksichtigt",
+            "ausgewählt",
+            "enthalten",
+        )
+    )
+
+    return (
+        "bereits" in normalized_reason
+        and explicitly_covered
+    )
+
 def create_component_coverage_agent(
     llm: BaseChatModel,
 ) -> ComponentCoverageAgent:
@@ -215,6 +304,14 @@ def create_component_coverage_agent(
                 "Die Vollständigkeitsprüfung benötigt "
                 "uncovered_requirements als Liste."
             )
+
+        uncovered = [
+            requirement
+            for requirement in uncovered
+            if not _declares_requirement_as_covered(
+                requirement
+            )
+        ]
 
         updated_proposal = deepcopy(proposal)
         updated_unresolved = [

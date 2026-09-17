@@ -604,6 +604,15 @@ OBJECTIVE_COMPONENTS: dict[
         "component_id": "shortage_cost",
         "name": "Fehlmengenkosten",
         "effect": "cost",
+        "selection_guidance": (
+            "Wähle diesen Baustein nur, wenn ausdrücklich "
+            "zusätzliche Kosten oder eine Vertragsstrafe je "
+            "Einheit nicht gedeckter Nachfrage berücksichtigt "
+            "werden sollen. Ein bloß entgangener Verkauf ist "
+            "bei ausgewähltem Verkaufserlös bereits durch den "
+            "ausbleibenden Erlös abgebildet und begründet keine "
+            "separaten Fehlmengenkosten."
+        ),
         "compatible_core_ids": [
             "single_period_newsvendor",
         ],

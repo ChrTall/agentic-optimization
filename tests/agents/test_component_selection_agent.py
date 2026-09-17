@@ -135,6 +135,14 @@ def test_prompt_contains_filtered_component_catalog() -> None:
         "Gesamtziele wie Gewinn oder Deckungsbeitrag"
         in system_message
     )
+    assert (
+        "entgangenen Verkäufen oder entgangenem Umsatz"
+        in normalized_system_message
+    )
+    assert (
+        "Wähle shortage_cost dafür nicht aus"
+        in normalized_system_message
+    )
 
     assert (
         "Fehlende Eingabewerte sind niemals ein Grund"

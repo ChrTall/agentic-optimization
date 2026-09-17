@@ -190,6 +190,16 @@ def test_minimum_order_quantity_has_precise_selection_guidance(
     assert "jede Lieferung" in guidance
 
 
+def test_shortage_cost_distinguishes_lost_sales_from_penalties(
+) -> None:
+    component = OBJECTIVE_COMPONENTS["shortage_cost"]
+    guidance = component["selection_guidance"]
+
+    assert "zusätzliche Kosten" in guidance
+    assert "entgangener Verkauf" in guidance
+    assert "ausbleibenden Erlös" in guidance
+
+
 def test_cycle_service_level_uses_percentage_parameter() -> None:
     component = CONSTRAINT_COMPONENTS[
         "minimum_cycle_service_level"

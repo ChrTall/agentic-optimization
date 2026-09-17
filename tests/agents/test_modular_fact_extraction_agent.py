@@ -78,7 +78,36 @@ def test_extracts_registered_modular_facts() -> None:
     assert global_facts == {}
 
     llm.invoke.assert_called_once()
+    messages = llm.invoke.call_args.args[0]
+    system_message = messages[0].content
+    user_message = messages[1].content
 
+    assert isinstance(system_message, str)
+    assert isinstance(user_message, str)
+
+    assert (
+        "Constraint-Parameter werden später durch den"
+        in system_message
+    )
+
+    payload = json.loads(user_message)
+    budget_component = next(
+        component
+        for component in payload["catalog"][
+            "constraint_components"
+        ]
+        if component["component_id"] == "budget_limit"
+    )
+
+    assert "parameters" not in budget_component
+    assert {
+        field["name"]
+        for field in budget_component[
+            "required_product_facts"
+        ]
+    } == {
+        "purchase_cost",
+    }
 
 def test_rejects_unregistered_extracted_fact() -> None:
     llm = Mock()

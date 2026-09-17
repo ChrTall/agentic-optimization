@@ -145,6 +145,78 @@ def test_preserves_complete_proposal_when_nothing_is_missing(
     assert proposal == original_proposal
 
 
+@pytest.mark.parametrize(
+    "reason",
+    [
+        (
+            "Der fachliche Restwert ist bereits durch den "
+            "ausgewählten Baustein 'salvage_revenue' "
+            "abgedeckt; keine offene Anforderung."
+        ),
+        (
+            "Die Einperiodigkeit ist bereits durch das "
+            "ausgewählte Grundmodell abgedeckt."
+        ),
+        (
+            "Der Vorschlag modelliert dafür bereits einen "
+            "Restwerterlös. Ein weiterer fachlicher Bedarf "
+            "ist nicht offen."
+        ),
+    ],
+)
+def test_ignores_requirement_declared_as_already_covered(
+    reason: str,
+) -> None:
+    proposal = create_proposal()
+
+    llm = create_agent_response(
+        [
+            {
+                "description": (
+                    "Eine bereits abgedeckte Anforderung."
+                ),
+                "resolution": "unsupported",
+                "candidate_component_ids": [],
+                "reason": reason,
+                "sources": ["raw_input"],
+            }
+        ]
+    )
+
+    result = call_agent(
+        llm,
+        proposal,
+    )
+
+    assert result["selection_status"] == "complete"
+    assert result["unresolved_requirements"] == []
+
+
+def test_preserves_requirement_declared_as_not_covered(
+) -> None:
+    llm = create_agent_response(
+        [
+            {
+                "description": (
+                    "Jede Lieferung muss dienstags erfolgen."
+                ),
+                "resolution": "unsupported",
+                "candidate_component_ids": [],
+                "reason": (
+                    "Die Anforderung ist durch die "
+                    "ausgewählten Bausteine nicht abgedeckt."
+                ),
+                "sources": ["raw_input"],
+            }
+        ]
+    )
+
+    result = call_agent(llm)
+
+    assert result["selection_status"] == "unsupported"
+    assert len(result["unresolved_requirements"]) == 1
+
+
 def test_rejects_unknown_evidence_source() -> None:
     llm = create_agent_response(
         [
@@ -202,7 +274,14 @@ def test_sends_catalog_evidence_and_proposal_to_auditor(
         "candidate_component_ids mindestens eine"
         in normalized_system_message
     )
-
+    assert (
+        "Fehlende Eingabewerte oder Constraint-Parameter"
+        in system_message
+    )
+    assert (
+        "Der Validator erhebt quantity später in Formular 3"
+        in normalized_system_message
+    )
     payload = json.loads(user_message)
 
     assert [
@@ -237,5 +316,13 @@ def test_sends_catalog_evidence_and_proposal_to_auditor(
     )
     assert (
         "Gewinn oder Deckungsbeitrag"
+        in normalized_system_message
+    )
+    assert (
+        "entgangenen Verkäufen oder entgangenem Umsatz"
+        in normalized_system_message
+    )
+    assert (
+        "begründet weder shortage_cost noch eine clarification"
         in normalized_system_message
     )

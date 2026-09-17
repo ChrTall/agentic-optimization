@@ -69,13 +69,6 @@ def test_runs_modular_model_through_graph() -> None:
         AIMessage(
             content=json.dumps(response)
         ),
-        AIMessage(
-            content=json.dumps(
-                {
-                    "uncovered_requirements": [],
-                }
-            )
-        ),
     ]
 
     graph = build_graph(llm)
@@ -211,7 +204,7 @@ def test_runs_modular_model_through_graph() -> None:
     )
     assert "event" not in optimized_state["control"]
 
-    assert llm.invoke.call_count == 3
+    assert llm.invoke.call_count == 2
 
 
 def test_enters_modular_pipeline_after_model_selection() -> None:
@@ -311,7 +304,7 @@ def test_enters_modular_pipeline_after_model_selection() -> None:
     )
     assert "event" not in result["control"]
 
-    assert llm.invoke.call_count == 4
+    assert llm.invoke.call_count == 3
 
 
 def test_enters_graph_through_business_intake() -> None:

@@ -336,7 +336,10 @@ def create_modular_model_preparation_node(
 ) -> Callable[[GraphState], GraphState]:
     """Erzeugt den Knoten für die agentische Modellvorbereitung."""
 
-    prepare_model = create_modular_model_agent(llm)
+    prepare_model = create_modular_model_agent(
+        llm,
+        enable_coverage_audit=False,
+    )
 
     def prepare_modular_model_node(
         state: GraphState,

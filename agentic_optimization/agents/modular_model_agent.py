@@ -93,6 +93,8 @@ def create_preliminary_component_selection_agent(
 
 def create_modular_model_agent(
     llm: BaseChatModel,
+    *,
+    enable_coverage_audit: bool = True,
 ) -> ModularModelAgent:
     """Erzeugt einen Agenten zur Vorbereitung eines Modellentwurfs."""
 
@@ -140,13 +142,14 @@ def create_modular_model_agent(
             ),
         )
 
-        proposal = component_coverage_agent(
-            core_id=core_id,
-            requirements=requirements,
-            products=extracted_products,
-            evidence=evidence,
-            proposal=proposal,
-        )
+        if enable_coverage_audit:
+            proposal = component_coverage_agent(
+                core_id=core_id,
+                requirements=requirements,
+                products=extracted_products,
+                evidence=evidence,
+                proposal=proposal,
+            )
 
         if proposal["selection_status"] != "complete":
             return {
