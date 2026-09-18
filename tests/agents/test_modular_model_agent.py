@@ -73,6 +73,51 @@ def test_selects_preliminary_components_without_products(
     assert user_message["products"] == []
 
 
+def test_falls_back_to_safe_newsvendor_product_columns(
+) -> None:
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(
+        content="kein gültiges JSON"
+    )
+
+    agent = (
+        create_preliminary_component_selection_agent(
+            llm
+        )
+    )
+
+    proposal = agent(
+        core_id="single_period_newsvendor",
+        requirements={
+            "objective": "maximize_profit",
+            "product_scope": "multiple_products",
+        },
+        global_facts={},
+        evidence=[
+            {
+                "source_id": "raw_input",
+                "content": (
+                    "Der erwartete Gewinn aus Verkaufserlösen "
+                    "abzüglich Einkaufskosten soll maximiert "
+                    "werden."
+                ),
+            }
+        ],
+    )
+
+    assert proposal["selection_status"] == "complete"
+    assert proposal["objective_sense"] == "maximize"
+    assert [
+        component["component_id"]
+        for component in proposal["objective_components"]
+    ] == [
+        "sales_revenue",
+        "purchase_cost",
+    ]
+    assert proposal["constraints"] == []
+    assert llm.invoke.call_count == 2
+
+
 def test_prepares_modular_q_r_model_draft() -> None:
     response = {
         "core_id": "continuous_review_q_r",

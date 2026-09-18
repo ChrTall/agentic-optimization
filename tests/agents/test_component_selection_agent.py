@@ -277,6 +277,82 @@ def test_rejects_unknown_source() -> None:
         call_agent(llm)
 
 
+def test_normalizes_numbered_source_placeholder_when_unambiguous(
+) -> None:
+    response = create_response()
+    llm = create_mock_llm(response)
+    agent = create_component_selection_agent(llm)
+
+    result = agent(
+        core_id="single_period_newsvendor",
+        requirements={
+            "objective": "maximize_profit",
+        },
+        products=[],
+        global_facts={},
+        evidence=[
+            {
+                "source_id": "raw_input",
+                "content": (
+                    "Der erwartete Gewinn soll maximiert "
+                    "werden. Eine Mindestbestellmenge gilt."
+                ),
+            }
+        ],
+    )
+
+    selected_items = [
+        *result["objective_components"],
+        *result["constraints"],
+    ]
+
+    assert all(
+        item["sources"] == ["raw_input"]
+        for item in selected_items
+    )
+    assert llm.invoke.call_count == 1
+
+
+def test_discards_constraint_number_without_evidence() -> None:
+    response = create_response()
+    llm = create_mock_llm(response)
+    agent = create_component_selection_agent(llm)
+
+    result = agent(
+        core_id="single_period_newsvendor",
+        requirements={
+            "objective": "maximize_profit",
+        },
+        products=[],
+        global_facts={},
+        evidence=[
+            {
+                "source_id": "raw_input",
+                "content": (
+                    "Der Lieferant verlangt eine "
+                    "Mindestbestellmenge."
+                ),
+            }
+        ],
+    )
+
+    assert result["constraints"][0]["component_id"] == (
+        "minimum_order_quantity"
+    )
+    assert result["constraints"][0]["parameters"] == {}
+
+
+def test_keeps_constraint_number_with_evidence() -> None:
+    response = create_response()
+    llm = create_mock_llm(response)
+
+    result = call_agent(llm)
+
+    assert result["constraints"][0]["parameters"] == {
+        "quantity": 50.0,
+    }
+
+
 def test_rejects_unknown_component() -> None:
     response = create_response()
     response["objective_components"][0][

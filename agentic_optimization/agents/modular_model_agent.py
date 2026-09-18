@@ -19,6 +19,9 @@ from agentic_optimization.models.execution import (
     OptimizationExecutionResult,
     execute_model_specification,
 )
+from agentic_optimization.models.core_registry import (
+    CORE_REGISTRY,
+)
 from agentic_optimization.models.proposal_mapper import (
     build_specification_from_proposal,
 )
@@ -58,6 +61,77 @@ PreliminaryComponentSelectionAgent = Callable[
 ]
 
 
+def _build_preliminary_fallback_proposal(
+    *,
+    core_id: str,
+    requirements: dict[str, Any],
+    evidence: list[SelectionEvidence],
+) -> ComponentSelectionProposal:
+    """Baut nur die für eine Produkttabelle sicheren Pflichtspalten."""
+
+    registered_core = CORE_REGISTRY.get(core_id)
+
+    if registered_core is None:
+        raise ValueError(
+            f"Das Grundmodell '{core_id}' ist nicht registriert."
+        )
+
+    objective = requirements.get("objective")
+    objective_sense = "minimize"
+    component_ids = list(
+        registered_core["definition"][
+            "required_objective_component_ids"
+        ]
+    )
+
+    if (
+        core_id == "single_period_newsvendor"
+        and objective
+        in {
+            "maximize_profit",
+            "Gewinn maximieren",
+        }
+    ):
+        objective_sense = "maximize"
+        component_ids = [
+            "sales_revenue",
+            "purchase_cost",
+        ]
+
+    if not component_ids:
+        raise ValueError(
+            "Für die Produkttabelle konnte keine sichere "
+            "Zielfunktionsauswahl abgeleitet werden."
+        )
+
+    if not evidence:
+        raise ValueError(
+            "Für die vorläufige Bausteinauswahl fehlt ein "
+            "Quellenbeleg."
+        )
+
+    source_id = evidence[0]["source_id"]
+
+    return {
+        "core_id": core_id,
+        "selection_status": "complete",
+        "objective_sense": objective_sense,
+        "objective_components": [
+            {
+                "component_id": component_id,
+                "reason": (
+                    "Deterministische Rückfallebene für die "
+                    "Spalten der Produkttabelle."
+                ),
+                "sources": [source_id],
+            }
+            for component_id in component_ids
+        ],
+        "constraints": [],
+        "unresolved_requirements": [],
+    }
+
+
 def create_preliminary_component_selection_agent(
     llm: BaseChatModel,
 ) -> PreliminaryComponentSelectionAgent:
@@ -80,13 +154,20 @@ def create_preliminary_component_selection_agent(
         global_facts: dict[str, Any],
         evidence: list[SelectionEvidence],
     ) -> ComponentSelectionProposal:
-        return component_selection_agent(
-            core_id=core_id,
-            requirements=requirements,
-            products=[],
-            global_facts=global_facts,
-            evidence=evidence,
-        )
+        try:
+            return component_selection_agent(
+                core_id=core_id,
+                requirements=requirements,
+                products=[],
+                global_facts=global_facts,
+                evidence=evidence,
+            )
+        except (TypeError, ValueError):
+            return _build_preliminary_fallback_proposal(
+                core_id=core_id,
+                requirements=requirements,
+                evidence=evidence,
+            )
 
     return select_preliminary_components
 

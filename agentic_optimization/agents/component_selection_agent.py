@@ -3,6 +3,7 @@ Agentische Auswahl registrierter Optimierungsbausteine.
 """
 
 import json
+import re
 from collections.abc import Callable
 from typing import Any, cast
 
@@ -131,7 +132,7 @@ folgende Felder enthalten:
     "zweiter_möglicher_baustein"
   ],
   "reason": "Warum zwischen den Bausteinen gewählt werden muss",
-  "sources": ["source_1"]
+  "sources": ["raw_input"]
 }
 
 Bei resolution "clarification" muss
@@ -173,18 +174,16 @@ Erwartetes Format:
     {
       "component_id": "sales_revenue",
       "reason": "Verkaufserlöse sollen berücksichtigt werden.",
-      "sources": ["source_1"]
+      "sources": ["raw_input"]
     }
   ],
   "constraints": [
     {
       "component_id": "minimum_order_quantity",
       "product_id": "product_1",
-      "parameters": {
-        "quantity": 50
-      },
-      "reason": "Eine Mindestbestellmenge wurde genannt.",
-      "sources": ["source_2"]
+      "parameters": {},
+      "reason": "Eine Mindestbestellmenge ohne konkreten Wert wurde genannt.",
+      "sources": ["raw_input"]
     }
   ],
   "unresolved_requirements": []
@@ -223,6 +222,46 @@ def _parse_json_response(content: object) -> dict[str, Any]:
         )
 
     return parsed_response
+
+
+def _evidence_contains_number(
+    value: int | float,
+    evidence: list[SelectionEvidence],
+) -> bool:
+    """Prüft Zahlenbelege tolerant gegenüber Dezimaltrennzeichen."""
+
+    target = float(value)
+
+    for evidence_item in evidence:
+        content = evidence_item.get("content")
+
+        if not isinstance(content, str):
+            continue
+
+        for token in re.findall(
+            r"[-+]?\d+(?:[.\s]\d+)*(?:,\d+)?",
+            content,
+        ):
+            compact_token = token.replace(" ", "")
+            candidates: set[float] = set()
+
+            for normalized_token in {
+                compact_token.replace(",", "."),
+                compact_token.replace(".", "").replace(",", "."),
+                compact_token.replace(",", ""),
+            }:
+                try:
+                    candidates.add(float(normalized_token))
+                except ValueError:
+                    continue
+
+            if any(
+                abs(candidate - target) < 1e-9
+                for candidate in candidates
+            ):
+                return True
+
+    return False
 
 
 def _build_user_message(
@@ -287,6 +326,82 @@ def _parse_and_validate_proposal(
 
     raw_proposal = _parse_json_response(content)
 
+    allowed_source_ids = {
+        item["source_id"]
+        for item in evidence
+    }
+
+    # Kleine Modelle übernehmen gelegentlich nummerierte
+    # Quellenplatzhalter aus Formatbeispielen. Existiert exakt
+    # eine echte Quelle, ist die Zuordnung eindeutig.
+    if len(allowed_source_ids) == 1:
+        only_source_id = next(iter(allowed_source_ids))
+
+        for item_group in (
+            "objective_components",
+            "constraints",
+            "unresolved_requirements",
+        ):
+            items = raw_proposal.get(item_group)
+
+            if not isinstance(items, list):
+                continue
+
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+
+                sources = item.get("sources")
+
+                if not isinstance(sources, list):
+                    continue
+
+                item["sources"] = [
+                    only_source_id
+                    if (
+                        isinstance(source_id, str)
+                        and source_id.startswith("source_")
+                        and source_id.removeprefix(
+                            "source_"
+                        ).isdigit()
+                    )
+                    else source_id
+                    for source_id in sources
+                ]
+
+    # Numerische Constraint-Parameter dürfen nicht allein aus
+    # dem Sprachmodell stammen. Fehlt die Zahl in sämtlichen
+    # Evidenzen, bleibt der Baustein ausgewählt, sein Wert wird
+    # aber vom Validator später über Formular 3 erhoben.
+    constraints = raw_proposal.get("constraints")
+
+    if isinstance(constraints, list):
+        for constraint in constraints:
+            if not isinstance(constraint, dict):
+                continue
+
+            parameters = constraint.get("parameters")
+
+            if not isinstance(parameters, dict):
+                continue
+
+            constraint["parameters"] = {
+                parameter_name: parameter_value
+                for parameter_name, parameter_value
+                in parameters.items()
+                if (
+                    isinstance(parameter_value, bool)
+                    or not isinstance(
+                        parameter_value,
+                        (int, float),
+                    )
+                    or _evidence_contains_number(
+                        parameter_value,
+                        evidence,
+                    )
+                )
+            }
+
     if raw_proposal.get("core_id") != expected_core_id:
         raise ValueError(
             "Der Agent hat ein anderes Grundmodell "
@@ -304,11 +419,6 @@ def _parse_and_validate_proposal(
             "Ungültiger Bausteinvorschlag: "
             + "; ".join(proposal_errors)
         )
-
-    allowed_source_ids = {
-        item["source_id"]
-        for item in evidence
-    }
 
     selected_items = [
         *raw_proposal["objective_components"],
@@ -426,6 +536,8 @@ def create_component_selection_agent(
                                 "Deine vorherige Antwort war "
                                 "formal ungültig.\n\n"
                                 f"Validierungsfehler: {error}\n\n"
+                                "Erlaubte source_ids: "
+                                f"{sorted(item['source_id'] for item in evidence)}.\n\n"
                                 "Korrigiere ausschließlich das "
                                 "JSON-Objekt. Ein Kandidaten-"
                                 "Baustein darf nicht gleichzeitig "
