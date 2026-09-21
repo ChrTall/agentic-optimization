@@ -4,6 +4,7 @@ from agentic_optimization.models.proposal_mapper import (
     build_specification_from_proposal,
     exclude_unsupported_requirements,
     validate_component_selection_proposal,
+    build_component_selection_proposal,
 )
 from agentic_optimization.models.specification import (
     ComponentSelectionProposal,
@@ -63,6 +64,90 @@ def create_products() -> list[ProductSpecification]:
             },
         }
     ]
+
+
+def test_builds_proposal_from_semantic_decision() -> None:
+    decision = {
+        "objective_sense": "maximize",
+        "objective_components": [
+            {
+                "component_id": "sales_revenue",
+                "reason": (
+                    "Verkaufserlöse sollen berücksichtigt "
+                    "werden."
+                ),
+                "sources": ["Freitext"],
+            },
+            {
+                "component_id": "purchase_cost",
+                "reason": (
+                    "Einkaufskosten wurden angegeben."
+                ),
+                "sources": ["Lieferantenvertrag"],
+            },
+        ],
+        "constraints": [],
+        "unresolved_requirements": [],
+    }
+
+    proposal = build_component_selection_proposal(
+        core_id="single_period_newsvendor",
+        decision=decision,
+    )
+
+    assert proposal["core_id"] == (
+        "single_period_newsvendor"
+    )
+    assert proposal["selection_status"] == "complete"
+    assert proposal["objective_sense"] == "maximize"
+    assert proposal["objective_components"] == (
+        decision["objective_components"]
+    )
+    assert proposal["constraints"] == []
+    assert proposal["unresolved_requirements"] == []
+
+
+def test_adds_required_core_components_deterministically(
+) -> None:
+    decision = {
+        "objective_sense": "minimize",
+        "objective_components": [],
+        "constraints": [],
+        "unresolved_requirements": [],
+    }
+
+    proposal = build_component_selection_proposal(
+        core_id="eoq",
+        decision=decision,
+    )
+
+    assert [
+        component["component_id"]
+        for component in proposal[
+            "objective_components"
+        ]
+    ] == [
+        "annual_ordering_cost",
+        "annual_holding_cost",
+    ]
+
+    assert all(
+        component["reason"]
+        == (
+            "Vom ausgewählten Grundmodell "
+            "verpflichtend benötigt."
+        )
+        for component in proposal[
+            "objective_components"
+        ]
+    )
+
+    assert all(
+        component["sources"] == ["core_definition"]
+        for component in proposal[
+            "objective_components"
+        ]
+    )
 
 
 def test_builds_specification_from_agent_proposal() -> None:

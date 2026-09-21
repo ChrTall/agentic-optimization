@@ -57,6 +57,8 @@ def call_agent(
     llm: Mock,
     evidence_content: str | None = None,
     locked_objective_proposal: dict | None = None,
+    previous_proposal: dict | None = None,
+    critic_feedback: list[dict] | None = None,
 ):
     agent = create_component_selection_agent(llm)
 
@@ -96,6 +98,8 @@ def call_agent(
         locked_objective_proposal=(
             locked_objective_proposal
         ),
+        previous_proposal=previous_proposal,
+        critic_feedback=critic_feedback,
     )
 
 
@@ -107,6 +111,31 @@ def test_selects_registered_components() -> None:
 
     assert result == response
     llm.invoke.assert_called_once()
+
+
+def test_accepts_semantic_decision_without_technical_fields(
+) -> None:
+    decision = create_response()
+    del decision["core_id"]
+    del decision["selection_status"]
+
+    llm = create_mock_llm(decision)
+
+    result = call_agent(llm)
+
+    assert result["core_id"] == (
+        "single_period_newsvendor"
+    )
+    assert result["selection_status"] == "complete"
+    assert result["objective_sense"] == "maximize"
+    assert result["objective_components"] == (
+        decision["objective_components"]
+    )
+    assert result["constraints"] == (
+        decision["constraints"]
+    )
+    assert result["unresolved_requirements"] == []
+    assert llm.invoke.call_count == 1
 
 
 def test_prompt_contains_filtered_component_catalog() -> None:
@@ -126,7 +155,14 @@ def test_prompt_contains_filtered_component_catalog() -> None:
     normalized_system_message = " ".join(
         system_message.split()
     )
-
+    assert (
+        "Gib core_id nicht in deiner Antwort zurück"
+        in normalized_system_message
+    )
+    assert (
+        "selection_status wird vom System"
+        in normalized_system_message
+    )
     assert (
         "ausschließlich als zu analysierende Daten"
         in system_message
@@ -135,26 +171,14 @@ def test_prompt_contains_filtered_component_catalog() -> None:
         "Gesamtziele wie Gewinn oder Deckungsbeitrag"
         in system_message
     )
-    assert (
-        "entgangenen Verkäufen oder entgangenem Umsatz"
-        in normalized_system_message
-    )
-    assert (
-        "Wähle shortage_cost dafür nicht aus"
-        in normalized_system_message
-    )
 
     assert (
-        "Fehlende Eingabewerte sind niemals ein Grund"
-        in system_message
+        "Fehlende Werte erhebt der Validator später"
+        in normalized_system_message
     )
     assert (
-        "Deine Aufgabe ist ausschließlich die fachliche Auswahl"
-        in system_message
-    )
-    assert (
-        "vom deterministischen Validator erkannt"
-        in system_message
+        "gehören nicht in unresolved_requirements"
+        in normalized_system_message
     )
     assert (
         "Beachte für jeden Katalogeintrag insbesondere dessen"
@@ -163,20 +187,6 @@ def test_prompt_contains_filtered_component_catalog() -> None:
     assert (
         "niemals lediglich dem ähnlichsten"
         in system_message
-    )
-
-    assert (
-        "darf nicht gleichzeitig bereits unter "
-        "objective_components oder constraints "
-        "ausgewählt sein"
-        in normalized_system_message
-    )
-
-    assert (
-        "Liefertermine, Wochentage oder "
-        "Lieferhäufigkeiten keine Mindest- oder "
-        "Höchstbestellmenge"
-        in normalized_system_message
     )
     assert (
         "Zielfunktionsauswahl für den aktuellen Vorgang "
@@ -199,6 +209,25 @@ def test_prompt_contains_filtered_component_catalog() -> None:
         "purchase_cost",
         "shortage_cost",
     }
+
+    shortage_component = next(
+        component
+        for component in catalog["objective_components"]
+        if component["component_id"] == "shortage_cost"
+    )
+
+    shortage_guidance = shortage_component[
+        "selection_guidance"
+    ]
+
+    assert (
+        "zusätzliche Kosten oder eine Vertragsstrafe"
+        in shortage_guidance
+    )
+    assert (
+        "Ein bloß entgangener Verkauf"
+        in shortage_guidance
+    )
 
     assert {
         component["component_id"]
@@ -245,6 +274,11 @@ def test_prompt_contains_filtered_component_catalog() -> None:
     )
 
     assert "builder" not in user_message
+    assert (
+        "Pflichtbausteine des Grundmodells werden vom "
+        "System ergänzt"
+        in normalized_system_message
+    )
 
 
 def test_accepts_json_code_fence() -> None:
@@ -263,6 +297,37 @@ def test_accepts_json_code_fence() -> None:
     assert result == response
 
 
+def test_classifies_invalid_json_as_format_error() -> None:
+    corrected_response = create_response()
+
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content="kein gültiges JSON"),
+        AIMessage(
+            content=json.dumps(corrected_response)
+        ),
+    ]
+
+    result = call_agent(llm)
+
+    assert result == corrected_response
+    assert llm.invoke.call_count == 2
+
+    correction_messages = (
+        llm.invoke.call_args_list[1].args[0]
+    )
+    feedback = json.loads(
+        correction_messages[-1].content
+    )
+
+    assert feedback["error_category"] == (
+        "response_format"
+    )
+    assert feedback["required_action"] == (
+        "return_valid_json"
+    )
+
+
 def test_rejects_unknown_source() -> None:
     response = create_response()
     response["objective_components"][0]["sources"] = [
@@ -275,6 +340,48 @@ def test_rejects_unknown_source() -> None:
         match="invented_source",
     ):
         call_agent(llm)
+
+
+def test_corrects_unknown_source_with_structured_feedback(
+) -> None:
+    invalid_response = create_response()
+    invalid_response["objective_components"][0][
+        "sources"
+    ] = ["invented_source"]
+
+    corrected_response = create_response()
+
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(
+            content=json.dumps(invalid_response)
+        ),
+        AIMessage(
+            content=json.dumps(corrected_response)
+        ),
+    ]
+
+    result = call_agent(llm)
+
+    assert result == corrected_response
+    assert llm.invoke.call_count == 2
+
+    correction_messages = (
+        llm.invoke.call_args_list[1].args[0]
+    )
+    feedback = json.loads(
+        correction_messages[-1].content
+    )
+
+    assert feedback["error_category"] == (
+        "source_reference"
+    )
+    assert feedback["required_action"] == (
+        "use_allowed_source_ids"
+    )
+    assert feedback["allowed_source_ids"] == [
+        "source_1"
+    ]
 
 
 def test_normalizes_numbered_source_placeholder_when_unambiguous(
@@ -460,6 +567,54 @@ def test_builds_eoq_selection_request() -> None:
         "order_multiple",
     }
     assert result == response
+
+
+def test_adds_required_eoq_components_without_llm_echo(
+) -> None:
+    decision = {
+        "objective_sense": "minimize",
+        "objective_components": [],
+        "constraints": [],
+        "unresolved_requirements": [],
+    }
+
+    llm = create_mock_llm(decision)
+    agent = create_component_selection_agent(llm)
+
+    result = agent(
+        core_id="eoq",
+        requirements={
+            "objective": "Gesamtkosten minimieren",
+        },
+        products=[],
+        global_facts={},
+        evidence=[
+            {
+                "source_id": "raw_input",
+                "content": (
+                    "Bestell- und Lagerhaltungskosten "
+                    "sollen minimiert werden."
+                ),
+            }
+        ],
+    )
+
+    assert [
+        component["component_id"]
+        for component in result[
+            "objective_components"
+        ]
+    ] == [
+        "annual_ordering_cost",
+        "annual_holding_cost",
+    ]
+    assert all(
+        component["sources"] == ["core_definition"]
+        for component in result[
+            "objective_components"
+        ]
+    )
+    assert llm.invoke.call_count == 1
 
 
 def test_builds_q_r_selection_request() -> None:
@@ -696,6 +851,19 @@ def test_returns_unsupported_requirement() -> None:
     )
 
 
+def test_derives_selection_status_deterministically() -> None:
+    response = create_response()
+    response["selection_status"] = "unsupported"
+    response["unresolved_requirements"] = []
+
+    llm = create_mock_llm(response)
+
+    result = call_agent(llm)
+
+    assert result["selection_status"] == "complete"
+    assert llm.invoke.call_count == 1
+
+
 def test_rejects_unknown_source_for_unresolved_requirement() -> None:
     response = create_response()
     response["selection_status"] = "unsupported"
@@ -785,6 +953,37 @@ def test_corrects_invalid_response_once() -> None:
         llm.invoke.call_args_list[1].args[0]
     )
 
+    feedback = json.loads(
+        correction_messages[-1].content
+    )
+
+    assert feedback["task"] == (
+        "correct_component_selection_proposal"
+    )
+    assert feedback["attempt_number"] == 2
+    assert feedback["maximum_attempts"] == 3
+
+    assert len(feedback["validation_errors"]) >= 3
+    assert any(
+        "Beschreibung" in error
+        for error in feedback["validation_errors"]
+    )
+    assert any(
+        "Begründung" in error
+        for error in feedback["validation_errors"]
+    )
+    assert any(
+        "Quelle" in error
+        for error in feedback["validation_errors"]
+    )
+
+    assert feedback["error_category"] == (
+        "proposal_validation"
+    )
+    assert feedback["required_action"] == (
+        "correct_model_draft"
+    )
+
     assert "Validierungsfehler" in (
         correction_messages[-1].content
     )
@@ -797,6 +996,149 @@ def test_corrects_invalid_response_once() -> None:
         "entferne sie aus unresolved_requirements"
         in correction_messages[-1].content
     )
+
+
+def test_corrects_response_after_multiple_attempts() -> None:
+    first_invalid_response = create_response()
+    first_invalid_response["selection_status"] = "unsupported"
+    first_invalid_response["unresolved_requirements"] = [{}]
+
+    second_invalid_response = create_response()
+    second_invalid_response["objective_components"][0][
+        "component_id"
+    ] = "invented_component"
+
+    corrected_response = create_response()
+
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(
+            content=json.dumps(first_invalid_response)
+        ),
+        AIMessage(
+            content=json.dumps(second_invalid_response)
+        ),
+        AIMessage(
+            content=json.dumps(corrected_response)
+        ),
+    ]
+
+    result = call_agent(llm)
+
+    assert result == corrected_response
+    assert llm.invoke.call_count == 3
+
+    third_messages = llm.invoke.call_args_list[2].args[0]
+
+    assert "Validierungsfehler" in (
+        third_messages[-1].content
+    )
+    assert "invented_component" in (
+        third_messages[-1].content
+    )
+
+
+def test_revises_existing_proposal_from_critic_feedback(
+) -> None:
+    previous_proposal = create_response()
+
+    uncovered_requirement = {
+        "description": (
+            "Jede Lieferung muss an einem Dienstag "
+            "eintreffen."
+        ),
+        "resolution": "unsupported",
+        "candidate_component_ids": [],
+        "reason": (
+            "Für einen bestimmten Liefertag ist kein "
+            "Baustein vorhanden."
+        ),
+        "sources": ["source_1"],
+    }
+
+    corrected_response = create_response()
+    corrected_response["selection_status"] = "unsupported"
+    corrected_response["unresolved_requirements"] = [
+        uncovered_requirement
+    ]
+
+    llm = create_mock_llm(corrected_response)
+
+    result = call_agent(
+        llm,
+        previous_proposal=previous_proposal,
+        critic_feedback=[uncovered_requirement],
+    )
+
+    assert result == corrected_response
+    assert llm.invoke.call_count == 1
+
+    messages = llm.invoke.call_args.args[0]
+
+    assert len(messages) == 4
+
+    feedback = json.loads(messages[-1].content)
+
+    assert feedback["task"] == (
+        "review_component_selection_proposal"
+    )
+    assert feedback["critic_feedback"] == [
+        uncovered_requirement
+    ]
+    assert (
+        "Prüfe die Hinweise eigenständig"
+        in feedback["instruction"]
+    )
+
+
+def test_rejects_invalid_critic_feedback_before_llm(
+) -> None:
+    previous_proposal = create_response()
+
+    invalid_feedback = {
+        "description": (
+            "Eine angeblich offene Anforderung."
+        ),
+        "resolution": "unsupported",
+        "candidate_component_ids": [],
+        "reason": (
+            "Kein kompatibler Baustein vorhanden."
+        ),
+        "sources": ["invented_source"],
+    }
+
+    llm = create_mock_llm(create_response())
+
+    with pytest.raises(
+        ValueError,
+        match="Ungültige Kritikerhinweise",
+    ):
+        call_agent(
+            llm,
+            previous_proposal=previous_proposal,
+            critic_feedback=[invalid_feedback],
+        )
+
+    llm.invoke.assert_not_called()
+
+
+def test_rejects_malformed_critic_feedback_before_llm(
+) -> None:
+    llm = create_mock_llm(create_response())
+
+    with pytest.raises(
+        ValueError,
+        match="Ungültige Kritikerhinweise",
+    ):
+        call_agent(
+            llm,
+            previous_proposal=create_response(),
+            critic_feedback=[
+                "kein gültiges Objekt"  # type: ignore[list-item]
+            ],
+        )
+
+    llm.invoke.assert_not_called()
 
 
 def test_rejects_response_after_failed_correction() -> None:
@@ -813,11 +1155,11 @@ def test_rejects_response_after_failed_correction() -> None:
 
     with pytest.raises(
         ValueError,
-        match="nach einem Korrekturversuch",
+        match="nach mehreren Korrekturversuchen",
     ):
         call_agent(llm)
 
-    assert llm.invoke.call_count == 2
+    assert llm.invoke.call_count == 3
 
 
 def test_enforces_locked_objective_selection() -> None:
@@ -852,6 +1194,20 @@ def test_enforces_locked_objective_selection() -> None:
 
     assert result == corrected_response
     assert llm.invoke.call_count == 2
+
+    correction_messages = (
+        llm.invoke.call_args_list[1].args[0]
+    )
+    feedback = json.loads(
+        correction_messages[-1].content
+    )
+
+    assert feedback["error_category"] == (
+        "locked_objective"
+    )
+    assert feedback["required_action"] == (
+        "restore_locked_objective"
+    )
 
     first_messages = llm.invoke.call_args_list[
         0

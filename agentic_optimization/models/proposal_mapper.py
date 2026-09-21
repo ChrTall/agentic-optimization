@@ -3,7 +3,7 @@
 """
 
 from copy import deepcopy
-from typing import Any
+from typing import Any, cast
 
 from agentic_optimization.models.specification import (
     ComponentSelectionProposal,
@@ -11,6 +11,9 @@ from agentic_optimization.models.specification import (
     ModelSpecification,
     ProductSpecification,
     ExcludedRequirement,
+    ComponentSelectionDecision,
+    SelectionStatus,
+    UnresolvedRequirement,
 )
 from agentic_optimization.models.component_registry import (
     CONSTRAINT_COMPONENTS,
@@ -30,6 +33,98 @@ def _has_valid_sources(value: object) -> bool:
         isinstance(value, list)
         and bool(value)
         and all(_has_text(source) for source in value)
+    )
+
+
+def _derive_selection_status(
+    unresolved_requirements: object,
+) -> SelectionStatus:
+    """Leitet den Status aus offenen Anforderungen ab."""
+
+    if not isinstance(unresolved_requirements, list):
+        return "complete"
+
+    resolutions = {
+        requirement.get("resolution")
+        for requirement in unresolved_requirements
+        if isinstance(requirement, dict)
+    }
+
+    if "unsupported" in resolutions:
+        return "unsupported"
+
+    if "clarification" in resolutions:
+        return "needs_clarification"
+
+    return "complete"
+
+
+def build_component_selection_proposal(
+    *,
+    core_id: str,
+    decision: ComponentSelectionDecision,
+) -> ComponentSelectionProposal:
+    """Ergänzt technische Felder einer fachlichen Auswahl."""
+
+    unresolved_requirements = deepcopy(
+        decision.get("unresolved_requirements")
+    )
+
+    objective_components = deepcopy(
+        decision.get("objective_components")
+    )
+
+    registered_core = CORE_REGISTRY.get(core_id)
+
+    if (
+        isinstance(objective_components, list)
+        and registered_core is not None
+    ):
+        selected_component_ids = {
+            component.get("component_id")
+            for component in objective_components
+            if isinstance(component, dict)
+        }
+
+        required_component_ids = registered_core[
+            "definition"
+        ]["required_objective_component_ids"]
+
+        for component_id in required_component_ids:
+            if component_id in selected_component_ids:
+                continue
+
+            objective_components.append(
+                {
+                    "component_id": component_id,
+                    "reason": (
+                        "Vom ausgewählten Grundmodell "
+                        "verpflichtend benötigt."
+                    ),
+                    "sources": ["core_definition"],
+                }
+            )
+
+    proposal = {
+        "core_id": core_id,
+        "selection_status": _derive_selection_status(
+            unresolved_requirements
+        ),
+        "objective_sense": decision.get(
+            "objective_sense"
+        ),
+        "objective_components": objective_components,
+        "constraints": deepcopy(
+            decision.get("constraints")
+        ),
+        "unresolved_requirements": (
+            unresolved_requirements
+        ),
+    }
+
+    return cast(
+        ComponentSelectionProposal,
+        proposal,
     )
 
 

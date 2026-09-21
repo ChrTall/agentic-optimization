@@ -115,7 +115,7 @@ def test_falls_back_to_safe_newsvendor_product_columns(
         "purchase_cost",
     ]
     assert proposal["constraints"] == []
-    assert llm.invoke.call_count == 2
+    assert llm.invoke.call_count == 3
 
 
 def test_prepares_modular_q_r_model_draft() -> None:

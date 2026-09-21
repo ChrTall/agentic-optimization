@@ -1,27 +1,32 @@
 """
 Agentische Auswahl registrierter Optimierungsbausteine.
 """
-
 import json
 import re
 from collections.abc import Callable
 from typing import Any, cast
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import (
+    AIMessage,
+    HumanMessage,
+    SystemMessage,
+)
 
 from agentic_optimization.models.component_catalog import (
     build_component_catalog,
 )
 from agentic_optimization.models.proposal_mapper import (
     validate_component_selection_proposal,
+    build_component_selection_proposal,
 )
 from agentic_optimization.models.specification import (
     ComponentSelectionProposal,
     ProductSpecification,
     SelectionEvidence,
+    UnresolvedRequirement,
+    ComponentSelectionDecision,
 )
-
 
 SYSTEM_PROMPT = """
 Du wählst passende Bausteine für ein mathematisches
@@ -30,10 +35,12 @@ Optimierungsmodell aus einem vorgegebenen Katalog.
 Regeln:
 
 1. Verwende ausschließlich IDs aus dem übergebenen Katalog.
-2. Verwende exakt die übergebene core_id.
+2. Die übergebene core_id ist der verbindliche fachliche
+   Kontext. Wähle ausschließlich dazu kompatible Bausteine.
+   Gib core_id nicht in deiner Antwort zurück; sie wird vom
+   System ergänzt.
 3. Erfinde keine Bausteine, Fakten oder Parameterwerte.
-4. Wähle alle IDs aus
-   core.required_objective_component_ids aus.
+4. Pflichtbausteine des Grundmodells werden vom System ergänzt.
 5. Wähle zusätzliche, nicht verpflichtende Bausteine nur,
    wenn sie durch Anforderungen, Fakten oder Evidenzen
    fachlich begründet sind.
@@ -51,9 +58,7 @@ Regeln:
    Wenn eine Anforderung nicht exakt durch einen verfügbaren
    Baustein abgebildet werden kann, kennzeichne sie als
    unsupported. Wähle nicht zusätzlich einen unpassenden
-   Ersatzbaustein. Insbesondere begründen Liefertermine,
-   Wochentage oder Lieferhäufigkeiten keine Mindest- oder
-   Höchstbestellmenge.
+   Ersatzbaustein.
 
    Gesamtziele wie Gewinn oder Deckungsbeitrag können durch
    mehrere vorhandene Erlös- und Kostenbausteine gemeinsam
@@ -64,14 +69,6 @@ Regeln:
    positiven und ausgewählte Kostenbausteine die negativen
    Bestandteile der Zielfunktion.
 
-   Die Aussage, dass nicht gedeckte Nachfrage zu entgangenen
-   Verkäufen oder entgangenem Umsatz führt, ist bei ausgewähltem
-   sales_revenue bereits durch den ausbleibenden Verkaufserlös
-   abgebildet. Wähle shortage_cost dafür nicht aus und erzeuge
-   keine ungelöste Anforderung. shortage_cost ist nur fachlich
-   begründet, wenn zusätzliche Fehlmengenkosten oder eine Strafe
-   je nicht gedeckter Einheit ausdrücklich gefordert werden.
-
    Wenn locked_objective_selection nicht null ist, ist diese
    Zielfunktionsauswahl für den aktuellen Vorgang verbindlich.
    Übernimm objective_sense und objective_component_ids exakt.
@@ -79,30 +76,11 @@ Regeln:
    Prüfe in diesem Fall nur noch Nebenbedingungen,
    produktspezifische Zuordnungen und ungelöste Anforderungen.
 
-6. Deine Aufgabe ist ausschließlich die fachliche Auswahl
-   der Bausteine, nicht die Prüfung ihrer Eingabewerte.
-
-   Fehlende Eingabewerte sind niemals ein Grund für
-   unresolved_requirements. Prüfe daher nicht, ob alle
-   required_forecast_fields, required_product_facts,
-   required_global_facts oder Constraint-Parameter bereits
-   vorhanden sind.
-
-   Beispiel: Ist sales_revenue fachlich passend, wähle den
-   Baustein auch dann aus, wenn selling_price noch fehlt.
-   Beispiel: Ist purchase_cost fachlich passend, wähle den
-   Baustein auch dann aus, wenn purchase_cost noch fehlt.
-
-   Verwende bei einem erkannten Constraint mit fehlendem
-   Parameter ein leeres parameters-Objekt.
-
-   Fehlende Werte werden ausschließlich nach deiner Auswahl
-   vom deterministischen Validator erkannt und über das
-   Eingabeformular erhoben.
-
-   unresolved_requirements ist ausschließlich für eine
-   fachlich mehrdeutige Anforderung oder für eine mit keinem
-   verfügbaren Baustein abbildbare Anforderung vorgesehen.
+6. Wähle fachlich passende Bausteine auch dann aus, wenn
+   benötigte Eingabewerte fehlen. Verwende bei einem
+   Constraint ohne belegten Parameter ein leeres
+   parameters-Objekt. Fehlende Werte erhebt der Validator
+   später; sie gehören nicht in unresolved_requirements.
 
 7. Verwende ausschließlich übergebene source_ids.
 8. Begründe jeden ausgewählten Baustein kurz.
@@ -114,12 +92,8 @@ Regeln:
 11. Wenn kein kompatibler Baustein verfügbar ist, füge die
     Anforderung mit resolution "unsupported" zu
     unresolved_requirements hinzu.
-12. Setze selection_status auf:
-    - "complete", wenn unresolved_requirements leer ist,
-    - "needs_clarification", wenn mindestens eine Klärung
-      erforderlich und nichts nicht unterstützt ist,
-    - "unsupported", wenn mindestens eine Anforderung nicht
-      unterstützt wird.
+12. selection_status wird vom System abgeleitet und ist kein
+    Ausgabefeld.
 
 Jeder Eintrag in unresolved_requirements muss exakt
 folgende Felder enthalten:
@@ -135,28 +109,6 @@ folgende Felder enthalten:
   "sources": ["raw_input"]
 }
 
-Bei resolution "clarification" muss
-candidate_component_ids mindestens einen kompatiblen
-Katalogbaustein enthalten.
-
-Ein Baustein in candidate_component_ids darf nicht
-gleichzeitig bereits unter objective_components oder
-constraints ausgewählt sein. Ist eine Anforderung durch die
-ausgewählten Bausteine bereits abgedeckt, darf sie nicht
-zusätzlich in unresolved_requirements erscheinen. Ist eine
-echte Klärung zwischen mehreren Bausteinen erforderlich,
-dürfen diese Kandidaten bis zur Klärung noch nicht ausgewählt
-werden.
-
-Bei resolution "unsupported" muss
-candidate_component_ids eine leere Liste sein.
-Ein fehlender Eingabewert hat keine alternativen
-Kandidaten-Bausteine und darf daher nicht als
-clarification ausgegeben werden.
-
-Für resolution ist ausschließlich "clarification" oder
-"unsupported" erlaubt.
-
 13. Erzeuge keine Formeln und keinen Programmcode.
 14. Gib ausschließlich ein JSON-Objekt zurück, ohne
     Markdown-Backticks oder zusätzlichen Text.
@@ -167,8 +119,6 @@ Für resolution ist ausschließlich "clarification" oder
 Erwartetes Format:
 
 {
-  "core_id": "single_period_newsvendor",
-  "selection_status": "complete",
   "objective_sense": "maximize",
   "objective_components": [
     {
@@ -189,6 +139,46 @@ Erwartetes Format:
   "unresolved_requirements": []
 }
 """.strip()
+
+
+MAX_SELECTION_ATTEMPTS = 3
+
+SYSTEM_SELECTION_SOURCE_IDS = {
+    "core_definition",
+}
+
+class ComponentSelectionValidationError(ValueError):
+    """Enthält einzelne Fehler eines Bausteinvorschlags."""
+
+    def __init__(self, errors: list[str]) -> None:
+        self.errors = list(errors)
+
+        super().__init__(
+            "Ungültiger Bausteinvorschlag: "
+            + "; ".join(self.errors)
+        )
+
+
+class ComponentSelectionSourceError(ValueError):
+    """Kennzeichnet unbekannte Quellen im Vorschlag."""
+
+    def __init__(
+        self,
+        unknown_source_ids: set[str],
+    ) -> None:
+        self.unknown_source_ids = sorted(
+            unknown_source_ids
+        )
+
+        super().__init__(
+            "Der Agent hat unbekannte Quellen verwendet: "
+            + ", ".join(self.unknown_source_ids)
+            + "."
+        )
+
+
+class LockedObjectiveSelectionError(ValueError):
+    """Kennzeichnet Änderungen an der verbindlichen Zielfunktion."""
 
 
 def _parse_json_response(content: object) -> dict[str, Any]:
@@ -324,18 +314,44 @@ def _parse_and_validate_proposal(
 ) -> ComponentSelectionProposal:
     """Prüft eine einzelne Antwort des Auswahlagenten."""
 
-    raw_proposal = _parse_json_response(content)
+    raw_decision = _parse_json_response(content)
 
-    allowed_source_ids = {
+    reported_core_id = raw_decision.get("core_id")
+
+    if (
+        reported_core_id is not None
+        and reported_core_id != expected_core_id
+    ):
+        raise ValueError(
+            "Der Agent hat ein anderes Grundmodell "
+            "als das vorgegebene Grundmodell zurückgegeben."
+        )
+
+    raw_proposal = build_component_selection_proposal(
+        core_id=expected_core_id,
+        decision=cast(
+            ComponentSelectionDecision,
+            raw_decision,
+        ),
+    )
+
+    evidence_source_ids = {
         item["source_id"]
         for item in evidence
+    }
+
+    allowed_source_ids = {
+        *evidence_source_ids,
+        *SYSTEM_SELECTION_SOURCE_IDS,
     }
 
     # Kleine Modelle übernehmen gelegentlich nummerierte
     # Quellenplatzhalter aus Formatbeispielen. Existiert exakt
     # eine echte Quelle, ist die Zuordnung eindeutig.
-    if len(allowed_source_ids) == 1:
-        only_source_id = next(iter(allowed_source_ids))
+    if len(evidence_source_ids) == 1:
+        only_source_id = next(
+            iter(evidence_source_ids)
+        )
 
         for item_group in (
             "objective_components",
@@ -415,9 +431,8 @@ def _parse_and_validate_proposal(
     )
 
     if proposal_errors:
-        raise ValueError(
-            "Ungültiger Bausteinvorschlag: "
-            + "; ".join(proposal_errors)
+        raise ComponentSelectionValidationError(
+            proposal_errors
         )
 
     selected_items = [
@@ -434,12 +449,8 @@ def _parse_and_validate_proposal(
     }
 
     if unknown_source_ids:
-        unknown_sources = ", ".join(
-            sorted(unknown_source_ids)
-        )
-        raise ValueError(
-            "Der Agent hat unbekannte Quellen verwendet: "
-            f"{unknown_sources}."
+        raise ComponentSelectionSourceError(
+            unknown_source_ids
         )
 
     if locked_objective_proposal is not None:
@@ -460,13 +471,13 @@ def _parse_and_validate_proposal(
         ]
 
         if raw_proposal["objective_sense"] != expected_sense:
-            raise ValueError(
+            raise LockedObjectiveSelectionError(
                 "Die verbindliche Zielrichtung wurde "
                 "verändert."
             )
 
         if actual_component_ids != expected_component_ids:
-            raise ValueError(
+            raise LockedObjectiveSelectionError(
                 "Die verbindlichen Zielfunktionsbausteine "
                 "wurden verändert."
             )
@@ -474,6 +485,196 @@ def _parse_and_validate_proposal(
     return cast(
         ComponentSelectionProposal,
         raw_proposal,
+    )
+
+
+def _build_correction_message(
+    *,
+    error: TypeError | ValueError,
+    evidence: list[SelectionEvidence],
+    attempt_number: int,
+) -> str:
+    """Erzeugt strukturiertes Feedback für den nächsten Versuch."""
+
+    if isinstance(
+        error,
+        ComponentSelectionValidationError,
+    ):
+        error_category = "proposal_validation"
+        required_action = "correct_model_draft"
+    elif isinstance(
+        error,
+        ComponentSelectionSourceError,
+    ):
+        error_category = "source_reference"
+        required_action = "use_allowed_source_ids"
+    elif isinstance(
+        error,
+        LockedObjectiveSelectionError,
+    ):
+        error_category = "locked_objective"
+        required_action = "restore_locked_objective"
+    elif isinstance(
+        error,
+        (json.JSONDecodeError, TypeError),
+    ):
+        error_category = "response_format"
+        required_action = "return_valid_json"
+    else:
+        error_category = "selection_invariant"
+        required_action = "correct_model_draft"
+
+    validation_errors = (
+        error.errors
+        if isinstance(
+            error,
+            ComponentSelectionValidationError,
+        )
+        else [str(error)]
+    )
+
+    payload = {
+        "task": "correct_component_selection_proposal",
+        "error_category": error_category,
+        "required_action": required_action,
+        "attempt_number": attempt_number,
+        "maximum_attempts": MAX_SELECTION_ATTEMPTS,
+        "validation_errors": validation_errors,
+        "allowed_source_ids": sorted(
+            item["source_id"]
+            for item in evidence
+        ),
+        "correction_rules": [
+            (
+                "Behalte alle bereits gültigen Teile des "
+                "Vorschlags unverändert."
+            ),
+            (
+                "Korrigiere gezielt die gemeldeten "
+                "Validierungsfehler."
+            ),
+            (
+                "Ein Kandidaten-Baustein darf nicht "
+                "gleichzeitig bereits ausgewählt sein."
+            ),
+            (
+                "Ist eine Anforderung bereits abgedeckt, "
+                "entferne sie aus unresolved_requirements."
+            ),
+            (
+                "Gib ausschließlich das korrigierte "
+                "JSON-Objekt zurück."
+            ),
+        ],
+    }
+
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+def _validate_critic_feedback(
+    *,
+    previous_proposal: ComponentSelectionProposal,
+    critic_feedback: list[UnresolvedRequirement],
+    evidence: list[SelectionEvidence],
+) -> None:
+    """Prüft Kritikerhinweise vor dem nächsten LLM-Aufruf."""
+
+    candidate_decision = cast(
+        ComponentSelectionDecision,
+        {
+            "objective_sense": previous_proposal[
+                "objective_sense"
+            ],
+            "objective_components": previous_proposal[
+                "objective_components"
+            ],
+            "constraints": previous_proposal[
+                "constraints"
+            ],
+            "unresolved_requirements": [
+                *previous_proposal[
+                    "unresolved_requirements"
+                ],
+                *critic_feedback,
+            ],
+        },
+    )
+
+    candidate_proposal = build_component_selection_proposal(
+        core_id=previous_proposal["core_id"],
+        decision=candidate_decision,
+    )
+
+    errors = validate_component_selection_proposal(
+        candidate_proposal
+    )
+
+    allowed_source_ids = {
+        item["source_id"]
+        for item in evidence
+    }
+
+    unknown_source_ids: set[str] = set()
+
+    for requirement in critic_feedback:
+        if not isinstance(requirement, dict):
+            continue
+
+        sources = requirement.get("sources")
+
+        if not isinstance(sources, list):
+            continue
+
+        unknown_source_ids.update(
+            source_id
+            for source_id in sources
+            if (
+                isinstance(source_id, str)
+                and source_id not in allowed_source_ids
+            )
+        )
+
+    if unknown_source_ids:
+        errors.append(
+            "Unbekannte Quellen: "
+            + ", ".join(sorted(unknown_source_ids))
+            + "."
+        )
+
+    if errors:
+        raise ValueError(
+            "Ungültige Kritikerhinweise: "
+            + "; ".join(dict.fromkeys(errors))
+        )
+
+
+def _build_critic_feedback_message(
+    critic_feedback: list[UnresolvedRequirement],
+) -> str:
+    """Erzeugt den Auftrag zur Prüfung von Kritikerhinweisen."""
+
+    return json.dumps(
+        {
+            "task": (
+                "review_component_selection_proposal"
+            ),
+            "critic_feedback": critic_feedback,
+            "instruction": (
+                "Prüfe die Hinweise eigenständig anhand "
+                "der Anforderungen, Evidenzen und des "
+                "Katalogs. Übernimm sie nicht blind. "
+                "Korrigiere den vorherigen Entwurf nur, "
+                "wenn der jeweilige Hinweis fachlich "
+                "begründet ist. Gib anschließend den "
+                "vollständigen Vorschlag als JSON zurück."
+            ),
+        },
+        ensure_ascii=False,
+        indent=2,
     )
 
 
@@ -492,6 +693,12 @@ def create_component_selection_agent(
         locked_objective_proposal: (
             ComponentSelectionProposal | None
         ) = None,
+        previous_proposal: (
+            ComponentSelectionProposal | None
+        ) = None,
+        critic_feedback: (
+            list[UnresolvedRequirement] | None
+        ) = None,
     ) -> ComponentSelectionProposal:
         user_message = _build_user_message(
             core_id,
@@ -507,7 +714,53 @@ def create_component_selection_agent(
             HumanMessage(content=user_message),
         ]
 
-        for attempt in range(2):
+        if (
+            (previous_proposal is None)
+            != (critic_feedback is None)
+        ):
+            raise ValueError(
+                "Ein vorheriger Vorschlag und Kritikerhinweise "
+                "müssen gemeinsam übergeben werden."
+            )
+
+        if previous_proposal is not None:
+            previous_errors = (
+                validate_component_selection_proposal(
+                    previous_proposal
+                )
+            )
+
+            if previous_errors:
+                raise ValueError(
+                    "Der vorherige Bausteinvorschlag ist "
+                    "ungültig: "
+                    + "; ".join(previous_errors)
+                )
+
+            _validate_critic_feedback(
+                previous_proposal=previous_proposal,
+                critic_feedback=critic_feedback or [],
+                evidence=evidence,
+            )
+
+            messages.extend(
+                [
+                    AIMessage(
+                        content=json.dumps(
+                            previous_proposal,
+                            ensure_ascii=False,
+                            indent=2,
+                        )
+                    ),
+                    HumanMessage(
+                        content=_build_critic_feedback_message(
+                            critic_feedback or []
+                        )
+                    ),
+                ]
+            )
+
+        for attempt in range(MAX_SELECTION_ATTEMPTS):
             response = llm.invoke(messages)
 
             try:
@@ -520,10 +773,10 @@ def create_component_selection_agent(
                     ),
                 )
             except (TypeError, ValueError) as error:
-                if attempt == 1:
+                if attempt == MAX_SELECTION_ATTEMPTS - 1:
                     raise ValueError(
                         "Der Bausteinauswahl-Agent konnte "
-                        "auch nach einem Korrekturversuch "
+                        "auch nach mehreren Korrekturversuchen "
                         "keinen gültigen Vorschlag erzeugen: "
                         f"{error}"
                     ) from error
@@ -532,27 +785,10 @@ def create_component_selection_agent(
                     [
                         response,
                         HumanMessage(
-                            content=(
-                                "Deine vorherige Antwort war "
-                                "formal ungültig.\n\n"
-                                f"Validierungsfehler: {error}\n\n"
-                                "Erlaubte source_ids: "
-                                f"{sorted(item['source_id'] for item in evidence)}.\n\n"
-                                "Korrigiere ausschließlich das "
-                                "JSON-Objekt. Ein Kandidaten-"
-                                "Baustein darf nicht gleichzeitig "
-                                "bereits ausgewählt sein. Ist die "
-                                "Anforderung durch ausgewählte "
-                                "Bausteine bereits abgedeckt, "
-                                "entferne sie aus "
-                                "unresolved_requirements. Ist "
-                                "eine echte Klärung erforderlich, "
-                                "entferne die Kandidaten zunächst "
-                                "aus objective_components und "
-                                "constraints. Beachte exakt das "
-                                "vorgegebene Antwortformat und "
-                                "gib erneut ausschließlich JSON "
-                                "zurück."
+                            content=_build_correction_message(
+                                error=error,
+                                evidence=evidence,
+                                attempt_number=attempt + 2,
                             )
                         ),
                     ]
