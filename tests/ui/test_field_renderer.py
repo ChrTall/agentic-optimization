@@ -291,3 +291,76 @@ def test_does_not_restore_cleared_number_input(
     assert received_arguments["value"] is None
     assert fake_session_state[widget_key] is None
     assert result is None
+
+
+def create_forecast_quantiles_field() -> dict:
+    return {
+        "name": "quantiles",
+        "label": "Nachfragequantile",
+        "type": "forecast_quantiles",
+        "required": True,
+        "help": None,
+        "unit": "Einheiten",
+    }
+
+
+def test_parses_forecast_quantiles_from_text() -> None:
+    result = parse_input_value(
+        create_forecast_quantiles_field(),
+        "0.1: 70; 0.5: 100; 0.9: 140",
+    )
+
+    assert result == [
+        {
+            "level": 0.1,
+            "value": 70.0,
+        },
+        {
+            "level": 0.5,
+            "value": 100.0,
+        },
+        {
+            "level": 0.9,
+            "value": 140.0,
+        },
+    ]
+
+
+def test_accepts_decimal_comma_in_forecast_quantiles() -> None:
+    result = parse_input_value(
+        create_forecast_quantiles_field(),
+        "0,1: 70,5; 0,9: 140,5",
+    )
+
+    assert result == [
+        {
+            "level": 0.1,
+            "value": 70.5,
+        },
+        {
+            "level": 0.9,
+            "value": 140.5,
+        },
+    ]
+
+
+def test_rejects_invalid_forecast_quantile_format() -> None:
+    with pytest.raises(
+        ValueError,
+        match="Niveau: Wert",
+    ):
+        parse_input_value(
+            create_forecast_quantiles_field(),
+            "0.1 = 70",
+        )
+
+
+def test_rejects_invalid_forecast_quantile_level() -> None:
+    with pytest.raises(
+        ValueError,
+        match="zwischen 0 und 1",
+    ):
+        parse_input_value(
+            create_forecast_quantiles_field(),
+            "1.2: 100",
+        )

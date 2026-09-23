@@ -1,7 +1,24 @@
 from typing import Any, Final, Literal, TypedDict
 
-from agentic_optimization.models.types import (
-    StructuredConstraint,
+from agentic_optimization.models.execution import (
+    OptimizationExecutionResult,
+)
+from agentic_optimization.models.specification import (
+    ComponentSelectionProposal,
+    ModelSpecification,
+    ProductSpecification,
+    SelectionEvidence,
+    ExcludedRequirement,
+)
+from agentic_optimization.models.validator import (
+    MissingInput,
+    SpecificationValidationResult,
+)
+from agentic_optimization.models.core_selector import (
+    CoreSelectionDecision,
+)
+from agentic_optimization.models.problem_profile import (
+    BusinessProblemProfile,
 )
 
 # ---------------------------------------------------------------------------
@@ -11,22 +28,20 @@ from agentic_optimization.models.types import (
 # gerade befindet. Sie werden nach einzelnen Graph-Nodes gesetzt und später
 # für Routing-Entscheidungen im Graph oder in der Streamlit-UI verwendet.
 
-WORKFLOW_GENERAL_REQUIREMENTS_EXTRACTED: Final = "general_requirements_extracted"
 WORKFLOW_NEEDS_GENERAL_CLARIFICATION: Final = "needs_general_clarification"
-WORKFLOW_GENERAL_INPUTS_VALID: Final = "general_inputs_valid"
-WORKFLOW_GENERAL_INPUTS_INVALID: Final = "general_inputs_invalid"
-WORKFLOW_MODEL_SELECTED: Final = "model_selected"
 WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS: Final = "needs_model_specific_inputs"
-WORKFLOW_MODEL_SPECIFIC_INPUTS_SUBMITTED: Final = "model_specific_inputs_submitted"
-WORKFLOW_MODEL_SPECIFIC_INPUTS_COMPLETE: Final = "model_specific_inputs_complete"
-WORKFLOW_MODEL_INPUTS_VALID: Final = "model_inputs_valid"
 WORKFLOW_MODEL_INPUTS_INVALID: Final = "model_inputs_invalid"
-WORKFLOW_READY_FOR_RESULT: Final = "ready_for_result"
-WORKFLOW_READY_FOR_OPTIMIZATION: Final = "ready_for_optimization"
 WORKFLOW_OPTIMIZATION_COMPLETED: Final = "optimization_completed"
 WORKFLOW_OPTIMIZATION_FAILED: Final = "optimization_failed"
 WORKFLOW_READY_FOR_REVIEW: Final = "ready_for_review"
 WORKFLOW_MODEL_UNSUPPORTED: Final = "model_unsupported"
+WORKFLOW_MODEL_PREPARATION_FAILED: Final = "model_preparation_failed"
+WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT: Final = "needs_business_profile_input"
+WORKFLOW_BUSINESS_CORE_SELECTED: Final = "business_core_selected"
+WORKFLOW_PRODUCT_TABLE_READY: Final = "product_table_ready"
+WORKFLOW_BUSINESS_CASE_UNSUPPORTED: Final = "business_case_unsupported"
+WORKFLOW_BUSINESS_PROFILE_ANALYSIS_FAILED: Final = "business_profile_analysis_failed"
+
 
 
 # ---------------------------------------------------------------------------
@@ -38,10 +53,17 @@ WORKFLOW_MODEL_UNSUPPORTED: Final = "model_unsupported"
 # - eine Rückfrage wurde beantwortet
 # - modellspezifische Eingaben wurden abgeschickt
 
-EVENT_NEW_PROBLEM: Final = "new_problem"
-EVENT_GENERAL_CLARIFICATION_SUBMITTED: Final = "general_clarification_submitted"
-EVENT_MODEL_INPUTS_SUBMITTED: Final = "model_inputs_submitted"
-EVENT_OPTIMIZATION_REQUESTED: Final = "optimization_requested"
+EVENT_MODULAR_MODEL_PREPARATION_REQUESTED: Final = "modular_model_preparation_requested"
+EVENT_MODULAR_PRODUCT_SCHEMA_REQUESTED: Final = "modular_product_schema_requested"
+EVENT_MODULAR_REVIEW_EXPLANATION_REQUESTED: Final = "modular_review_explanation_requested"
+EVENT_MODULAR_RESULT_EXPLANATION_REQUESTED: Final = "modular_result_explanation_requested"
+EVENT_MODULAR_INPUTS_SUBMITTED: Final = "modular_inputs_submitted"
+EVENT_MODULAR_OPTIMIZATION_REQUESTED: Final = "modular_optimization_requested"
+EVENT_BUSINESS_INTAKE_REQUESTED: Final = "business_intake_requested"
+EVENT_MODULAR_REQUIREMENT_EXCLUSIONS_CONFIRMED: Final = "modular_requirement_exclusions_confirmed"
+
+
+
 
 
 # Interner Platzhalter für with_control().
@@ -52,29 +74,31 @@ EVENT_OPTIMIZATION_REQUESTED: Final = "optimization_requested"
 _CLEAR = object()
 
 WorkflowStatus = Literal[
-    "general_requirements_extracted",
     "needs_general_clarification",
-    "general_inputs_valid",
-    "general_inputs_invalid",
-    "model_selected",
     "needs_model_specific_inputs",
-    "model_specific_inputs_submitted",
-    "model_specific_inputs_complete",
-    "model_inputs_valid",
     "model_inputs_invalid",
-    "ready_for_result",
-    "ready_for_optimization",
     "optimization_completed",
     "optimization_failed",
     "ready_for_review",
     "model_unsupported",
+    "model_preparation_failed",
+    "needs_business_profile_input",
+    "business_core_selected",
+    "product_table_ready",
+    "business_case_unsupported",
+    "business_profile_analysis_failed",
+    "modular_requirement_exclusions_confirmed",
 ]
 
 WorkflowEvent = Literal[
-    "new_problem",
-    "general_clarification_submitted",
-    "model_inputs_submitted",
-    "optimization_requested",
+    "modular_model_preparation_requested",
+    "modular_product_schema_requested",
+    "modular_review_explanation_requested",
+    "modular_result_explanation_requested",
+    "modular_inputs_submitted",
+    "modular_optimization_requested",
+    "business_intake_requested",
+    "modular_requirement_exclusions_confirmed",
 ]
 
 DecisionType = Literal[
@@ -102,6 +126,7 @@ ProductScope = Literal[
 
 PlanningHorizon = Literal[
     "single_period",
+    "repeated_cycles",
     "multiple_periods",
 ]
 
@@ -109,24 +134,6 @@ ReviewType = Literal[
     "continuous_review",
     "periodic_review",
 ]
-
-
-# Konflikte entstehen, wenn Formular und Freitext zwei
-# unterschiedliche, grundsätzlich unterstützte Werte liefern.
-class RequirementConflict(TypedDict):
-    field: str
-    form_value: str
-    raw_input_value: str
-    message: str
-
-
-# Unsupported Requirements beschreiben ausdrücklich genannte
-# Problemmerkmale, für die das System noch keinen erlaubten
-# strukturierten Wert beziehungsweise kein Modell unterstützt.
-class UnsupportedRequirement(TypedDict):
-    field: str
-    user_value: str
-    message: str
 
 
 class Requirements(TypedDict, total=False):
@@ -155,18 +162,52 @@ class ControlState(TypedDict, total=False):
     workflow_status: WorkflowStatus
 
 
-# Beschreibende Metadaten der Modellauswahl.
-# Die verbindlichen technischen Schlüssel sind
-# selected_model_family und selected_model_variant.
-class ModelConfig(TypedDict, total=False):
-    family_id: str
-    family_name: str
-    variant_id: str
-    variant_name: str
-    explanation: str
-    objective: Any
-    decision: Any
+class BusinessQuestionAnswer(TypedDict):
+    """Antwort auf eine aktuell offene Geschäftsfrage."""
 
+    question_id: str
+    option_id: str
+    source_id: str
+
+class BusinessIntakeState(TypedDict, total=False):
+    """Zustand des modellneutralen Geschäftseinstiegs."""
+
+    profile: BusinessProblemProfile
+    asked_question_ids: list[str]
+    pending_question_ids: list[str]
+    core_selection: CoreSelectionDecision
+    analysis_error: str | None
+    pending_answers: list[BusinessQuestionAnswer]
+    analyzed_raw_input: str
+
+
+class ModularInputSubmission(TypedDict):
+    """Ein vom Nutzer ergänzter Wert für ein fehlendes Feld."""
+
+    missing_input: MissingInput
+    value: Any
+
+
+class ModularModelState(TypedDict, total=False):
+    """Zustand der neuen modularen Modellpipeline."""
+
+    core_id: str
+    products: list[ProductSpecification]
+    global_facts: dict[str, Any]
+    evidence: list[SelectionEvidence]
+    proposal: ComponentSelectionProposal
+    preliminary_proposal: ComponentSelectionProposal
+    specification: ModelSpecification
+    validation: SpecificationValidationResult
+    review_confirmed: bool
+    optimization_result: OptimizationExecutionResult | None
+    pending_input_submissions: list[ModularInputSubmission]
+    preparation_error: str | None
+    excluded_requirements: list[ExcludedRequirement]
+    review_explanation: str
+    review_explanation_source: str
+    result_explanation: str
+    result_explanation_source: str
 
 class GraphState(TypedDict, total=False):
     """
@@ -175,97 +216,29 @@ class GraphState(TypedDict, total=False):
     Dieser State wird von Knoten zu Knoten weitergegeben.
     Jeder Agent liest relevante Felder aus und ergänzt neue Ergebnisse.
     """
-
-    # Steuerinformationen für Routing im Graph und in der UI
+    business_intake: BusinessIntakeState
+    modular_model: ModularModelState
     control: ControlState
-
-    # Eingaben aus UI / Formular / Chat
     raw_input: str
-    form_data: dict[str, Any]
-    messages: list[dict[str, str]]
-
-    # Ergebnis der allgemeinen Requirement-Extraktion
     requirements: Requirements
-    missing_fields: list[str]
-    clarification_question: str
-
-    # Ergebnis der allgemeinen Validierung
-    general_validation_errors: list[str]
-
-    # Vorgesehene Felder für zukünftige Hinweise zu auffälligen
-    # oder möglicherweise inkonsistenten Eingaben.
-    consistency_warnings: list[dict[str, Any]]
-    requirement_warnings: list[str]
-
-    # Probleme in den erkannten Anforderungen, die geklärt
-    # werden müssen, bevor der Workflow fortgesetzt werden kann.
-    requirement_conflicts: list[RequirementConflict]
-    unsupported_requirements: list[UnsupportedRequirement]
-
-    # Modellauswahl
-    selected_model_family: str | None
-    selected_model_variant: str | None
-    model_config: ModelConfig
-    model_selection_error: str | None
-
-    # Modellspezifische Eingaben:
-    # family -> variant -> inputs
-    model_specific_inputs: dict[str, dict[str, dict[str, Any]]]
-
-    # Aus dem Freitext erkannte, noch nicht vom Nutzer bestätigte Werte:
-    # family -> variant -> input candidates
-    model_input_candidates: dict[str, dict[str, dict[str, Any]]]
-    model_input_extraction_errors: list[str]
-
-    required_model_inputs: list[dict[str, Any]]
-    missing_model_input_fields: list[str]
-    model_input_validation_errors: list[str]
-
-    # Das LLM liefert zunächst unbestätigte Kandidaten.
-    # Nur die vom Nutzer bestätigten structured_constraints werden
-    # validiert und später an den deterministischen Modell-Builder übergeben.
-    constraint_candidates: list[StructuredConstraint]
-    structured_constraints: list[StructuredConstraint]
-
-    # Im Freitext erkannte Rahmenbedingungen, die von der ausgewählten
-    # Modellvariante nicht unterstützt und daher nur informativ angezeigt
-    # werden. Sie werden nicht an den Solver übergeben.
-    unsupported_constraints: list[str]
-
-    # Fehler bei der Zuordnung von Freitext-Constraints.
-    constraint_mapping_errors: list[str]
-
-    # Fehler bei der Validierung aktiver Constraints.
-    constraint_validation_errors: list[str]
-
-    # Noch fehlende Parameter aktiver Constraints.
-    required_constraint_inputs: list[dict[str, Any]]
-
-    # Optimierungssteuerung
-    # Wird erst nach erfolgreicher Input- und Constraintvalidierung gesetzt.
-    ready_for_optimization: bool
-
-    # Technische Rohausgabe des variantenspezifischen Optimierers.
-    optimization_result: dict[str, Any] | None
-    optimization_errors: list[str]
-
-    # Schutz vor einer Optimierung ohne ausdrückliche
-    # Bestätigung des Nutzers im Review-Formular.
-    review_confirmed: bool
-
-    # Vom Result-Node gebündeltes Ergebnis.
-    result: dict[str, Any]
 
 
 def get_event(state: GraphState) -> WorkflowEvent:
     """
     Gibt das aktuelle Workflow-Event zurück.
 
-    Falls kein Event gesetzt ist, wird standardmäßig
-    EVENT_NEW_PROBLEM angenommen.
+    Ein Graph-Durchlauf muss immer durch ein explizites
+    Ereignis ausgelöst werden.
     """
     control = state.get("control", {})
-    return control.get("event") or EVENT_NEW_PROBLEM
+    event = control.get("event")
+
+    if event is None:
+        raise ValueError(
+            "Für den Workflow wurde kein Event angegeben."
+        )
+
+    return event
 
 
 def get_workflow_status(state: GraphState) -> WorkflowStatus | None:
@@ -323,12 +296,16 @@ def invalidate_optimization_state(
     Diese Funktion muss verwendet werden, sobald der Nutzer
     Modellparameter oder strukturierte Constraints ändert.
     """
+    updated_state: GraphState = {**state}
 
-    return {
-        **state,
-        "review_confirmed": False,
-        "ready_for_optimization": False,
-        "optimization_result": None,
-        "optimization_errors": [],
-        "result": {},
-    }
+    if "modular_model" in state:
+        updated_state["modular_model"] = {
+            **state["modular_model"],
+            "review_confirmed": False,
+            "optimization_result": None,
+            "review_explanation": "",
+            "review_explanation_source": "",
+            "result_explanation": "",
+            "result_explanation_source": "",
+        }
+    return updated_state

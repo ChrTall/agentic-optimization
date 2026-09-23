@@ -1,11 +1,13 @@
 """
 Rendert Registry-definierte Eingabefelder und konvertiert ihre Widgetwerte.
 """
+import math
 
 from typing import Any, TypeAlias
 
 import streamlit as st
 
+from agentic_optimization.models.specification import ForecastQuantile
 from agentic_optimization.models.types import (
     ConstraintParameterDefinition,
     ModelInputField,
@@ -38,6 +40,33 @@ def _format_existing_number_list(
         str(value)
         for value in existing_value
     )
+
+
+def _format_existing_forecast_quantiles(
+    existing_value: Any,
+) -> str:
+    """Formatiert vorhandene Quantile für das Eingabefeld."""
+
+    if not isinstance(existing_value, list):
+        return ""
+
+    formatted_quantiles: list[str] = []
+
+    for quantile in existing_value:
+        if not isinstance(quantile, dict):
+            continue
+
+        level = quantile.get("level")
+        value = quantile.get("value")
+
+        if level is None or value is None:
+            continue
+
+        formatted_quantiles.append(
+            f"{level}: {value}"
+        )
+
+    return "; ".join(formatted_quantiles)
 
 
 def render_input_field(
@@ -137,6 +166,21 @@ def render_input_field(
             disabled=disabled,
         )
 
+    if field_type == "forecast_quantiles":
+        return st.text_input(
+            label,
+            value=_format_existing_forecast_quantiles(
+                existing_value
+            ),
+            help=help_text,
+            placeholder=(
+                placeholder
+                or "0.1: 70; 0.5: 100; 0.9: 140"
+            ),
+            key=widget_key,
+            disabled=disabled,
+        )
+
     raise ValueError(
         f"Der Feldtyp '{field_type}' wird noch nicht unterstützt."
     )
@@ -170,10 +214,129 @@ def _validate_numeric_bounds(
                 )
 
 
+def _parse_forecast_quantiles(
+    raw_value: Any,
+) -> list[ForecastQuantile]:
+    """Konvertiert Quantile aus UI-Text oder strukturierter Form."""
+
+    if raw_value in (None, "", []):
+        return []
+
+    raw_quantiles: list[tuple[Any, Any]] = []
+
+    if isinstance(raw_value, str):
+        entries = [
+            entry.strip()
+            for entry in raw_value.split(";")
+            if entry.strip()
+        ]
+
+        for entry in entries:
+            raw_level, separator, raw_forecast_value = (
+                entry.partition(":")
+            )
+
+            if not separator:
+                raise ValueError(
+                    "Jedes Nachfragequantil muss im Format "
+                    "'Niveau: Wert' angegeben werden."
+                )
+
+            raw_quantiles.append(
+                (
+                    raw_level.strip().replace(",", "."),
+                    raw_forecast_value.strip().replace(
+                        ",",
+                        ".",
+                    ),
+                )
+            )
+
+    elif isinstance(raw_value, list):
+        for quantile in raw_value:
+            if not isinstance(quantile, dict):
+                raise TypeError(
+                    "Jedes Nachfragequantil muss ein "
+                    "Objekt sein."
+                )
+
+            if (
+                "level" not in quantile
+                or "value" not in quantile
+            ):
+                raise ValueError(
+                    "Jedes Nachfragequantil benötigt "
+                    "'level' und 'value'."
+                )
+
+            raw_quantiles.append(
+                (
+                    quantile["level"],
+                    quantile["value"],
+                )
+            )
+
+    else:
+        raise TypeError(
+            "Nachfragequantile müssen als Text oder "
+            "Liste angegeben werden."
+        )
+
+    parsed_quantiles: list[ForecastQuantile] = []
+
+    for raw_level, raw_forecast_value in raw_quantiles:
+        if (
+            isinstance(raw_level, bool)
+            or isinstance(raw_forecast_value, bool)
+        ):
+            raise TypeError(
+                "Quantilniveau und Nachfragewert "
+                "müssen Zahlen sein."
+            )
+
+        try:
+            level = float(raw_level)
+            forecast_value = float(raw_forecast_value)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "Quantilniveau und Nachfragewert "
+                "müssen Zahlen sein."
+            ) from error
+
+        if not (
+            math.isfinite(level)
+            and math.isfinite(forecast_value)
+        ):
+            raise ValueError(
+                "Quantilniveau und Nachfragewert "
+                "müssen endliche Zahlen sein."
+            )
+
+        if not 0.0 < level < 1.0:
+            raise ValueError(
+                "Das Quantilniveau muss zwischen "
+                "0 und 1 liegen."
+            )
+
+        if forecast_value < 0.0:
+            raise ValueError(
+                "Der Nachfragewert darf nicht negativ sein."
+            )
+
+        parsed_quantiles.append(
+            {
+                "level": level,
+                "value": forecast_value,
+            }
+        )
+
+    return parsed_quantiles
+
+
 def parse_input_value(
     field_definition: FieldDefinition,
     raw_value: Any,
-) -> int | float | list[float] | None:
+) -> int | float | list[float] | list[ForecastQuantile] | None:
     """
     Konvertiert einen Widgetwert in den internen Modellwert.
 
@@ -257,6 +420,9 @@ def parse_input_value(
         )
 
         return parsed_values
+
+    if field_type == "forecast_quantiles":
+        return _parse_forecast_quantiles(raw_value)
 
     raise ValueError(
         f"Der Feldtyp '{field_type}' wird noch nicht unterstützt."
