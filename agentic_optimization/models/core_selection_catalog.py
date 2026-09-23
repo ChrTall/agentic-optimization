@@ -91,6 +91,7 @@ CORE_SELECTION_RULES: tuple[CoreSelectionRule, ...] = (
                     "order_quantity_and_reorder_point",
                 }
             ),
+            "primary_goal": frozenset({"minimize_cost"}),
             "procurement_pattern": frozenset(
                 {"recurring"}
             ),

@@ -537,3 +537,70 @@ def test_prepares_product_table_schema_before_products_exist(
     assert result["modular_model"][
         "products"
     ] == []
+
+
+def test_corrects_existing_invalid_product_fact() -> None:
+    specification = {
+        "core_id": "single_period_newsvendor",
+        "products": [
+            {
+                "product_id": "product_1",
+                "forecast": {
+                    "expected_value": 100.0,
+                    "quantiles": [
+                        {"level": 0.1, "value": 70.0},
+                        {"level": 0.5, "value": 100.0},
+                        {"level": 0.9, "value": 140.0},
+                    ],
+                    "horizon_days": 30,
+                },
+                "facts": {
+                    "selling_price": -1.0,
+                    "purchase_cost": 5.0,
+                },
+            }
+        ],
+        "global_facts": {},
+        "objective": {
+            "sense": "maximize",
+            "component_ids": [
+                "sales_revenue",
+                "purchase_cost",
+            ],
+        },
+        "constraints": [],
+    }
+
+    layout = (
+        modular_workflow_nodes.build_modular_input_layout(
+            specification
+        )
+    )
+    selling_price_input = next(
+        item
+        for item in layout["product_groups"][0]["fact_inputs"]
+        if item["field"]["name"] == "selling_price"
+    )
+
+    state = {
+        "modular_model": {
+            "proposal": {},
+            "specification": specification,
+            "pending_input_submissions": [
+                {
+                    "missing_input": selling_price_input,
+                    "value": 12.0,
+                }
+            ],
+        }
+    }
+
+    result = apply_modular_model_inputs_node(state)
+
+    assert result["modular_model"]["specification"][
+        "products"
+    ][0]["facts"]["selling_price"] == 12.0
+    assert result["modular_model"]["validation"]["is_valid"]
+    assert get_workflow_status(result) == (
+        WORKFLOW_READY_FOR_REVIEW
+    )

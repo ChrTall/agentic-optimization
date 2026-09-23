@@ -7,7 +7,6 @@ import streamlit as st
 from agentic_optimization.models.component_registry import (
     CONSTRAINT_COMPONENTS,
 )
-
 from agentic_optimization.models.specification import (
     ModelSpecification,
 )
@@ -18,6 +17,7 @@ from agentic_optimization.state import (
     ModularInputSubmission,
 )
 from agentic_optimization.ui.field_renderer import (
+    parse_input_value,
     render_input_field,
 )
 from agentic_optimization.ui.modular_form_parser import (
@@ -32,16 +32,69 @@ from agentic_optimization.ui.modular_input_builder import (
 )
 
 
+def _existing_input_value(
+    specification: ModelSpecification,
+    input_definition: MissingInput,
+):
+    source = input_definition["source"]
+    field_name = input_definition["field"]["name"]
+
+    if source in {"forecast", "product_fact"}:
+        product = next(
+            (
+                product
+                for product in specification["products"]
+                if product["product_id"]
+                == input_definition["product_id"]
+            ),
+            None,
+        )
+        if product is None:
+            return None
+
+        container = (
+            product["forecast"]
+            if source == "forecast"
+            else product["facts"]
+        )
+        return container.get(field_name)
+
+    if source == "global_fact":
+        return specification["global_facts"].get(field_name)
+
+    if source == "constraint_parameter":
+        index = input_definition["constraint_index"]
+        return specification["constraints"][index][
+            "parameters"
+        ].get(field_name)
+
+    return None
+
+
 def _render_missing_input(
+    specification: ModelSpecification,
     missing_input: MissingInput,
     *,
     key_prefix: str,
 ) -> RenderedModularInput:
     """Rendert genau eine fehlende Eingabe."""
 
+    existing_value = _existing_input_value(
+        specification,
+        missing_input,
+    )
+
+    try:
+        parse_input_value(
+            missing_input["field"],
+            existing_value,
+        )
+    except (TypeError, ValueError):
+        existing_value = None
+
     raw_value = render_input_field(
         missing_input["field"],
-        None,
+        existing_value,
         key_prefix=key_prefix,
     )
 
@@ -254,6 +307,7 @@ def render_modular_input_page(
                         ]:
                             rendered_inputs.append(
                                 _render_missing_input(
+                                    specification,
                                     missing_input,
                                     key_prefix=(
                                         "modular_forecast_"
@@ -272,6 +326,7 @@ def render_modular_input_page(
                         ]:
                             rendered_inputs.append(
                                 _render_missing_input(
+                                    specification,
                                     missing_input,
                                     key_prefix=(
                                         "modular_fact_"
@@ -286,6 +341,7 @@ def render_modular_input_page(
             for missing_input in layout["global_inputs"]:
                 rendered_inputs.append(
                     _render_missing_input(
+                        specification,
                         missing_input,
                         key_prefix="modular_global",
                     )
@@ -317,6 +373,7 @@ def render_modular_input_page(
                 ]:
                     rendered_inputs.append(
                         _render_missing_input(
+                            specification,
                             missing_input,
                             key_prefix=(
                                 "modular_constraint_"

@@ -40,6 +40,9 @@ from agentic_optimization.state import (
     GraphState,
     with_control,
 )
+from agentic_optimization.ui.modular_input_builder import (
+    build_modular_input_layout,
+)
 from agentic_optimization.ui.modular_result_builder import (
     build_default_result_explanation,
     build_modular_result_data,
@@ -669,6 +672,24 @@ def apply_modular_model_inputs_node(
         [],
     )
 
+    input_layout = build_modular_input_layout(specification)
+    allowed_inputs = [
+        *(
+            item
+            for group in input_layout["product_groups"]
+            for item in [
+                *group["forecast_inputs"],
+                *group["fact_inputs"],
+            ]
+        ),
+        *input_layout["global_inputs"],
+        *(
+            item
+            for group in input_layout["constraint_groups"]
+            for item in group["inputs"]
+        ),
+    ]
+
     for submission in submissions:
         submitted_missing_input = submission[
             "missing_input"
@@ -678,7 +699,7 @@ def apply_modular_model_inputs_node(
             (
                 candidate
                 for candidate
-                in draft["validation"]["missing_inputs"]
+                in allowed_inputs
                 if candidate == submitted_missing_input
             ),
             None,

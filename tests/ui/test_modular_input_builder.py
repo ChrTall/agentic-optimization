@@ -122,6 +122,21 @@ def test_groups_missing_inputs_for_cards() -> None:
     )
 
 
+def test_keeps_invalid_existing_fact_editable() -> None:
+    product = create_product("product_1")
+    product["facts"]["selling_price"] = -1.0
+
+    layout = build_modular_input_layout(
+        create_specification([product])
+    )
+
+    assert layout["validation_errors"]
+    assert [
+        item["field"]["name"]
+        for item in layout["product_groups"][0]["fact_inputs"]
+    ] == ["selling_price", "purchase_cost"]
+
+
 def test_uses_table_for_many_products() -> None:
     products = [
         create_product(f"product_{index}")

@@ -94,6 +94,16 @@ def test_continuous_reorder_case_selects_q_r() -> None:
     ]
 
 
+def test_profit_goal_excludes_q_r() -> None:
+    profile = create_empty_business_problem_profile()
+    profile["recommendation"] = confirmed("reorder_point")
+    profile["procurement_pattern"] = confirmed("recurring")
+    profile["inventory_review"] = confirmed("continuous")
+    profile["primary_goal"] = confirmed("maximize_profit")
+
+    assert candidate_ids(profile) == []
+
+
 def test_periodic_review_has_no_supported_candidate() -> None:
     profile = create_empty_business_problem_profile()
     profile["recommendation"] = confirmed(

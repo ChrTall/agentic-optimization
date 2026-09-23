@@ -244,7 +244,8 @@ def build_modular_input_layout(
 
     display_mode: ProductDisplayMode = (
         "cards"
-        if len(specification["products"]) <= card_limit
+        if validation_result["errors"]
+        or len(specification["products"]) <= card_limit
         else "table"
     )
 
@@ -260,7 +261,117 @@ def build_modular_input_layout(
         ConstraintInputGroup,
     ] = {}
 
-    for missing_input in validation_result["missing_inputs"]:
+    editable_inputs = list(validation_result["missing_inputs"])
+
+    if validation_result["errors"]:
+        registered_core = CORE_REGISTRY.get(
+            specification["core_id"]
+        )
+
+        if registered_core is not None:
+            core_definition = registered_core["definition"]
+            forecast_fields = core_definition[
+                "required_forecast_fields"
+            ]
+            fact_fields = list(
+                core_definition["required_product_facts"]
+            )
+            global_fields = list(
+                core_definition["required_global_facts"]
+            )
+
+            for component_id in specification["objective"][
+                "component_ids"
+            ]:
+                component = OBJECTIVE_COMPONENTS.get(
+                    component_id
+                )
+                if component is None:
+                    continue
+
+                _append_unique_fields(
+                    fact_fields,
+                    component["required_product_facts"],
+                )
+                _append_unique_fields(
+                    global_fields,
+                    component["required_global_facts"],
+                )
+
+            for constraint in specification["constraints"]:
+                component = CONSTRAINT_COMPONENTS.get(
+                    constraint["component_id"]
+                )
+                if component is None:
+                    continue
+
+                _append_unique_fields(
+                    fact_fields,
+                    component["required_product_facts"],
+                )
+                _append_unique_fields(
+                    global_fields,
+                    component["required_global_facts"],
+                )
+
+            def add_if_new(candidate: MissingInput) -> None:
+                if not any(
+                    item["source"] == candidate["source"]
+                    and item.get("product_id")
+                    == candidate.get("product_id")
+                    and (
+                        candidate["source"] != "constraint_parameter"
+                        or item.get("constraint_index")
+                        == candidate.get("constraint_index")
+                    )
+                    and item["field"]["name"]
+                    == candidate["field"]["name"]
+                    for item in editable_inputs
+                ):
+                    editable_inputs.append(candidate)
+
+            for product in specification["products"]:
+                product_id = product["product_id"]
+
+                for field in forecast_fields:
+                    add_if_new({
+                        "source": "forecast",
+                        "field": field,
+                        "product_id": product_id,
+                    })
+
+                for field in fact_fields:
+                    add_if_new({
+                        "source": "product_fact",
+                        "field": field,
+                        "product_id": product_id,
+                    })
+
+            for field in global_fields:
+                add_if_new({
+                    "source": "global_fact",
+                    "field": field,
+                })
+
+            for index, constraint in enumerate(
+                specification["constraints"]
+            ):
+                component_id = constraint["component_id"]
+                component = CONSTRAINT_COMPONENTS.get(
+                    component_id
+                )
+                if component is None:
+                    continue
+
+                for field in component["parameters"]:
+                    add_if_new({
+                        "source": "constraint_parameter",
+                        "field": field,
+                        "component_id": component_id,
+                        "constraint_index": index,
+                    })
+
+    for missing_input in editable_inputs:
         source = missing_input["source"]
 
         if source in {"forecast", "product_fact"}:
