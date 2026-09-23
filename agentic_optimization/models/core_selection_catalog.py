@@ -69,6 +69,9 @@ CORE_SELECTION_RULES: tuple[CoreSelectionRule, ...] = (
             "recommendation": frozenset(
                 {"order_quantity"}
             ),
+            "primary_goal": frozenset(
+                {"minimize_cost"}
+            ),
             "procurement_pattern": frozenset(
                 {"recurring"}
             ),
@@ -130,14 +133,10 @@ def _get_unresolved_profile_fields(
 
     return [
         field_id
-        for field_id in rule[
-            "compatible_profile_values"
-        ]
-        if profile[field_id]["status"]
-        not in {
-            "inferred",
-            "confirmed",
-        }
+        for field_id in rule["compatible_profile_values"]
+        if field_id != "primary_goal"
+        and profile[field_id]["status"]
+        not in {"inferred", "confirmed"}
     ]
 
 

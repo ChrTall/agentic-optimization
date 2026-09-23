@@ -68,6 +68,15 @@ def test_recurring_order_quantity_case_selects_eoq() -> None:
     assert candidate_ids(profile) == ["eoq"]
 
 
+def test_profit_goal_excludes_eoq() -> None:
+    profile = create_empty_business_problem_profile()
+    profile["recommendation"] = confirmed("order_quantity")
+    profile["procurement_pattern"] = confirmed("recurring")
+    profile["primary_goal"] = confirmed("maximize_profit")
+
+    assert candidate_ids(profile) == []
+
+
 def test_continuous_reorder_case_selects_q_r() -> None:
     profile = create_empty_business_problem_profile()
     profile["recommendation"] = confirmed(

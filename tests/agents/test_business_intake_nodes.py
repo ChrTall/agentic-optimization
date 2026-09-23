@@ -493,7 +493,11 @@ def test_initializes_single_product_and_raw_evidence() -> None:
             "content": (
                 "Das Produkt wird regelmäßig nachbestellt."
             ),
-        }
+        },
+        {
+            "source_id": "business_intake_form",
+            "content": '{"product_scope": "single_product"}',
+        },
     ]
     assert result["requirements"] == {
         "product_scope": "single_product",
@@ -501,6 +505,57 @@ def test_initializes_single_product_and_raw_evidence() -> None:
         "raw_description": (
             "Das Produkt wird regelmäßig nachbestellt."
         ),
+    }
+
+
+def test_initializes_from_form_without_text_or_stale_proposal() -> None:
+    profile = create_empty_business_problem_profile()
+    profile["recommendation"] = confirmed("order_quantity")
+    profile["procurement_pattern"] = confirmed("recurring")
+    profile["product_scope"] = confirmed("single_product")
+    profile["primary_goal"] = confirmed("minimize_cost")
+
+    result = initialize_modular_core_node(
+        {
+            "raw_input": "",
+            "business_intake": {
+                "profile": profile,
+                "core_selection": {
+                    "status": "selected",
+                    "selected_core_id": "eoq",
+                    "candidate_core_ids": ["eoq"],
+                    "reason": "Eindeutige Auswahl.",
+                },
+            },
+            "modular_model": {
+                "evidence": [
+                    {
+                        "source_id": "raw_input",
+                        "content": "Alter Beschreibungstext",
+                    }
+                ],
+                "preliminary_proposal": {
+                    "core_id": "single_period_newsvendor",
+                },
+            },
+        }
+    )
+
+    modular_state = result["modular_model"]
+
+    assert modular_state["core_id"] == "eoq"
+    assert "preliminary_proposal" not in modular_state
+    assert len(modular_state["evidence"]) == 1
+    assert modular_state["evidence"][0]["source_id"] == (
+        "business_intake_form"
+    )
+    assert json.loads(
+        modular_state["evidence"][0]["content"]
+    ) == {
+        "recommendation": "order_quantity",
+        "procurement_pattern": "recurring",
+        "product_scope": "single_product",
+        "primary_goal": "minimize_cost",
     }
 
 

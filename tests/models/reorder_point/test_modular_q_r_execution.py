@@ -157,6 +157,59 @@ def test_applies_q_r_constraints() -> None:
     }
 
 
+def test_rejects_zero_minimum_order_quantity() -> None:
+    specification = create_specification()
+    specification["constraints"] = [
+        {
+            "component_id": "minimum_order_quantity",
+            "product_id": "product_1",
+            "parameters": {"quantity": 0},
+        }
+    ]
+
+    validation = validate_model_specification(specification)
+
+    assert validation["is_valid"] is False
+    assert any(
+        "mindestens 1" in error
+        for error in validation["errors"]
+    )
+
+
+def test_large_maximum_does_not_expand_q_r_search() -> None:
+    specification = create_specification()
+    specification["constraints"] = [
+        {
+            "component_id": "maximum_order_quantity",
+            "product_id": "product_1",
+            "parameters": {"quantity": 1_000_000_000},
+        }
+    ]
+
+    result = execute_model_specification(specification)
+
+    assert result["status"] == "optimal"
+    assert decision_values(result) == {
+        "order_quantity": 253,
+        "reorder_point": 65,
+    }
+
+
+def test_q_r_search_limit_returns_failure() -> None:
+    specification = create_specification()
+    specification["products"][0]["facts"][
+        "ordering_cost"
+    ] = 100_000_000
+
+    result = execute_model_specification(specification)
+
+    assert result["status"] == "failed"
+    assert any(
+        "Suchbereich" in error
+        for error in result["errors"]
+    )
+
+
 def test_applies_minimum_cycle_service_level() -> None:
     specification = create_specification()
     specification["constraints"] = [

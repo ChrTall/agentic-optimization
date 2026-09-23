@@ -1,5 +1,6 @@
 """LangGraph-Knoten für den modellneutralen Geschäftseinstieg."""
 
+import json
 import logging
 from collections.abc import Callable
 
@@ -260,36 +261,51 @@ def initialize_modular_core_node(
 
     evidence = [
         dict(item)
-        for item in existing_modular_state.get(
-            "evidence",
-            [],
-        )
+        for item in existing_modular_state.get("evidence", [])
+        if item.get("source_id")
+        not in {"raw_input", "business_intake_form"}
     ]
 
-    raw_input = state.get(
-        "raw_input",
-        "",
-    ).strip()
+    raw_input = state.get("raw_input", "").strip()
 
     if raw_input:
-        existing_raw_evidence = next(
-            (
-                item
-                for item in evidence
-                if item["source_id"] == "raw_input"
-            ),
-            None,
+        evidence.append(
+            {
+                "source_id": "raw_input",
+                "content": raw_input,
+            }
         )
 
-        if existing_raw_evidence is None:
-            evidence.append(
-                {
-                    "source_id": "raw_input",
-                    "content": raw_input,
-                }
+    form_values = {
+        field_name: field["value"]
+        for field_name in (
+            "recommendation",
+            "procurement_pattern",
+            "replenishment_during_period",
+            "inventory_review",
+            "product_scope",
+            "primary_goal",
+        )
+        if (
+            (field := profile[field_name])["status"]
+            == "confirmed"
+            and any(
+                source["source_type"] == "user_selection"
+                for source in field["evidence"]
             )
-        else:
-            existing_raw_evidence["content"] = raw_input
+        )
+    }
+
+    if form_values:
+        evidence.append(
+            {
+                "source_id": "business_intake_form",
+                "content": json.dumps(
+                    form_values,
+                    ensure_ascii=False,
+                ),
+            }
+        )
 
     modular_state = {
         **existing_modular_state,
@@ -309,6 +325,7 @@ def initialize_modular_core_node(
     }
 
     for field_name in (
+        "preliminary_proposal",
         "proposal",
         "specification",
         "validation",

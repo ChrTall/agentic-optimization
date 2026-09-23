@@ -68,7 +68,7 @@ def compile_model_specification(
     core_builder = registered_core.get("builder")
 
     if not callable(core_builder):
-        raise RuntimeError(f"Für das lineare Grundmodell '{core_id}'ist kein linearer Builder registriert.")
+        raise RuntimeError(f"Für das lineare Grundmodell '{core_id}' ist kein linearer Builder registriert.")
 
     context = core_builder(specification)
 

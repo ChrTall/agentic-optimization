@@ -22,6 +22,7 @@ from agentic_optimization.state import (
     WORKFLOW_MODEL_PREPARATION_FAILED,
     WORKFLOW_MODEL_UNSUPPORTED,
     WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT,
+    WORKFLOW_NEEDS_GENERAL_CLARIFICATION,
     WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS,
     WORKFLOW_OPTIMIZATION_COMPLETED,
     WORKFLOW_OPTIMIZATION_FAILED,
@@ -50,7 +51,6 @@ from agentic_optimization.ui.modular_review_page import (
     render_modular_review_page,
     render_modular_selection_issues,
 )
-
 
 STEP_LABELS = [
     "① Situation",
@@ -106,6 +106,13 @@ def route_ui_from_graph_state(graph_state: dict) -> str:
         WORKFLOW_OPTIMIZATION_FAILED,
     }:
         return "result"
+
+    if (
+        status == WORKFLOW_NEEDS_GENERAL_CLARIFICATION
+        and graph_state.get("modular_model", {}).get("proposal")
+        is not None
+    ):
+        return "model_unsupported"
 
     if status == WORKFLOW_MODEL_UNSUPPORTED:
         return "model_unsupported"
@@ -386,7 +393,14 @@ elif st.session_state.step == "model_unsupported":
     modular_state = graph_state.get("modular_model", {})
     proposal = modular_state.get("proposal")
 
-    st.subheader("Anforderung derzeit nicht unterstützt")
+    if (
+        proposal is not None
+        and proposal["selection_status"]
+        == "needs_clarification"
+    ):
+        st.subheader("Offene Anforderung klären")
+    else:
+        st.subheader("Anforderung derzeit nicht unterstützt")
 
     if proposal is None:
         st.warning(

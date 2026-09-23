@@ -526,32 +526,49 @@ def find_optimal_q_r_policy(
         for evaluation in seed_evaluations
     )
 
+    cost_based_maximum = max(
+        seed_order_quantity,
+        math.ceil(
+            2.0
+            * (
+                seed_cost / holding_cost
+                - minimum_reorder_point
+                + lead_time_demand_mean
+            )
+        ),
+    )
+
+    search_maximum = cost_based_maximum
     if maximum_order_quantity is not None:
-        search_maximum = maximum_order_quantity
-    else:
-        search_maximum = max(
-            seed_order_quantity,
-            math.ceil(
-                2.0
-                * (
-                    seed_cost / holding_cost
-                    - minimum_reorder_point
-                    + lead_time_demand_mean
-                )
-            ),
+        search_maximum = min(
+            search_maximum,
+            maximum_order_quantity,
+        )
+
+    search_step = order_multiple or 1
+    candidate_count = (
+        (
+            search_maximum
+            - minimum_allowed_order_quantity
+        )
+        // search_step
+        + 1
+    )
+
+    if candidate_count > 20_000:
+        raise ValueError(
+            "Der Q,R-Suchbereich ist für eine direkte "
+            "Berechnung zu groß. Bitte engere Grenzen "
+            "für die Bestellmenge angeben."
         )
 
     best_evaluation: QRPolicyEvaluation | None = None
 
     for order_quantity in range(
-        minimum_order_quantity,
+        minimum_allowed_order_quantity,
         search_maximum + 1,
+        search_step,
     ):
-        if (
-            order_multiple is not None
-            and order_quantity % order_multiple != 0
-        ):
-            continue
 
         reorder_points = determine_reorder_point_candidates(
             annual_demand=annual_demand,
@@ -799,6 +816,12 @@ def validate_q_r_semantics(
                     f"{maximum_reorder_point}."
                 )
 
+        if minimum_order_quantity < 1:
+            errors.append(
+                f"Für Produkt '{product_id}' muss die "
+                "Mindestbestellmenge mindestens 1 sein."
+            )
+
         if (
             maximum_order_quantity is not None
             and minimum_order_quantity
@@ -929,33 +952,56 @@ def execute_continuous_review_q_r(
                 service_reorder_point,
             )
 
-        result = find_optimal_q_r_policy(
-            annual_demand=prepared_forecast[
-                "annual_demand"
-            ],
-            ordering_cost=float(facts["ordering_cost"]),
-            holding_cost=float(facts["holding_cost"]),
-            shortage_cost=float(facts["shortage_cost"]),
-            lead_time_demand_mean=prepared_forecast[
-                "lead_time_demand_mean"
-            ],
-            lead_time_demand_std=prepared_forecast[
-                "lead_time_demand_std"
-            ],
-            minimum_order_quantity=(
-                minimum_order_quantity
-            ),
-            maximum_order_quantity=(
-                maximum_order_quantity
-            ),
-            order_multiple=order_multiple,
-            minimum_reorder_point=(
-                minimum_reorder_point
-            ),
-            maximum_reorder_point=(
-                maximum_reorder_point
-            ),
-        )
+        try:
+            result = find_optimal_q_r_policy(
+                annual_demand=prepared_forecast[
+                    "annual_demand"
+                ],
+                ordering_cost=float(
+                    facts["ordering_cost"]
+                ),
+                holding_cost=float(
+                    facts["holding_cost"]
+                ),
+                shortage_cost=float(
+                    facts["shortage_cost"]
+                ),
+                lead_time_demand_mean=(
+                    prepared_forecast[
+                        "lead_time_demand_mean"
+                    ]
+                ),
+                lead_time_demand_std=(
+                    prepared_forecast[
+                        "lead_time_demand_std"
+                    ]
+                ),
+                minimum_order_quantity=(
+                    minimum_order_quantity
+                ),
+                maximum_order_quantity=(
+                    maximum_order_quantity
+                ),
+                order_multiple=order_multiple,
+                minimum_reorder_point=(
+                    minimum_reorder_point
+                ),
+                maximum_reorder_point=(
+                    maximum_reorder_point
+                ),
+            )
+        except ValueError as error:
+            return {
+                "status": "failed",
+                "solution_method": "numerical",
+                "objective_value": None,
+                "decisions": [],
+                "metrics": [],
+                "technical_representation": None,
+                "errors": [
+                    f"Produkt '{product_id}': {error}"
+                ],
+            }
 
         total_annual_cost += result.annual_relevant_cost
 
