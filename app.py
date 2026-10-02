@@ -37,6 +37,12 @@ from agentic_optimization.ui.business_clarification_page import (
 from agentic_optimization.ui.business_intake_page import (
     render_business_intake_page,
 )
+from agentic_optimization.ui.chat_assistant_panel import (
+    ChatWorkflowHandlers,
+    get_chat_product_rows,
+    render_chat_panel,
+    reset_chat_state,
+)
 from agentic_optimization.ui.modular_input_page import (
     render_modular_input_page,
 )
@@ -213,11 +219,156 @@ def reset_workflow() -> None:
     for key in keys_to_clear:
         st.session_state.pop(key, None)
 
+    reset_chat_state()
+
+
+# ---------------------------------------------------------------------------
+# Workflow-Aktionen
+# ---------------------------------------------------------------------------
+# Formulare und Chat-Assistent lösen dieselben Aktionen aus. Jede Aktion
+# aktualisiert graph_state und step; das anschließende st.rerun() erfolgt
+# durch den Aufrufer.
+
+
+def ensure_graph_state() -> dict:
+    """Stellt sicher, dass ein Geschäftseinstieg vorhanden ist."""
+
+    graph_state = st.session_state.graph_state
+
+    if graph_state is None or "business_intake" not in graph_state:
+        graph_state = {
+            **(graph_state or {}),
+            "business_intake": (
+                create_initial_business_intake_state()
+            ),
+        }
+        st.session_state.graph_state = graph_state
+
+    return graph_state
+
+
+def invoke_event(
+    event: str,
+    *,
+    graph_state: dict | None = None,
+    **updates,
+) -> dict:
+    """Startet den Graphen mit einem Event und übernimmt das Ergebnis."""
+
+    graph_state = (
+        graph_state
+        if graph_state is not None
+        else st.session_state.graph_state or {}
+    )
+    workflow = build_graph(get_or_create_llm())
+    result_state = workflow.invoke(
+        {
+            **graph_state,
+            **updates,
+            "control": {
+                **graph_state.get("control", {}),
+                "event": event,
+            },
+        }
+    )
+    st.session_state.graph_state = result_state
+    st.session_state.step = route_ui_from_graph_state(result_state)
+    return result_state
+
+
+def run_business_intake(
+    raw_input: str,
+    answers: list,
+) -> None:
+    """Wertet Beschreibung und Antworten des Geschäftseinstiegs aus."""
+
+    graph_state = ensure_graph_state()
+    intake_state = graph_state["business_intake"]
+    workflow = build_graph(get_or_create_llm())
+    result_state = workflow.invoke(
+        {
+            **graph_state,
+            "control": {
+                **graph_state.get("control", {}),
+                "event": EVENT_BUSINESS_INTAKE_REQUESTED,
+            },
+            "raw_input": raw_input,
+            "business_intake": {
+                **intake_state,
+                "pending_answers": answers,
+            },
+        }
+    )
+    st.session_state.raw_problem_description = raw_input
+    advance_after_business_intake(workflow, result_state)
+
+
+def submit_products(products: list) -> None:
+    graph_state = st.session_state.graph_state or {}
+    invoke_event(
+        EVENT_MODULAR_MODEL_PREPARATION_REQUESTED,
+        modular_model={
+            **graph_state.get("modular_model", {}),
+            "products": products,
+        },
+    )
+
+
+def submit_model_inputs(submissions: list) -> None:
+    graph_state = st.session_state.graph_state or {}
+    next_state = invalidate_optimization_state(
+        {
+            **graph_state,
+            "modular_model": {
+                **graph_state.get("modular_model", {}),
+                "pending_input_submissions": submissions,
+            },
+        }
+    )
+    invoke_event(
+        EVENT_MODULAR_INPUTS_SUBMITTED,
+        graph_state=next_state,
+    )
+
+
+def confirm_exclusions() -> None:
+    invoke_event(EVENT_MODULAR_REQUIREMENT_EXCLUSIONS_CONFIRMED)
+
+
+def start_optimization() -> None:
+    graph_state = st.session_state.graph_state or {}
+    invoke_event(
+        EVENT_MODULAR_OPTIMIZATION_REQUESTED,
+        modular_model={
+            **graph_state.get("modular_model", {}),
+            "review_confirmed": True,
+        },
+    )
+
+
+def request_result_explanation() -> None:
+    graph_state = st.session_state.graph_state or {}
+    workflow = build_graph(get_or_create_llm())
+    st.session_state.graph_state = workflow.invoke(
+        {
+            **graph_state,
+            "control": {
+                **graph_state.get("control", {}),
+                "event": EVENT_MODULAR_RESULT_EXPLANATION_REQUESTED,
+            },
+        }
+    )
+
+
+def edit_description() -> None:
+    st.session_state.step = "business_intake"
+
 
 st.set_page_config(
     page_title="Agentic Optimization",
     page_icon="⚙️",
     layout="centered",
+    initial_sidebar_state="expanded",
 )
 
 if "step" not in st.session_state:
@@ -227,19 +378,29 @@ if "graph_state" not in st.session_state:
 if "raw_problem_description" not in st.session_state:
     st.session_state.raw_problem_description = ""
 
+ensure_graph_state()
+
+# Der Chat wird vor den Formularen verarbeitet, damit vom Chat
+# ausgelöste Schritte direkt im Formular sichtbar werden.
+render_chat_panel(
+    ChatWorkflowHandlers(
+        get_llm=get_or_create_llm,
+        run_business_intake=run_business_intake,
+        submit_products=submit_products,
+        submit_model_inputs=submit_model_inputs,
+        confirm_exclusions=confirm_exclusions,
+        start_optimization=start_optimization,
+        request_result_explanation=request_result_explanation,
+        edit_description=edit_description,
+        restart=reset_workflow,
+    )
+)
+
 render_progress()
 
 
 if st.session_state.step == "business_intake":
-    graph_state = st.session_state.graph_state
-
-    if graph_state is None or "business_intake" not in graph_state:
-        graph_state = {
-            "business_intake": (
-                create_initial_business_intake_state()
-            ),
-        }
-        st.session_state.graph_state = graph_state
+    graph_state = ensure_graph_state()
 
     modular_state = graph_state.get("modular_model", {})
     preparation_error = modular_state.get("preparation_error")
@@ -270,32 +431,14 @@ if st.session_state.step == "business_intake":
 
     if submission is not None:
         try:
-            llm = get_or_create_llm()
+            run_business_intake(
+                submission["raw_input"],
+                submission["answers"],
+            )
         except ValueError as error:
             st.error(str(error))
             st.stop()
 
-        workflow = build_graph(llm)
-        next_state = {
-            **graph_state,
-            "control": {
-                **graph_state.get("control", {}),
-                "event": EVENT_BUSINESS_INTAKE_REQUESTED,
-            },
-            "raw_input": submission["raw_input"],
-            "business_intake": {
-                **intake_state,
-                "pending_answers": submission["answers"],
-            },
-        }
-        result_state = workflow.invoke(next_state)
-        st.session_state.raw_problem_description = (
-            submission["raw_input"]
-        )
-        advance_after_business_intake(
-            workflow,
-            result_state,
-        )
         st.rerun()
 
 
@@ -311,29 +454,14 @@ elif st.session_state.step == "business_clarification":
 
     if answers is not None:
         try:
-            llm = get_or_create_llm()
+            run_business_intake(
+                st.session_state.raw_problem_description,
+                answers,
+            )
         except ValueError as error:
             st.error(str(error))
             st.stop()
 
-        workflow = build_graph(llm)
-        next_state = {
-            **graph_state,
-            "control": {
-                **graph_state.get("control", {}),
-                "event": EVENT_BUSINESS_INTAKE_REQUESTED,
-            },
-            "raw_input": st.session_state.raw_problem_description,
-            "business_intake": {
-                **intake_state,
-                "pending_answers": answers,
-            },
-        }
-        result_state = workflow.invoke(next_state)
-        advance_after_business_intake(
-            workflow,
-            result_state,
-        )
         st.rerun()
 
     if st.button(
@@ -354,37 +482,23 @@ elif st.session_state.step == "product_table":
         st.error("Die Produkttabelle konnte nicht vorbereitet werden.")
         st.stop()
 
+    chat_rows, chat_rows_version = get_chat_product_rows()
     products = render_dynamic_product_table_page(
         core_id=core_id,
         proposal=proposal,
+        prefilled_rows=chat_rows,
+        editor_version=chat_rows_version,
     )
 
     if products is None:
         st.stop()
 
     try:
-        workflow = build_graph(get_or_create_llm())
+        submit_products(products)
     except ValueError as error:
         st.error(str(error))
         st.stop()
 
-    prepared_state = workflow.invoke(
-        {
-            **graph_state,
-            "control": {
-                **graph_state.get("control", {}),
-                "event": EVENT_MODULAR_MODEL_PREPARATION_REQUESTED,
-            },
-            "modular_model": {
-                **modular_state,
-                "products": products,
-            },
-        }
-    )
-    st.session_state.graph_state = prepared_state
-    st.session_state.step = route_ui_from_graph_state(
-        prepared_state
-    )
     st.rerun()
 
 
@@ -412,26 +526,11 @@ elif st.session_state.step == "model_unsupported":
 
         if render_modular_exclusion_confirmation(proposal):
             try:
-                workflow = build_graph(get_or_create_llm())
+                confirm_exclusions()
             except ValueError as error:
                 st.error(str(error))
                 st.stop()
 
-            continued_state = workflow.invoke(
-                {
-                    **graph_state,
-                    "control": {
-                        **graph_state.get("control", {}),
-                        "event": (
-                            EVENT_MODULAR_REQUIREMENT_EXCLUSIONS_CONFIRMED
-                        ),
-                    },
-                }
-            )
-            st.session_state.graph_state = continued_state
-            st.session_state.step = route_ui_from_graph_state(
-                continued_state
-            )
             st.rerun()
 
     if st.button("Situation bearbeiten", use_container_width=True):
@@ -463,29 +562,12 @@ elif st.session_state.step == "model_input_form":
     if submissions is None:
         st.stop()
 
-    next_state = invalidate_optimization_state(
-        {
-            **graph_state,
-            "control": {
-                **graph_state.get("control", {}),
-                "event": EVENT_MODULAR_INPUTS_SUBMITTED,
-            },
-            "modular_model": {
-                **modular_state,
-                "pending_input_submissions": submissions,
-            },
-        }
-    )
-
     try:
-        workflow = build_graph(get_or_create_llm())
+        submit_model_inputs(submissions)
     except ValueError as error:
         st.error(str(error))
         st.stop()
 
-    result_state = workflow.invoke(next_state)
-    st.session_state.graph_state = result_state
-    st.session_state.step = route_ui_from_graph_state(result_state)
     st.rerun()
 
 
@@ -541,7 +623,7 @@ elif st.session_state.step == "review":
         explanation = modular_state.get("review_explanation")
 
     try:
-        start_optimization = render_modular_review_page(
+        start_optimization_clicked = render_modular_review_page(
             proposal,
             specification,
             explanation=explanation,
@@ -551,28 +633,13 @@ elif st.session_state.step == "review":
         st.error(str(error))
         st.stop()
 
-    if start_optimization:
+    if start_optimization_clicked:
         try:
-            workflow = build_graph(get_or_create_llm())
+            start_optimization()
         except ValueError as error:
             st.error(str(error))
             st.stop()
 
-        result_state = workflow.invoke(
-            {
-                **graph_state,
-                "control": {
-                    **graph_state.get("control", {}),
-                    "event": EVENT_MODULAR_OPTIMIZATION_REQUESTED,
-                },
-                "modular_model": {
-                    **modular_state,
-                    "review_confirmed": True,
-                },
-            }
-        )
-        st.session_state.graph_state = result_state
-        st.session_state.step = route_ui_from_graph_state(result_state)
         st.rerun()
 
 
@@ -602,18 +669,7 @@ elif st.session_state.step == "result":
 
     if explanation_requested:
         try:
-            workflow = build_graph(get_or_create_llm())
-            st.session_state.graph_state = workflow.invoke(
-                {
-                    **graph_state,
-                    "control": {
-                        **graph_state.get("control", {}),
-                        "event": (
-                            EVENT_MODULAR_RESULT_EXPLANATION_REQUESTED
-                        ),
-                    },
-                }
-            )
+            request_result_explanation()
         except ValueError as error:
             st.error(str(error))
             st.stop()
