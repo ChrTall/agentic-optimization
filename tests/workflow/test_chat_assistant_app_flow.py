@@ -122,6 +122,9 @@ class FakeLLM:
                 )
             )
 
+        if system.startswith("Prüfe ausschließlich"):
+            return AIMessage(content=json.dumps({"findings": []}))
+
         if system.startswith("Du wählst"):
             return AIMessage(content=json.dumps(PROPOSAL))
 
@@ -168,6 +171,24 @@ def test_complete_workflow_through_chat() -> None:
 
     _say(app, "3500 Stück im Jahr, 120 € je Bestellung, 12 € Lager.")
     assert app.session_state["step"] == "review"
+    assert not any(
+        "Aus Ihrer Beschreibung abgeleitet" in item.value
+        for item in app.markdown
+    )
+
+    pending_conditions = app.session_state["graph_state"][
+        "modular_model"
+    ]["pending_core_assumptions"]
+    assert len(pending_conditions) > 1
+    app.checkbox("confirm_modular_review").check().run()
+    assert app.button("start_modular_optimization").disabled
+    for index, condition_id in enumerate(pending_conditions):
+        app.checkbox(
+            "confirm_core_assumption_" + condition_id
+        ).check().run()
+        if index < len(pending_conditions) - 1:
+            assert app.button("start_modular_optimization").disabled
+    assert not app.button("start_modular_optimization").disabled
 
     _say(app, "Passt, bitte berechnen.")
     assert app.session_state["step"] == "result"

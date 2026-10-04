@@ -5,6 +5,8 @@ Gemeinsame Typverträge für Registry, Modellvarianten, Validierung und UI.
 from collections.abc import Callable
 from typing import Any, Literal, NotRequired, TypedDict
 
+from agentic_optimization.models.specification import ObjectiveSense
+
 class StructuredConstraint(TypedDict):
     """Ein gemappter oder vom Nutzer bestätigter Constraint mit Parametern."""
 
@@ -84,6 +86,7 @@ class ModelCoreDefinition(TypedDict):
     required_product_facts: list[ModelInputField]
     required_global_facts: list[ModelInputField]
     required_objective_component_ids: list[str]
+    required_objective_sense: NotRequired[ObjectiveSense]
     provided_quantities: dict[str, ModelQuantityDefinition]
 
 class ConstraintParameterDefinition(TypedDict):

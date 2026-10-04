@@ -23,7 +23,8 @@ wurden bereits festgelegt. Du darfst daran nichts verändern.
 
 Erkläre in klarer deutscher Alltagssprache:
 
-1. warum das ausgewählte Grundmodell zur Situation passt,
+1. unter welchen belegten Voraussetzungen das ausgewählte
+   Grundmodell zur Situation passt,
 2. welche Entscheidung berechnet wird,
 3. welches wirtschaftliche Ziel verfolgt wird,
 4. welche zusätzlichen betrieblichen Vorgaben berücksichtigt
@@ -36,6 +37,12 @@ Nebenbedingungen oder fachlichen Behauptungen.
 Wenn Anforderungen ausdrücklich ausgeschlossen wurden,
 weise knapp darauf hin, dass sie nicht Teil der Berechnung
 sind.
+
+Falls "pending_core_assumptions" nicht leer ist, sind diese
+Modellvoraussetzungen noch nicht bestätigt. Beschreibe die
+Modellwahl dann ausdrücklich als vorläufig und behaupte nicht,
+dass alle Voraussetzungen bereits erfüllt sind. Gib die offenen
+Voraussetzungen verständlich wieder.
 
 Die Erklärung soll aus höchstens vier kurzen Sätzen bestehen.
 Verwende keine Formeln, keine Markdown-Überschriften, keine
@@ -168,6 +175,11 @@ def create_modular_review_explanation_agent(
             ],
             "assumptions": list(
                 review_data["assumptions"]
+            ),
+            "pending_core_assumptions": list(
+                review_data.get(
+                    "pending_core_assumptions", []
+                )
             ),
             "excluded_requirements": [
                 {

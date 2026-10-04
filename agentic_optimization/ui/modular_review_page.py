@@ -9,6 +9,10 @@ import streamlit as st
 from agentic_optimization.models.component_catalog import (
     build_component_catalog,
 )
+from agentic_optimization.models.core_applicability import (
+    CONDITION_GUIDANCE,
+    CORE_ASSUMPTION_CONFIRMATION_PREFIX,
+)
 from agentic_optimization.models.specification import (
     ComponentSelectionProposal,
     ModelSpecification,
@@ -305,6 +309,7 @@ def render_modular_review_page(
     specification: ModelSpecification,
     *,
     explanation: str | None = None,
+    pending_core_assumptions: list[str] | None = None,
 ) -> bool:
     """
     Rendert Formular 4.
@@ -324,7 +329,15 @@ def render_modular_review_page(
         explanation.strip()
         if isinstance(explanation, str)
         and explanation.strip()
-        else build_default_review_explanation(review)
+        else build_default_review_explanation(
+            review,
+            pending_core_assumptions=[
+                CONDITION_GUIDANCE[condition_id]
+                for condition_id in (
+                    pending_core_assumptions or []
+                )
+            ],
+        )
     )
 
     constraint_parameter_labels = (
@@ -349,6 +362,12 @@ def render_modular_review_page(
         st.write(review["core_description"])
 
         st.markdown("#### Kurz erklärt")
+        if pending_core_assumptions:
+            st.warning(
+                "Die Modellwahl ist vorläufig: Nicht alle "
+                "Voraussetzungen des Grundmodells sind bereits "
+                "bestätigt."
+            )
         st.info(explanation_text)
 
     with st.container(border=True):
@@ -576,6 +595,26 @@ def render_modular_review_page(
         )
         return False
 
+    pending_core_assumptions = pending_core_assumptions or []
+    assumptions_confirmed = True
+    if pending_core_assumptions:
+        st.warning(
+            "Bitte bestätigen Sie jede dieser Voraussetzungen "
+            "einzeln. Eine automatische Einschätzung ist noch "
+            "keine Bestätigung:"
+        )
+        for condition_id in pending_core_assumptions:
+            condition_confirmed = st.checkbox(
+                CONDITION_GUIDANCE[condition_id],
+                key=(
+                    CORE_ASSUMPTION_CONFIRMATION_PREFIX
+                    + condition_id
+                ),
+            )
+            assumptions_confirmed = (
+                assumptions_confirmed and condition_confirmed
+            )
+
     confirmed = st.checkbox(
         "Ich habe Grundmodell, Eingabedaten und "
         "Modellbausteine geprüft.",
@@ -586,6 +625,6 @@ def render_modular_review_page(
         "Optimierung starten",
         type="primary",
         use_container_width=True,
-        disabled=not confirmed,
+        disabled=not (confirmed and assumptions_confirmed),
         key="start_modular_optimization",
     )

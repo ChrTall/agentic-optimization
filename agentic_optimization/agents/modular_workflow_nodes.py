@@ -20,6 +20,9 @@ from agentic_optimization.agents.modular_result_explanation_agent import (
 from agentic_optimization.agents.modular_review_explanation_agent import (
     create_modular_review_explanation_agent,
 )
+from agentic_optimization.models.core_applicability import (
+    CONDITION_GUIDANCE,
+)
 from agentic_optimization.models.proposal_mapper import (
     build_specification_from_proposal,
     exclude_unsupported_requirements,
@@ -193,9 +196,21 @@ def create_modular_review_explanation_node(
             proposal,
             specification,
         )
+        pending_assumptions = [
+            CONDITION_GUIDANCE[condition_id]
+            for condition_id in modular_state.get(
+                "pending_core_assumptions", []
+            )
+        ]
+        review_data["pending_core_assumptions"] = (
+            pending_assumptions
+        )
         fallback_explanation = (
             build_default_review_explanation(
-                review_data
+                review_data,
+                pending_core_assumptions=(
+                    pending_assumptions
+                ),
             )
         )
 
@@ -775,6 +790,15 @@ def execute_modular_model_node(
     if proposal is None or specification is None:
         raise ValueError(
             "Es liegt noch kein modularer Modellentwurf vor."
+        )
+
+    if (
+        modular_state.get("pending_core_assumptions")
+        and not modular_state.get("core_assumptions_confirmed", False)
+    ):
+        raise ValueError(
+            "Offene Voraussetzungen des Grundmodells müssen "
+            "vor der Berechnung ausdrücklich bestätigt werden."
         )
 
     validation = validate_model_specification(

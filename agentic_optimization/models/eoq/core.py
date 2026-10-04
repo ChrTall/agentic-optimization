@@ -52,6 +52,7 @@ CORE_DEFINITION: ModelCoreDefinition = {
         "annual_ordering_cost",
         "annual_holding_cost",
     ],
+    "required_objective_sense": "minimize",
     "required_forecast_fields": [
         {
             "name": "expected_value",

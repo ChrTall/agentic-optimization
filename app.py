@@ -8,6 +8,9 @@ from agentic_optimization.configuration.llm_config import (
 )
 from agentic_optimization.graph import build_graph
 from agentic_optimization.llm.factory import create_chat_model
+from agentic_optimization.models.core_applicability import (
+    CORE_ASSUMPTION_CONFIRMATION_PREFIX,
+)
 from agentic_optimization.state import (
     EVENT_BUSINESS_INTAKE_REQUESTED,
     EVENT_MODULAR_INPUTS_SUBMITTED,
@@ -143,6 +146,10 @@ def advance_after_business_intake(
         st.session_state.step = "business_intake"
         return
 
+    for key in list(st.session_state):
+        if key.startswith(CORE_ASSUMPTION_CONFIRMATION_PREFIX):
+            st.session_state.pop(key, None)
+
     modular_state = graph_state.get("modular_model", {})
 
     if not modular_state.get("products", []):
@@ -214,6 +221,7 @@ def reset_workflow() -> None:
         key
         for key in list(st.session_state)
         if key.startswith("modular_")
+        or key.startswith(CORE_ASSUMPTION_CONFIRMATION_PREFIX)
     )
 
     for key in keys_to_clear:
@@ -337,11 +345,23 @@ def confirm_exclusions() -> None:
 
 def start_optimization() -> None:
     graph_state = st.session_state.graph_state or {}
+    modular_state = graph_state.get("modular_model", {})
+    pending_assumptions = modular_state.get(
+        "pending_core_assumptions", []
+    )
     invoke_event(
         EVENT_MODULAR_OPTIMIZATION_REQUESTED,
         modular_model={
-            **graph_state.get("modular_model", {}),
+            **modular_state,
             "review_confirmed": True,
+            "core_assumptions_confirmed": all(
+                st.session_state.get(
+                    CORE_ASSUMPTION_CONFIRMATION_PREFIX
+                    + condition_id,
+                    False,
+                )
+                for condition_id in pending_assumptions
+            ),
         },
     )
 
@@ -627,6 +647,9 @@ elif st.session_state.step == "review":
             proposal,
             specification,
             explanation=explanation,
+            pending_core_assumptions=modular_state.get(
+                "pending_core_assumptions", []
+            ),
         )
     except ValueError as error:
         st.error("Die modulare Modellprüfung konnte nicht aufgebaut werden.")

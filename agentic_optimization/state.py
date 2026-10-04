@@ -17,6 +17,7 @@ from agentic_optimization.models.validator import (
 from agentic_optimization.models.core_selector import (
     CoreSelectionDecision,
 )
+from agentic_optimization.models.core_applicability import ApplicabilityPlan, Finding
 from agentic_optimization.models.problem_profile import (
     BusinessProblemProfile,
 )
@@ -179,6 +180,11 @@ class BusinessIntakeState(TypedDict, total=False):
     analysis_error: str | None
     pending_answers: list[BusinessQuestionAnswer]
     analyzed_raw_input: str
+    applicability_plan: ApplicabilityPlan
+    applicability_text_findings: dict[str, Finding]
+    applicability_analyzed_raw_input: str
+    applicability_core_id: str
+    applicability_user_answers: dict[str, Finding]
 
 
 class ModularInputSubmission(TypedDict):
@@ -192,6 +198,8 @@ class ModularModelState(TypedDict, total=False):
     """Zustand der neuen modularen Modellpipeline."""
 
     core_id: str
+    pending_core_assumptions: list[str]
+    core_assumptions_confirmed: bool
     products: list[ProductSpecification]
     global_facts: dict[str, Any]
     evidence: list[SelectionEvidence]

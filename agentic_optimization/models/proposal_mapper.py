@@ -110,8 +110,15 @@ def build_component_selection_proposal(
         "selection_status": _derive_selection_status(
             unresolved_requirements
         ),
-        "objective_sense": decision.get(
-            "objective_sense"
+        "objective_sense": (
+            registered_core["definition"].get(
+                "required_objective_sense"
+            )
+            if registered_core is not None
+            and registered_core["definition"].get(
+                "required_objective_sense"
+            ) is not None
+            else decision.get("objective_sense")
         ),
         "objective_components": objective_components,
         "constraints": deepcopy(
@@ -297,6 +304,20 @@ def validate_component_selection_proposal(
     }:
         errors.append(
             "Die Zielrichtung muss 'maximize' oder 'minimize' sein."
+        )
+    elif (
+        _has_text(core_id)
+        and core_id in CORE_REGISTRY
+        and (
+            required_sense := CORE_REGISTRY[core_id][
+                "definition"
+            ].get("required_objective_sense")
+        ) is not None
+        and proposal["objective_sense"] != required_sense
+    ):
+        errors.append(
+            f"Das Grundmodell '{core_id}' erfordert die "
+            f"Zielrichtung '{required_sense}'."
         )
 
     objective_components = proposal.get(

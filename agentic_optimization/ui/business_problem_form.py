@@ -10,6 +10,7 @@ from agentic_optimization.models.problem_profile import (
 )
 from collections.abc import Collection
 from copy import deepcopy
+from agentic_optimization.models.core_applicability import CORE_CONDITIONS
 
 
 BusinessQuestionId = Literal[
@@ -34,8 +35,8 @@ class BusinessQuestionOption(TypedDict):
 class BusinessQuestion(TypedDict):
     """Eine mögliche Frage des adaptiven Einstiegs."""
 
-    question_id: BusinessQuestionId
-    target_field: BusinessProfileFieldId
+    question_id: str
+    target_field: NotRequired[BusinessProfileFieldId]
     prompt: str
     options: list[BusinessQuestionOption]
 
@@ -43,6 +44,46 @@ UNKNOWN_OPTION: BusinessQuestionOption = {
     "option_id": "user_unknown",
     "label": "Ich bin mir nicht sicher",
 }
+
+
+APPLICABILITY_QUESTION_PROMPTS = {
+    "steady_demand": "Ist der Bedarf über die Zeit ungefähr gleichmäßig?",
+    "no_quantity_discounts": (
+        "Bleibt der Einkaufspreis je Stück unabhängig von der Bestellmenge?"
+    ),
+    "no_shortages": (
+        "Sollen geplante Fehlbestände oder Rückstände ausgeschlossen sein?"
+    ),
+    "single_decision_period": (
+        "Wird die Bestellmenge einmal vor dem Verkaufszeitraum festgelegt?"
+    ),
+    "no_replenishment_within_period": (
+        "Sind Nachbestellungen während des Verkaufszeitraums ausgeschlossen?"
+    ),
+    "continuous_inventory_review": (
+        "Wird der Lagerbestand laufend statt nur zu festen Terminen geprüft?"
+    ),
+    "constant_lead_time": (
+        "Kann für die Berechnung eine konstante Lieferzeit angenommen werden?"
+    ),
+}
+
+
+def build_applicability_question(
+    core_id: str, condition_id: str
+) -> BusinessQuestion:
+    """Erzeugt eine konkrete Rückfrage zu einer Modellvoraussetzung."""
+
+    if condition_id not in CORE_CONDITIONS.get(core_id, ()):
+        raise ValueError("Unbekannte Modellvoraussetzung.")
+    return {
+        "question_id": f"core_condition:{condition_id}",
+        "prompt": APPLICABILITY_QUESTION_PROMPTS[condition_id],
+        "options": [
+            {"option_id": "yes", "label": "Ja"},
+            {"option_id": "no", "label": "Nein"},
+        ],
+    }
 
 
 BUSINESS_QUESTIONS: dict[

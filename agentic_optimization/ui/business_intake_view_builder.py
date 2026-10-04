@@ -9,6 +9,7 @@ from agentic_optimization.state import (
 from agentic_optimization.ui.business_problem_form import (
     BUSINESS_QUESTIONS,
     BusinessQuestion,
+    build_applicability_question,
 )
 
 
@@ -48,6 +49,19 @@ def build_business_intake_view_data(
         [],
     ):
         question = BUSINESS_QUESTIONS.get(question_id)
+
+        if question is None and question_id.startswith("core_condition:"):
+            core_id = intake_state.get("applicability_core_id")
+            if core_id is not None:
+                question = build_applicability_question(
+                    core_id, question_id.split(":", 1)[1]
+                )
+                plan = intake_state.get("applicability_plan")
+                if plan and plan["question_reason"] == "conflict":
+                    question["prompt"] = (
+                        "Ihre Angaben dazu widersprechen sich. "
+                        + question["prompt"]
+                    )
 
         if question is None:
             raise ValueError(
@@ -97,6 +111,11 @@ def build_business_intake_view_data(
             "derzeit verfügbaren Grundmodellen noch nicht "
             "zuverlässig abgebildet werden."
         )
+        if (
+            intake_state.get("applicability_plan")
+            and intake_state["applicability_plan"]["status"] == "rejected"
+        ):
+            message += " " + core_selection["reason"]
     elif (
         core_selection is not None
         and core_selection["status"] == "selected"

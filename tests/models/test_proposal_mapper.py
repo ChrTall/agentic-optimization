@@ -150,6 +150,43 @@ def test_adds_required_core_components_deterministically(
     )
 
 
+def test_fixed_core_sets_its_objective_sense() -> None:
+    decision = {
+        "objective_sense": "maximize",
+        "objective_components": [],
+        "constraints": [],
+        "unresolved_requirements": [],
+    }
+
+    for core_id in ("eoq", "continuous_review_q_r"):
+        proposal = build_component_selection_proposal(
+            core_id=core_id,
+            decision=decision,
+        )
+        assert proposal["objective_sense"] == "minimize"
+        assert validate_component_selection_proposal(proposal) == []
+
+
+def test_rejects_external_proposal_with_wrong_fixed_core_sense() -> None:
+    proposal = build_component_selection_proposal(
+        core_id="eoq",
+        decision={
+            "objective_sense": "minimize",
+            "objective_components": [],
+            "constraints": [],
+            "unresolved_requirements": [],
+        },
+    )
+    proposal["objective_sense"] = "maximize"
+
+    assert any(
+        "erfordert die Zielrichtung 'minimize'" in error
+        for error in validate_component_selection_proposal(
+            proposal
+        )
+    )
+
+
 def test_builds_specification_from_agent_proposal() -> None:
     specification = build_specification_from_proposal(
         create_proposal(),

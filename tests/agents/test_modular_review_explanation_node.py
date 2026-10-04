@@ -6,6 +6,9 @@ from langchain_core.messages import AIMessage
 from agentic_optimization.agents.modular_workflow_nodes import (
     create_modular_review_explanation_node,
 )
+from agentic_optimization.models.core_applicability import (
+    CONDITION_GUIDANCE,
+)
 from agentic_optimization.models.proposal_mapper import (
     build_specification_from_proposal,
 )
@@ -148,3 +151,24 @@ def test_reuses_stored_review_explanation() -> None:
     assert get_workflow_status(result) == (
         WORKFLOW_READY_FOR_REVIEW
     )
+
+
+def test_fallback_marks_unconfirmed_model_choice_as_provisional() -> None:
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content="kein JSON")
+    state = create_state()
+    state["modular_model"]["pending_core_assumptions"] = [
+        "no_replenishment_within_period"
+    ]
+
+    result = create_modular_review_explanation_node(llm)(
+        state
+    )
+
+    explanation = result["modular_model"][
+        "review_explanation"
+    ]
+    assert "Diese Modellwahl ist vorläufig" in explanation
+    assert CONDITION_GUIDANCE[
+        "no_replenishment_within_period"
+    ] in explanation

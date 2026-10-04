@@ -41,6 +41,8 @@ Regeln:
    System ergänzt.
 3. Erfinde keine Bausteine, Fakten oder Parameterwerte.
 4. Pflichtbausteine des Grundmodells werden vom System ergänzt.
+   Falls der Grundmodellkatalog required_objective_sense enthält,
+   ist diese Zielrichtung verbindlich und wird vom System gesetzt.
 5. Wähle zusätzliche, nicht verpflichtende Bausteine nur,
    wenn sie durch Anforderungen, Fakten oder Evidenzen
    fachlich begründet sind.
@@ -92,6 +94,9 @@ Regeln:
 11. Wenn kein kompatibler Baustein verfügbar ist, füge die
     Anforderung mit resolution "unsupported" zu
     unresolved_requirements hinzu.
+    unresolved_requirements muss immer eine Liste sein.
+    Nur wenn wirklich keine Anforderung offen ist, gib [] zurück;
+    niemals null und lasse das Feld nicht weg.
 12. selection_status wird vom System abgeleitet und ist kein
     Ausgabefeld.
 
@@ -488,6 +493,69 @@ def _parse_and_validate_proposal(
     )
 
 
+def _repair_unresolved_requirements_list(
+    llm: BaseChatModel,
+    *,
+    original_content: object,
+    expected_core_id: str,
+    requirements: dict[str, Any],
+    evidence: list[SelectionEvidence],
+    locked_objective_proposal: ComponentSelectionProposal | None,
+) -> ComponentSelectionProposal:
+    """Fragt nur die fehlende Liste nach; validiert danach alles erneut."""
+
+    decision = _parse_json_response(original_content)
+    repair_task = {
+        "core_id": expected_core_id,
+        "requirements": requirements,
+        "evidence": evidence,
+        "selected_objective_components": decision.get(
+            "objective_components"
+        ),
+        "selected_constraints": decision.get("constraints"),
+        "previous_unresolved_value": decision.get(
+            "unresolved_requirements"
+        ),
+    }
+    response = llm.invoke([
+        SystemMessage(content=(
+            "Ergänze ausschließlich die Liste ungelöster Anforderungen "
+            "für den vorliegenden Bausteinentwurf. Prüfe die Anforderungen "
+            "gegen die bereits ausgewählten Bausteine. Verliere keine "
+            "fachlich offene oder nicht unterstützte Anforderung. "
+            "Fehlende Zahlenwerte für ausgewählte Bausteine gehören nicht "
+            "in diese Liste. Antworte ausschließlich als JSON-Objekt "
+            "mit dem einzigen Feld unresolved_requirements. Dessen Wert "
+            "muss eine Liste sein; [] nur, wenn wirklich nichts offen ist. "
+            "Jeder Eintrag benötigt description, resolution "
+            "(clarification oder unsupported), candidate_component_ids, "
+            "reason und sources. Verwende nur übergebene Quellen-IDs."
+        )),
+        HumanMessage(content=json.dumps(
+            repair_task, ensure_ascii=False
+        )),
+    ])
+    repair = _parse_json_response(response.content)
+    if (
+        set(repair) != {"unresolved_requirements"}
+        or not isinstance(repair["unresolved_requirements"], list)
+    ):
+        raise ValueError(
+            "Die gezielte Korrektur muss ausschließlich eine Liste "
+            "ungelöster Anforderungen zurückgeben."
+        )
+
+    decision["unresolved_requirements"] = repair[
+        "unresolved_requirements"
+    ]
+    return _parse_and_validate_proposal(
+        json.dumps(decision, ensure_ascii=False),
+        expected_core_id=expected_core_id,
+        evidence=evidence,
+        locked_objective_proposal=locked_objective_proposal,
+    )
+
+
 def _build_correction_message(
     *,
     error: TypeError | ValueError,
@@ -760,6 +828,7 @@ def create_component_selection_agent(
                 ]
             )
 
+        focused_repair_attempted = False
         for attempt in range(MAX_SELECTION_ATTEMPTS):
             response = llm.invoke(messages)
 
@@ -773,6 +842,31 @@ def create_component_selection_agent(
                     ),
                 )
             except (TypeError, ValueError) as error:
+                if (
+                    not focused_repair_attempted
+                    and isinstance(
+                        error, ComponentSelectionValidationError
+                    )
+                    and error.errors == [
+                        "Die ungelösten Anforderungen müssen als "
+                        "Liste vorliegen."
+                    ]
+                ):
+                    focused_repair_attempted = True
+                    try:
+                        return _repair_unresolved_requirements_list(
+                            llm,
+                            original_content=response.content,
+                            expected_core_id=core_id,
+                            requirements=requirements,
+                            evidence=evidence,
+                            locked_objective_proposal=(
+                                locked_objective_proposal
+                            ),
+                        )
+                    except (TypeError, ValueError) as repair_error:
+                        error = repair_error
+
                 if attempt == MAX_SELECTION_ATTEMPTS - 1:
                     raise ValueError(
                         "Der Bausteinauswahl-Agent konnte "

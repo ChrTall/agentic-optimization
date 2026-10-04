@@ -929,15 +929,20 @@ def _build_step_context(
         }
 
     if step == "review":
+        pending_assumptions = modular_state.get(
+            "pending_core_assumptions", []
+        )
         return {
             "step_description": (
                 "Alle Angaben liegen vor. Der Nutzer prüft die "
                 "Berechnungsgrundlage (siehe known_parameters). "
-                "Beantworte Fragen dazu. Setze "
-                "start_optimization nur, wenn der Nutzer "
-                "ausdrücklich bestätigt, dass gerechnet "
-                "werden soll."
+                "Beantworte Fragen dazu. Bei offenen "
+                "Grundmodell-Annahmen muss der Nutzer diese "
+                "zunächst im Review einzeln per Checkbox "
+                "bestätigen. Setze start_optimization nur nach "
+                "ausdrücklichem Berechnungswunsch."
             ),
+            "pending_core_assumptions": pending_assumptions,
             "review_explanation": _truncate(
                 modular_state.get("review_explanation") or ""
             ),

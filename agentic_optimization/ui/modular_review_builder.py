@@ -236,6 +236,8 @@ def _build_objective_summary(
 
 def build_default_review_explanation(
     review: ModularReviewData,
+    *,
+    pending_core_assumptions: list[str] | None = None,
 ) -> str:
     """
     Erzeugt eine verständliche Erklärung ohne Sprachmodell.
@@ -281,6 +283,14 @@ def build_default_review_explanation(
             " Mindestens eine weitere Anforderung "
             "wird bei der Berechnung ausdrücklich "
             "nicht berücksichtigt."
+        )
+
+    if pending_core_assumptions:
+        explanation = (
+            "Diese Modellwahl ist vorläufig. Noch zu bestätigen: "
+            + " ".join(pending_core_assumptions)
+            + " "
+            + explanation
         )
 
     return explanation

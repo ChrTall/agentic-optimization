@@ -157,6 +157,9 @@ def build_component_catalog(
                     "required_objective_component_ids"
                 ]
             ),
+            "required_objective_sense": core_definition.get(
+                "required_objective_sense"
+            ),
             "required_product_facts": deepcopy(
                 core_definition["required_product_facts"]
             ),

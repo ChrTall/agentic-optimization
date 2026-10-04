@@ -75,9 +75,10 @@ def test_node_selects_core_from_analyzed_description() -> None:
     }
 
     llm = Mock()
-    llm.invoke.return_value = AIMessage(
-        content=json.dumps(response)
-    )
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps(response)),
+        AIMessage(content=json.dumps({"findings": []})),
+    ]
 
     node = create_business_intake_node(llm)
 
@@ -106,7 +107,8 @@ def test_node_selects_core_from_analyzed_description() -> None:
     assert intake_result["pending_question_ids"] == []
     assert intake_result["analysis_error"] is None
     assert result["raw_input"] == raw_input
-    assert llm.invoke.call_count == 1
+    assert llm.invoke.call_count == 2
+    assert intake_result["applicability_plan"]["status"] == "provisional"
 
 
 def test_node_requests_missing_business_answers() -> None:

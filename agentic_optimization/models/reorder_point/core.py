@@ -87,6 +87,7 @@ CORE_DEFINITION: ModelCoreDefinition = {
         "annual_holding_cost",
         "annual_shortage_cost",
     ],
+    "required_objective_sense": "minimize",
     "required_forecast_fields": [
         {
             "name": "expected_value",

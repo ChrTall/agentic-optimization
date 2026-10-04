@@ -138,6 +138,64 @@ def test_accepts_semantic_decision_without_technical_fields(
     assert llm.invoke.call_count == 1
 
 
+def test_repairs_only_missing_unresolved_requirements_list() -> None:
+    decision = create_response()
+    decision["unresolved_requirements"] = None
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps(decision)),
+        AIMessage(content=json.dumps({"unresolved_requirements": []})),
+    ]
+
+    result = call_agent(llm)
+
+    assert result["unresolved_requirements"] == []
+    assert result["objective_components"] == decision["objective_components"]
+    assert result["constraints"] == decision["constraints"]
+    assert llm.invoke.call_count == 2
+
+
+def test_repair_preserves_reported_unsupported_requirement() -> None:
+    decision = create_response()
+    decision.pop("unresolved_requirements")
+    requirement = {
+        "description": "Lieferung nur dienstags",
+        "resolution": "unsupported",
+        "candidate_component_ids": [],
+        "reason": "Ein bestimmter Liefertag ist nicht abbildbar.",
+        "sources": ["source_1"],
+    }
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps(decision)),
+        AIMessage(content=json.dumps({
+            "unresolved_requirements": [requirement],
+        })),
+    ]
+
+    result = call_agent(llm)
+
+    assert result["selection_status"] == "unsupported"
+    assert result["unresolved_requirements"] == [requirement]
+
+
+def test_invalid_focused_repair_still_fails_closed() -> None:
+    invalid = create_response()
+    invalid["unresolved_requirements"] = None
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps(invalid)),
+        AIMessage(content=json.dumps({"unresolved_requirements": None})),
+        AIMessage(content=json.dumps(invalid)),
+        AIMessage(content=json.dumps(invalid)),
+    ]
+
+    with pytest.raises(ValueError, match="keinen gültigen Vorschlag"):
+        call_agent(llm)
+
+    assert llm.invoke.call_count == 4
+
+
 def test_prompt_contains_filtered_component_catalog() -> None:
     llm = create_mock_llm(create_response())
 
@@ -614,6 +672,29 @@ def test_adds_required_eoq_components_without_llm_echo(
             "objective_components"
         ]
     )
+    assert llm.invoke.call_count == 1
+
+
+def test_eoq_selection_cannot_reverse_fixed_cost_objective() -> None:
+    llm = create_mock_llm({
+        "objective_sense": "maximize",
+        "objective_components": [],
+        "constraints": [],
+        "unresolved_requirements": [],
+    })
+
+    result = create_component_selection_agent(llm)(
+        core_id="eoq",
+        requirements={"objective": "Gesamtkosten minimieren"},
+        products=[],
+        global_facts={},
+        evidence=[{
+            "source_id": "raw_input",
+            "content": "Bestell- und Lagerkosten minimieren.",
+        }],
+    )
+
+    assert result["objective_sense"] == "minimize"
     assert llm.invoke.call_count == 1
 
 
