@@ -11,14 +11,28 @@ from agentic_optimization.agents.business_intake import (
 )
 from agentic_optimization.agents.business_profile_agent import (
     create_business_profile_agent,
+    recover_missing_product_scope,
 )
 from agentic_optimization.agents.core_applicability_agent import (
     create_core_applicability_agent,
 )
+from agentic_optimization.agents.core_candidate_agent import (
+    create_core_candidate_agent,
+)
+from agentic_optimization.agents.core_followup_agent import (
+    create_core_followup_agent,
+)
 from agentic_optimization.agents.core_applicability_workflow import (
     plan_candidate_applicability,
 )
-from agentic_optimization.models.core_applicability import CONDITION_GUIDANCE
+from agentic_optimization.models.core_applicability import (
+    CONDITION_GUIDANCE,
+    CORE_CONDITIONS,
+)
+from agentic_optimization.models.core_candidate_selection import (
+    choose_candidate_condition,
+    select_from_core_candidates,
+)
 from agentic_optimization.state import (
     WORKFLOW_BUSINESS_CASE_UNSUPPORTED,
     WORKFLOW_BUSINESS_CORE_SELECTED,
@@ -29,6 +43,7 @@ from agentic_optimization.state import (
 )
 from agentic_optimization.ui.business_problem_form import (
     apply_business_question_answer,
+    get_relevant_business_questions,
 )
 from agentic_optimization.agents.business_profile_adapter import (
     build_requirements_from_business_profile,
@@ -43,6 +58,8 @@ def create_business_intake_node(
 
     profile_agent = create_business_profile_agent(llm)
     applicability_agent = create_core_applicability_agent(llm)
+    candidate_agent = create_core_candidate_agent(llm)
+    followup_agent = create_core_followup_agent(llm)
 
     def prepare_business_intake_node(
         state: GraphState,
@@ -76,6 +93,7 @@ def create_business_intake_node(
         applicability_answers = dict(
             intake_state.get("applicability_user_answers", {})
         )
+        chosen_core_id = intake_state.get("chosen_core_id")
 
         for answer in intake_state.get(
             "pending_answers",
@@ -90,13 +108,25 @@ def create_business_intake_node(
                     "nicht zum aktuellen Einstieg."
                 )
 
-            if question_id.startswith("core_condition:"):
+            if question_id == "core_choice":
+                proposal = intake_state.get("candidate_proposal")
+                allowed = {
+                    item["core_id"]
+                    for item in proposal["candidates"]
+                } if proposal else set()
+                if answer["option_id"] not in allowed:
+                    raise ValueError("Ungültige Grundmodell-Auswahl.")
+                chosen_core_id = answer["option_id"]
+            elif question_id.startswith("core_condition:"):
                 condition_id = question_id.split(":", 1)[1]
-                if answer["option_id"] not in {"yes", "no"}:
+                if answer["option_id"] not in {
+                    "yes", "no", "user_unknown"
+                }:
                     raise ValueError("Ungültige Antwort zur Modellvoraussetzung.")
                 applicability_answers[condition_id] = (
                     "supported" if answer["option_id"] == "yes"
-                    else "contradicted"
+                    else "contradicted" if answer["option_id"] == "no"
+                    else "unknown"
                 )
             else:
                 profile = apply_business_question_answer(
@@ -173,10 +203,145 @@ def create_business_intake_node(
             for question in preparation["questions"]
         ]
         core_selection = preparation["core_selection"]
+        candidate_proposal = intake_state.get("candidate_proposal")
+        candidate_active = False
+        candidate_question_core_id = None
+        candidate_question_prompt = None
+        if raw_input_for_analysis.strip():
+            try:
+                candidate_proposal = candidate_agent(evidence=[{
+                    "source_id": "raw_input", "content": raw_input,
+                }])
+            except (TypeError, ValueError) as error:
+                LOGGER.exception(
+                    "Die Modellkandidaten konnten nicht geprüft werden: %s",
+                    error,
+                )
+                return with_control(
+                    {
+                        **state,
+                        "business_intake": {
+                            **intake_state,
+                            "profile": preparation["profile"],
+                            "analysis_error": (
+                                "Die Modellkandidaten konnten nicht "
+                                "zuverlässig geprüft werden. Bitte "
+                                "versuchen Sie es erneut."
+                            ),
+                            "pending_answers": [],
+                        },
+                    },
+                    event=None,
+                    workflow_status=WORKFLOW_BUSINESS_PROFILE_ANALYSIS_FAILED,
+                )
+            chosen_core_id = None
+            applicability_answers = {}
+            candidate_active = True
+        elif (
+            candidate_proposal is not None
+            and intake_state.get("candidate_analyzed_raw_input") == raw_input
+        ):
+            candidate_active = True
+
+        if candidate_active:
+            if (
+                raw_input_for_analysis.strip()
+                and "product_scope" in question_ids
+            ):
+                preparation["profile"] = recover_missing_product_scope(
+                    llm,
+                    profile=preparation["profile"],
+                    raw_input=raw_input,
+                    source_id="raw_input",
+                )
+                question_ids = [
+                    question["question_id"]
+                    for question in get_relevant_business_questions(
+                        preparation["profile"],
+                        asked_question_ids=asked_question_ids,
+                    )
+                ]
+            # Diese Profilfragen beschaffen Daten, entscheiden aber nicht
+            # mehr anhand einer festen Antwortkombination über den Kern.
+            question_ids = [
+                question_id for question_id in question_ids
+                if question_id in {"product_scope", "primary_goal"}
+            ]
+            core_selection = select_from_core_candidates(
+                candidate_proposal,
+                preparation["profile"],
+                condition_answers=applicability_answers,
+                chosen_core_id=chosen_core_id,
+            )
+            if core_selection["status"] == "needs_clarification":
+                target = choose_candidate_condition(
+                    core_selection["candidate_core_ids"],
+                    answered_condition_ids=set(applicability_answers),
+                    asked_question_ids=set(asked_question_ids),
+                )
+                if target is None:
+                    unknown_conditions = {
+                        condition_id
+                        for condition_id, answer in
+                        applicability_answers.items()
+                        if answer == "unknown"
+                    }
+                    if not any(
+                        unknown_conditions.intersection(
+                            CORE_CONDITIONS[core_id]
+                        )
+                        for core_id in core_selection[
+                            "candidate_core_ids"
+                        ]
+                    ):
+                        question_ids.append("core_choice")
+                else:
+                    candidate_question_core_id, condition_id = target
+                    question_id = f"core_condition:{condition_id}"
+                    question_ids.append(question_id)
+                    if (
+                        question_id in pending_question_ids
+                        and intake_state.get("candidate_question_core_id")
+                        == candidate_question_core_id
+                    ):
+                        candidate_question_prompt = intake_state.get(
+                            "candidate_question_prompt"
+                        )
+                    else:
+                        try:
+                            candidate_question_prompt = followup_agent(
+                                core_id=candidate_question_core_id,
+                                condition_id=condition_id,
+                                raw_input=raw_input,
+                            )
+                        except (TypeError, ValueError) as error:
+                            LOGGER.warning(
+                                "Dynamische Rückfrage ungültig; "
+                                "Standardfrage wird verwendet: %s",
+                                error,
+                            )
+            if (
+                not question_ids
+                and core_selection["status"] == "selected"
+                and preparation["profile"]["primary_goal"]["status"]
+                == "user_unknown"
+            ):
+                core_selection = {
+                    **core_selection,
+                    "status": "needs_clarification",
+                    "selected_core_id": None,
+                    "reason": (
+                        "Das Optimierungsziel ist noch nicht bekannt. "
+                        "Ohne Ziel kann keine Berechnung gestartet werden."
+                    ),
+                }
         applicability_plan = None
         applicability_core_id = core_selection.get("selected_core_id")
         text_findings = dict(
             intake_state.get("applicability_text_findings", {})
+        )
+        text_evidence = list(
+            intake_state.get("applicability_text_evidence", [])
         )
 
         if applicability_core_id is not None:
@@ -186,8 +351,18 @@ def create_business_intake_node(
                 or intake_state.get("applicability_analyzed_raw_input")
                 != raw_input
             ):
-                applicability_answers = {}
+                applicability_answers = (
+                    {
+                        condition_id: answer
+                        for condition_id, answer in applicability_answers.items()
+                        if condition_id in CORE_CONDITIONS[
+                            applicability_core_id
+                        ]
+                    }
+                    if candidate_active else {}
+                )
                 text_findings = {}
+                text_evidence = []
                 if raw_input.strip():
                     try:
                         proposal = applicability_agent(
@@ -198,6 +373,7 @@ def create_business_intake_node(
                             }],
                         )
                         text_findings = proposal["findings"]
+                        text_evidence = proposal["proposed_findings"]
                     except (TypeError, ValueError) as error:
                         LOGGER.exception(
                             "Die Prüfung der Modellvoraussetzungen "
@@ -253,10 +429,11 @@ def create_business_intake_node(
                     "selected_core_id": None,
                     "reason": "Eine Voraussetzung des Grundmodells ist offen.",
                 }
-                question_ids.append(
-                    "core_condition:"
-                    + str(applicability_plan["question_condition_id"])
-                )
+                if applicability_plan["question_condition_id"] is not None:
+                    question_ids.append(
+                        "core_condition:"
+                        + applicability_plan["question_condition_id"]
+                    )
 
         if core_selection["status"] == "unsupported":
             workflow_status = (
@@ -287,7 +464,15 @@ def create_business_intake_node(
             "applicability_core_id": applicability_core_id,
             "applicability_analyzed_raw_input": raw_input,
             "applicability_text_findings": text_findings,
+            "applicability_text_evidence": text_evidence,
             "applicability_user_answers": applicability_answers,
+            "candidate_proposal": candidate_proposal,
+            "candidate_analyzed_raw_input": (
+                raw_input if candidate_active else None
+            ),
+            "chosen_core_id": chosen_core_id,
+            "candidate_question_core_id": candidate_question_core_id,
+            "candidate_question_prompt": candidate_question_prompt,
             "analysis_error": None,
         }
 
@@ -424,6 +609,9 @@ def initialize_modular_core_node(
                 "pending_confirmation", []
             )
         ),
+        "core_assumption_evidence": list(
+            intake_state.get("applicability_text_evidence", [])
+        ),
         "core_assumptions_confirmed": False,
         "products": products,
         "global_facts": dict(
@@ -444,6 +632,8 @@ def initialize_modular_core_node(
         "proposal",
         "specification",
         "validation",
+        "review_explanation",
+        "review_explanation_source",
     ):
         modular_state.pop(field_name, None)
 

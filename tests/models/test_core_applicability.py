@@ -199,6 +199,24 @@ def test_newsvendor_then_asks_about_replenishment() -> None:
     assert plan["question_reason"] == "missing"
 
 
+def test_unknown_structural_condition_is_not_asked_again_or_accepted() -> None:
+    plan = plan_core_applicability(
+        "single_period_newsvendor",
+        {},
+        deferred_conditions={"single_decision_period"},
+    )
+    assert plan["status"] == "needs_clarification"
+    assert plan["question_condition_id"] == "no_replenishment_within_period"
+
+    plan = plan_core_applicability(
+        "single_period_newsvendor",
+        {"no_replenishment_within_period": "supported"},
+        deferred_conditions={"single_decision_period"},
+    )
+    assert plan["status"] == "needs_clarification"
+    assert plan["question_condition_id"] is None
+
+
 def test_contradiction_rejects_q_r_before_other_questions() -> None:
     plan = plan_core_applicability(
         "continuous_review_q_r",

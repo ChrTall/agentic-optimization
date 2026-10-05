@@ -650,6 +650,9 @@ elif st.session_state.step == "review":
             pending_core_assumptions=modular_state.get(
                 "pending_core_assumptions", []
             ),
+            core_assumption_evidence=modular_state.get(
+                "core_assumption_evidence", []
+            ),
         )
     except ValueError as error:
         st.error("Die modulare Modellprüfung konnte nicht aufgebaut werden.")

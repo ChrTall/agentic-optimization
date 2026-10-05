@@ -53,6 +53,9 @@ CORE_DEFINITION: ModelCoreDefinition = {
     "required_product_facts": [],
     "required_global_facts": [],
     "required_objective_component_ids": [],
+    "required_objective_components_by_goal": {
+        "maximize_profit": ["sales_revenue", "purchase_cost"],
+    },
     "required_forecast_fields": [
         {
             "name": "expected_value",

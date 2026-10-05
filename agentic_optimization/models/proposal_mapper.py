@@ -63,6 +63,7 @@ def build_component_selection_proposal(
     *,
     core_id: str,
     decision: ComponentSelectionDecision,
+    objective_goal: str | None = None,
 ) -> ComponentSelectionProposal:
     """Ergänzt technische Felder einer fachlichen Auswahl."""
 
@@ -86,9 +87,13 @@ def build_component_selection_proposal(
             if isinstance(component, dict)
         }
 
-        required_component_ids = registered_core[
-            "definition"
-        ]["required_objective_component_ids"]
+        core_definition = registered_core["definition"]
+        required_component_ids = [
+            *core_definition["required_objective_component_ids"],
+            *core_definition.get(
+                "required_objective_components_by_goal", {}
+            ).get(objective_goal or "", []),
+        ]
 
         for component_id in required_component_ids:
             if component_id in selected_component_ids:

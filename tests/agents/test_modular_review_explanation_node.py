@@ -7,7 +7,7 @@ from agentic_optimization.agents.modular_workflow_nodes import (
     create_modular_review_explanation_node,
 )
 from agentic_optimization.models.core_applicability import (
-    CONDITION_GUIDANCE,
+    CONDITION_LABELS,
 )
 from agentic_optimization.models.proposal_mapper import (
     build_specification_from_proposal,
@@ -169,6 +169,6 @@ def test_fallback_marks_unconfirmed_model_choice_as_provisional() -> None:
         "review_explanation"
     ]
     assert "Diese Modellwahl ist vorläufig" in explanation
-    assert CONDITION_GUIDANCE[
+    assert CONDITION_LABELS[
         "no_replenishment_within_period"
     ] in explanation

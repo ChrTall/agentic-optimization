@@ -6,6 +6,8 @@ from typing import Literal, TypedDict
 from agentic_optimization.state import (
     BusinessIntakeState,
 )
+from agentic_optimization.models.core_applicability import CONDITION_LABELS
+from agentic_optimization.models.core_registry import CORE_REGISTRY
 from agentic_optimization.ui.business_problem_form import (
     BUSINESS_QUESTIONS,
     BusinessQuestion,
@@ -16,6 +18,7 @@ from agentic_optimization.ui.business_problem_form import (
 BusinessIntakeMessageType = Literal[
     "none",
     "success",
+    "warning",
     "error",
 ]
 
@@ -50,12 +53,65 @@ def build_business_intake_view_data(
     ):
         question = BUSINESS_QUESTIONS.get(question_id)
 
+        if question is None and question_id == "core_choice":
+            proposal = intake_state.get("candidate_proposal")
+            candidate_ids = (
+                [item["core_id"] for item in proposal["candidates"]]
+                if proposal else []
+            )
+            question = {
+                "question_id": "core_choice",
+                "prompt": (
+                    "Welche Beschreibung passt zu Ihrer "
+                    "Bestellsituation?"
+                ),
+                "options": [
+                    {
+                        "option_id": core_id,
+                        "label": CORE_REGISTRY[core_id]["definition"][
+                            "decision_description"
+                        ],
+                        "help": CORE_REGISTRY[core_id]["definition"][
+                            "description"
+                        ],
+                    }
+                    for core_id in candidate_ids
+                ],
+            }
+
         if question is None and question_id.startswith("core_condition:"):
-            core_id = intake_state.get("applicability_core_id")
+            core_id = (
+                intake_state.get("candidate_question_core_id")
+                or intake_state.get("applicability_core_id")
+            )
             if core_id is not None:
+                condition_id = question_id.split(":", 1)[1]
                 question = build_applicability_question(
-                    core_id, question_id.split(":", 1)[1]
+                    core_id, condition_id
                 )
+                if intake_state.get("candidate_question_core_id"):
+                    proposed_prompt = intake_state.get(
+                        "candidate_question_prompt"
+                    )
+                    if proposed_prompt:
+                        question["prompt"] = proposed_prompt
+                    question["options"] = [
+                        {
+                            "option_id": "yes",
+                            "label": "Ja — " + CONDITION_LABELS[condition_id],
+                        },
+                        {
+                            "option_id": "no",
+                            "label": (
+                                "Nein — diese Voraussetzung trifft "
+                                "nicht zu."
+                            ),
+                        },
+                        {
+                            "option_id": "user_unknown",
+                            "label": "Noch nicht bekannt",
+                        },
+                    ]
                 plan = intake_state.get("applicability_plan")
                 if plan and plan["question_reason"] == "conflict":
                     question["prompt"] = (
@@ -125,6 +181,35 @@ def build_business_intake_view_data(
         message = (
             "Die betriebliche Ausgangssituation wurde "
             "vollständig erfasst."
+        )
+    elif (
+        core_selection is not None
+        and core_selection["status"] == "needs_clarification"
+        and not questions
+        and (
+            "unknown" in intake_state.get(
+                "applicability_user_answers", {}
+            ).values()
+            or profile["primary_goal"]["status"] == "user_unknown"
+        )
+    ):
+        message_type = "warning"
+        message = (
+            "Für eine Berechnung fehlen noch entscheidende Angaben: "
+            + (
+                "Das Optimierungsziel ist nicht bekannt. "
+                if profile["primary_goal"]["status"] == "user_unknown"
+                else ""
+            )
+            + (
+                "Mindestens eine Modellvoraussetzung ist nicht bekannt. "
+                if "unknown" in intake_state.get(
+                    "applicability_user_answers", {}
+                ).values()
+                else ""
+            )
+            + "Es wird keine Annahme stillschweigend gesetzt. "
+            "Sie können die Beschreibung später ergänzen."
         )
     else:
         message_type = "none"

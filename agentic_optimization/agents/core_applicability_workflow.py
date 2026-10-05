@@ -6,6 +6,7 @@ from agentic_optimization.models.core_applicability import (
     CORE_CONDITIONS,
     ApplicabilityPlan,
     Finding,
+    UserConditionAnswer,
     plan_core_applicability,
 )
 from agentic_optimization.models.problem_profile import BusinessProblemProfile
@@ -30,7 +31,7 @@ def plan_candidate_applicability(
     core_id: str,
     profile: BusinessProblemProfile,
     text_findings: Mapping[str, Finding],
-    user_answers: Mapping[str, Finding] | None = None,
+    user_answers: Mapping[str, UserConditionAnswer] | None = None,
 ) -> ApplicabilityPlan:
     """Explizite Antworten überstimmen ältere, ggf. widersprüchliche Texte."""
 
@@ -78,13 +79,22 @@ def plan_candidate_applicability(
 
     for condition_id, answer in (user_answers or {}).items():
         if condition_id not in CORE_CONDITIONS[core_id] or answer not in {
-            "supported", "contradicted"
+            "supported", "contradicted", "unknown"
         }:
             raise ValueError("Ungültige Antwort zur Modellvoraussetzung.")
-        findings[condition_id] = answer
+        if answer == "unknown":
+            findings.pop(condition_id, None)
+            confirmed_conditions.discard(condition_id)
+        else:
+            findings[condition_id] = answer
 
     return plan_core_applicability(
         core_id,
         findings,
         confirmed_conditions=confirmed_conditions,
+        deferred_conditions={
+            condition_id
+            for condition_id, answer in (user_answers or {}).items()
+            if answer == "unknown"
+        },
     )

@@ -82,6 +82,7 @@ def build_applicability_question(
         "options": [
             {"option_id": "yes", "label": "Ja"},
             {"option_id": "no", "label": "Nein"},
+            {"option_id": "user_unknown", "label": "Noch nicht bekannt"},
         ],
     }
 
@@ -337,7 +338,13 @@ def get_relevant_business_questions(
     ):
         question_ids.append("product_scope")
 
-    if _needs_clarification(profile["primary_goal"]):
+    if (
+        _needs_clarification(profile["primary_goal"])
+        and not (
+            profile["primary_goal"]["status"] == "user_unknown"
+            and "primary_goal" in asked_question_id_set
+        )
+    ):
         question_ids.append("primary_goal")
 
     return [

@@ -12,6 +12,9 @@ from agentic_optimization.agents.component_coverage_agent import (
 from agentic_optimization.agents.component_selection_agent import (
     create_component_selection_agent,
 )
+from agentic_optimization.agents.component_selection_integrity import (
+    create_component_selection_integrity_agent,
+)
 from agentic_optimization.agents.modular_fact_extraction_agent import (
     create_modular_fact_extraction_agent,
 )
@@ -84,19 +87,16 @@ def _build_preliminary_fallback_proposal(
         ]
     )
 
+    goal_components = registered_core["definition"].get(
+        "required_objective_components_by_goal", {}
+    ).get("maximize_profit", [])
     if (
-        core_id == "single_period_newsvendor"
-        and objective
-        in {
-            "maximize_profit",
-            "Gewinn maximieren",
-        }
+        goal_components
+        and objective in {"maximize_profit", "Gewinn maximieren"}
     ):
         objective_sense = "maximize"
-        component_ids = [
-            "sales_revenue",
-            "purchase_cost",
-        ]
+        component_ids.extend(goal_components)
+        component_ids = list(dict.fromkeys(component_ids))
 
     if not component_ids:
         raise ValueError(
@@ -146,6 +146,7 @@ def create_preliminary_component_selection_agent(
     component_selection_agent = (
         create_component_selection_agent(llm)
     )
+    integrity_agent = create_component_selection_integrity_agent(llm)
 
     def select_preliminary_components(
         *,
@@ -155,12 +156,17 @@ def create_preliminary_component_selection_agent(
         evidence: list[SelectionEvidence],
     ) -> ComponentSelectionProposal:
         try:
-            return component_selection_agent(
+            proposal = component_selection_agent(
                 core_id=core_id,
                 requirements=requirements,
                 products=[],
                 global_facts=global_facts,
                 evidence=evidence,
+            )
+            return integrity_agent(
+                proposal=proposal,
+                evidence=evidence,
+                objective_goal=requirements.get("objective"),
             )
         except (TypeError, ValueError):
             return _build_preliminary_fallback_proposal(
@@ -186,6 +192,7 @@ def create_modular_model_agent(
     component_selection_agent = (
         create_component_selection_agent(llm)
     )
+    integrity_agent = create_component_selection_integrity_agent(llm)
 
     component_coverage_agent = (
         create_component_coverage_agent(llm)
@@ -218,9 +225,14 @@ def create_modular_model_agent(
             products=extracted_products,
             global_facts=extracted_global_facts,
             evidence=evidence,
-            locked_objective_proposal=(
-                preliminary_proposal
-            ),
+            # Die vorläufige Auswahl dient nur den Eingabefeldern.
+            # Nach der Faktenextraktion muss die endgültige Auswahl
+            # fehlende Zielfunktionsbausteine ergänzen dürfen.
+        )
+        proposal = integrity_agent(
+            proposal=proposal,
+            evidence=evidence,
+            objective_goal=requirements.get("objective"),
         )
 
         if enable_coverage_audit:

@@ -73,6 +73,87 @@ BusinessProfileAgent = Callable[
 ]
 
 
+def _repair_invalid_excerpts(
+    llm: BaseChatModel,
+    parsed_response: dict[str, Any],
+    raw_input: str,
+) -> None:
+    """Fragt einmal nur exakte Quellenstellen nach; übernimmt nichts Unbelegtes."""
+
+    pending: dict[tuple[str, str], dict[str, Any]] = {}
+    for group_name in ("inferences", "ambiguities"):
+        items = parsed_response.get(group_name)
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            field_id = item.get("field_id")
+            excerpt = item.get("excerpt")
+            if (
+                isinstance(field_id, str)
+                and isinstance(excerpt, str)
+                and excerpt.strip()
+                and excerpt not in raw_input
+            ):
+                pending[(group_name, field_id)] = item
+
+    if not pending:
+        return
+
+    messages = [
+        SystemMessage(content=(
+            "Korrigiere ausschließlich die Textbelege der übergebenen "
+            "Profilangaben. Ändere weder Feld-IDs noch Werte und füge "
+            "keine neuen Angaben hinzu. Jeder excerpt muss exakt und "
+            "zusammenhängend im Originaltext vorkommen und die jeweilige "
+            "Aussage tatsächlich stützen. Gibt es keinen solchen Beleg, "
+            "lasse den Eintrag weg. Antworte nur als JSON-Objekt mit "
+            "repairs: [{group, field_id, excerpt}]."
+        )),
+        HumanMessage(content=json.dumps({
+            "description": raw_input,
+            "invalid_excerpts": [
+                {
+                    "group": group_name,
+                    "field_id": field_id,
+                    "value": item.get("value"),
+                    "candidate_values": item.get("candidate_values"),
+                    "previous_excerpt": item.get("excerpt"),
+                }
+                for (group_name, field_id), item in pending.items()
+            ],
+        }, ensure_ascii=False)),
+    ]
+    try:
+        repair_response = _parse_json_response(llm.invoke(messages).content)
+        repairs = repair_response.get("repairs")
+        if not isinstance(repairs, list):
+            return
+    except (TypeError, ValueError):
+        return
+
+    for repair in repairs:
+        if not isinstance(repair, dict) or set(repair) != {
+            "group", "field_id", "excerpt"
+        }:
+            continue
+        if (
+            not isinstance(repair["group"], str)
+            or not isinstance(repair["field_id"], str)
+        ):
+            continue
+        key = (repair["group"], repair["field_id"])
+        excerpt = repair["excerpt"]
+        if (
+            key in pending
+            and isinstance(excerpt, str)
+            and excerpt.strip()
+            and excerpt in raw_input
+        ):
+            pending[key]["excerpt"] = excerpt
+
+
 def _parse_json_response(content: object) -> dict[str, Any]:
     """Dekodiert eine mögliche JSON-Code-Fence-Antwort."""
 
@@ -105,6 +186,63 @@ def _parse_json_response(content: object) -> dict[str, Any]:
         )
 
     return parsed_response
+
+
+def recover_missing_product_scope(
+    llm: BaseChatModel,
+    *,
+    profile: BusinessProblemProfile,
+    raw_input: str,
+    source_id: str,
+) -> BusinessProblemProfile:
+    """Prüft einen offenen Produktumfang gezielt und nur mit Textbeleg."""
+
+    if profile["product_scope"]["status"] != "missing":
+        return profile
+
+    messages = [
+        SystemMessage(content=(
+            "Prüfe ausschließlich, ob die Beschreibung eine Optimierung "
+            "für genau ein Produkt oder für mehrere Produkte verlangt. "
+            "Unterscheide Produkte von mehreren Bestellungen oder Zeiträumen. "
+            "Antworte nur als JSON-Objekt mit value "
+            "('single_product', 'multiple_products' oder 'unknown') "
+            "und excerpt (ein exakter zusammenhängender Ausschnitt "
+            "der Beschreibung, oder null bei unknown). "
+            "Ohne eindeutigen Beleg wähle unknown."
+        )),
+        HumanMessage(content=json.dumps(
+            {"description": raw_input}, ensure_ascii=False
+        )),
+    ]
+    try:
+        answer = _parse_json_response(llm.invoke(messages).content)
+    except (TypeError, ValueError):
+        return profile
+
+    if set(answer) != {"value", "excerpt"}:
+        return profile
+    value = answer["value"]
+    excerpt = answer["excerpt"]
+    if (
+        value not in {"single_product", "multiple_products"}
+        or not isinstance(excerpt, str)
+        or not excerpt.strip()
+        or excerpt not in raw_input
+    ):
+        return profile
+
+    updated_profile = deepcopy(profile)
+    updated_profile["product_scope"] = create_profile_field(
+        status="inferred",
+        value=value,
+        evidence=[{
+            "source_id": source_id,
+            "source_type": "free_text",
+            "excerpt": excerpt,
+        }],
+    )
+    return updated_profile
 
 
 def create_business_profile_agent(
@@ -163,6 +301,8 @@ def create_business_profile_agent(
                 "Die mehrdeutigen Profilmerkmale müssen "
                 "als Liste vorliegen."
             )
+
+        _repair_invalid_excerpts(llm, parsed_response, raw_input)
 
         updated_profile = deepcopy(profile)
         seen_field_ids: set[str] = set()

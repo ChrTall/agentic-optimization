@@ -5,12 +5,45 @@ import pytest
 import agentic_optimization.ui.modular_review_page as modular_review_page
 
 from agentic_optimization.ui.modular_review_page import (
+    _render_core_assumption_confirmations,
     _build_constraint_parameter_labels,
     _build_product_overview_rows,
     _build_constraint_overview_rows,
     render_modular_exclusion_confirmation,
     render_modular_selection_issues,
 )
+from agentic_optimization.models.core_applicability import CONDITION_LABELS
+
+
+def test_assumption_evidence_does_not_confirm_checkbox(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    streamlit = Mock()
+    streamlit.checkbox.return_value = False
+    monkeypatch.setattr(modular_review_page, "st", streamlit)
+
+    confirmed = _render_core_assumption_confirmations(
+        ["steady_demand"],
+        [{
+            "condition_id": "steady_demand",
+            "status": "supported",
+            "source_id": "raw_input",
+            "excerpt": "Der Bedarf ist über das Jahr ungefähr gleichmäßig.",
+        }],
+    )
+
+    assert confirmed is False
+    streamlit.markdown.assert_any_call("#### Aus Ihrer Beschreibung abgeleitet")
+    streamlit.write.assert_any_call(
+        "Ihre Angabe: „Der Bedarf ist über das Jahr ungefähr gleichmäßig.“"
+    )
+    streamlit.checkbox.assert_called_once_with(
+        CONDITION_LABELS["steady_demand"],
+        key="confirm_core_assumption_steady_demand",
+    )
+    assert "Ein Jahresbedarf allein" not in CONDITION_LABELS[
+        "steady_demand"
+    ]
 
 def test_uses_component_specific_parameter_labels() -> None:
     labels = _build_constraint_parameter_labels(

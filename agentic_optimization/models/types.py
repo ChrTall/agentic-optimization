@@ -86,6 +86,9 @@ class ModelCoreDefinition(TypedDict):
     required_product_facts: list[ModelInputField]
     required_global_facts: list[ModelInputField]
     required_objective_component_ids: list[str]
+    required_objective_components_by_goal: NotRequired[
+        dict[str, list[str]]
+    ]
     required_objective_sense: NotRequired[ObjectiveSense]
     provided_quantities: dict[str, ModelQuantityDefinition]
 

@@ -31,6 +31,7 @@ class CoreCatalogEntry(TypedDict):
     minimum_products: int
     required_forecast_fields: list[ModelInputField]
     required_objective_component_ids: list[str]
+    required_objective_components_by_goal: dict[str, list[str]]
     required_product_facts: list[ModelInputField]
     required_global_facts: list[ModelInputField]
 
@@ -56,6 +57,7 @@ class ConstraintComponentCatalogEntry(TypedDict):
     required_global_facts: list[ModelInputField]
     parameters: list[ConstraintParameterDefinition]
     selection_guidance: str
+    requires_explicit_request: bool
 
 
 class ComponentCatalog(TypedDict):
@@ -96,6 +98,9 @@ def build_component_catalog(
                 "selection_guidance": definition.get(
                     "selection_guidance",
                     "",
+                ),
+                "requires_explicit_request": definition.get(
+                    "requires_explicit_request", False
                 ),
                 "required_product_facts": deepcopy(
                     definition["required_product_facts"]
@@ -156,6 +161,11 @@ def build_component_catalog(
                 core_definition[
                     "required_objective_component_ids"
                 ]
+            ),
+            "required_objective_components_by_goal": deepcopy(
+                core_definition.get(
+                    "required_objective_components_by_goal", {}
+                )
             ),
             "required_objective_sense": core_definition.get(
                 "required_objective_sense"

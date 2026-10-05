@@ -19,6 +19,9 @@ from agentic_optimization.state import (
     WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT,
     get_workflow_status,
 )
+from agentic_optimization.ui.business_intake_view_builder import (
+    build_business_intake_view_data,
+)
 
 
 def confirmed(value):
@@ -39,7 +42,8 @@ def test_node_selects_core_from_analyzed_description() -> None:
         "Wir möchten nur die Bestellmenge bestimmen. "
         "Das Produkt wird regelmäßig nachbestellt. "
         "Es geht um ein Produkt. "
-        "Wir möchten die Gesamtkosten reduzieren."
+        "Wir möchten die Gesamtkosten reduzieren. "
+        "Es gibt keine Mengenrabatte."
     )
 
     response = {
@@ -77,7 +81,23 @@ def test_node_selects_core_from_analyzed_description() -> None:
     llm = Mock()
     llm.invoke.side_effect = [
         AIMessage(content=json.dumps(response)),
-        AIMessage(content=json.dumps({"findings": []})),
+        AIMessage(content=json.dumps({
+            "candidates": [{
+                "core_id": "eoq",
+                "source_id": "raw_input",
+                "excerpt": "Das Produkt wird regelmäßig nachbestellt",
+                "open_condition_ids": [
+                    "steady_demand", "no_quantity_discounts", "no_shortages"
+                ],
+            }],
+            "reason": "Wiederkehrende Bestellmengenplanung.",
+        })),
+        AIMessage(content=json.dumps({"findings": [{
+            "condition_id": "no_quantity_discounts",
+            "status": "supported",
+            "source_id": "raw_input",
+            "excerpt": "Es gibt keine Mengenrabatte.",
+        }]})),
     ]
 
     node = create_business_intake_node(llm)
@@ -107,8 +127,441 @@ def test_node_selects_core_from_analyzed_description() -> None:
     assert intake_result["pending_question_ids"] == []
     assert intake_result["analysis_error"] is None
     assert result["raw_input"] == raw_input
-    assert llm.invoke.call_count == 2
+    assert llm.invoke.call_count == 3
     assert intake_result["applicability_plan"]["status"] == "provisional"
+    assert intake_result["applicability_text_evidence"] == [{
+        "condition_id": "no_quantity_discounts",
+        "status": "supported",
+        "source_id": "raw_input",
+        "excerpt": "Es gibt keine Mengenrabatte.",
+    }]
+
+    initialized = initialize_modular_core_node(result)
+    assert initialized["modular_model"]["core_assumption_evidence"] == (
+        intake_result["applicability_text_evidence"]
+    )
+
+
+def test_event_description_does_not_trigger_redundant_core_questions():
+    raw_input = (
+        "Für eine dreitägige Veranstaltung bestellen wir einen Artikel "
+        "einmal vor Beginn. Während der Veranstaltung können wir nicht "
+        "nachbestellen. Die Nachfrage ist unsicher. Wir möchten die "
+        "Bestellmenge festlegen und den erwarteten Gewinn maximieren."
+    )
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps({
+            "inferences": [
+                {"field_id": "procurement_pattern", "value": "one_time",
+                 "excerpt": "einmal vor Beginn"},
+                {"field_id": "replenishment_during_period",
+                 "value": "not_possible",
+                 "excerpt": "können wir nicht nachbestellen"},
+                {"field_id": "product_scope", "value": "single_product",
+                 "excerpt": "einen Artikel"},
+                {"field_id": "primary_goal", "value": "maximize_profit",
+                 "excerpt": "den erwarteten Gewinn maximieren"},
+            ],
+            "ambiguities": [],
+        })),
+        AIMessage(content=json.dumps({
+            "candidates": [
+                {
+                    "core_id": core_id,
+                    "source_id": "raw_input",
+                    "excerpt": "Bestellmenge festlegen",
+                    "open_condition_ids": list(condition_ids),
+                }
+                for core_id, condition_ids in (
+                    ("single_period_newsvendor", (
+                        "single_decision_period",
+                        "no_replenishment_within_period",
+                    )),
+                    ("continuous_review_q_r", (
+                        "continuous_inventory_review",
+                    )),
+                )
+            ],
+            "reason": "Beide Kandidaten zunächst prüfen.",
+        })),
+        AIMessage(content=json.dumps({"findings": []})),
+    ]
+
+    result = create_business_intake_node(llm)({
+        "raw_input": raw_input,
+        "business_intake": {
+            "profile": create_empty_business_problem_profile(),
+            "asked_question_ids": [],
+        },
+    })
+
+    assert get_workflow_status(result) == WORKFLOW_BUSINESS_CORE_SELECTED
+    assert result["business_intake"]["pending_question_ids"] == []
+    assert result["business_intake"]["core_selection"][
+        "selected_core_id"
+    ] == "single_period_newsvendor"
+    assert llm.invoke.call_count == 3
+
+
+def test_text_candidates_need_explicit_choice_when_both_plausible() -> None:
+    raw = "Wir planen eine Bestellung für einen Artikel."
+    profile = create_empty_business_problem_profile()
+    profile["product_scope"] = confirmed("single_product")
+    profile["primary_goal"] = confirmed("minimize_cost")
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps({"inferences": [], "ambiguities": []})),
+        AIMessage(content=json.dumps({
+            "candidates": [
+                {
+                    "core_id": core_id,
+                    "source_id": "raw_input",
+                    "excerpt": "eine Bestellung",
+                    "open_condition_ids": [],
+                }
+                for core_id in ("eoq", "single_period_newsvendor")
+            ],
+            "reason": "Der zeitliche Ablauf ist unklar.",
+        })),
+        AIMessage(content=json.dumps({
+            "question": (
+                "Legen Sie die Bestellmenge einmal vor einem "
+                "Verkaufszeitraum fest?"
+            ),
+        })),
+        AIMessage(content=json.dumps({"findings": []})),
+    ]
+    node = create_business_intake_node(llm)
+
+    first = node({
+        "raw_input": raw,
+        "business_intake": {
+            "profile": profile,
+            "asked_question_ids": [],
+            "pending_answers": [],
+        },
+    })
+    assert get_workflow_status(first) == WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT
+    intake = first["business_intake"]
+    assert intake["pending_question_ids"] == [
+        "core_condition:single_decision_period"
+    ]
+    question = build_business_intake_view_data(intake)["questions"][0]
+    assert {item["option_id"] for item in question["options"]} == {
+        "yes", "no", "user_unknown"
+    }
+    assert question["prompt"].startswith("Legen Sie")
+    assert "einmal vor dem betrachteten Zeitraum" in (
+        question["options"][0]["label"]
+    )
+
+    second = node({
+        **first,
+        "business_intake": {
+            **intake,
+            "pending_answers": [{
+                "question_id": "core_condition:single_decision_period",
+                "option_id": "no",
+                "source_id": "business_clarification_form",
+            }],
+        },
+    })
+    assert get_workflow_status(second) == WORKFLOW_BUSINESS_CORE_SELECTED
+    assert second["business_intake"]["core_selection"][
+        "selected_core_id"
+    ] == "eoq"
+    assert llm.invoke.call_count == 4
+
+
+def test_unknown_structural_answers_do_not_force_a_model_choice() -> None:
+    raw = "Wir möchten für einen Artikel eine Bestellmenge bestimmen."
+    profile = create_empty_business_problem_profile()
+    profile["product_scope"] = confirmed("single_product")
+    profile["primary_goal"] = confirmed("minimize_cost")
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps({"inferences": [], "ambiguities": []})),
+        AIMessage(content=json.dumps({
+            "candidates": [
+                {
+                    "core_id": core_id,
+                    "source_id": "raw_input",
+                    "excerpt": "Bestellmenge bestimmen",
+                    "open_condition_ids": [],
+                }
+                for core_id in ("eoq", "single_period_newsvendor")
+            ],
+            "reason": "Die Entscheidungsstruktur ist offen.",
+        })),
+        AIMessage(content=json.dumps({
+            "question": "Einmalige Entscheidung vor dem Zeitraum?"
+        })),
+        AIMessage(content=json.dumps({
+            "question": "Keine Nachbestellung im Zeitraum?"
+        })),
+    ]
+    node = create_business_intake_node(llm)
+    state = node({
+        "raw_input": raw,
+        "business_intake": {
+            "profile": profile,
+            "asked_question_ids": [],
+        },
+    })
+
+    for condition_id in (
+        "single_decision_period", "no_replenishment_within_period"
+    ):
+        intake = state["business_intake"]
+        assert intake["pending_question_ids"] == [
+            f"core_condition:{condition_id}"
+        ]
+        state = node({
+            **state,
+            "business_intake": {
+                **intake,
+                "pending_answers": [{
+                    "question_id": f"core_condition:{condition_id}",
+                    "option_id": "user_unknown",
+                    "source_id": "business_clarification_form",
+                }],
+            },
+        })
+
+    intake = state["business_intake"]
+    assert get_workflow_status(state) == WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT
+    assert intake["pending_question_ids"] == []
+    assert intake["core_selection"]["selected_core_id"] is None
+    assert intake["applicability_user_answers"] == {
+        "single_decision_period": "unknown",
+        "no_replenishment_within_period": "unknown",
+    }
+    view = build_business_intake_view_data(intake)
+    assert view["message_type"] == "warning"
+    assert "nicht bekannt" in view["message"]
+
+
+def test_unknown_primary_goal_is_not_repeated_or_assumed() -> None:
+    raw = "Wir möchten eine Bestellmenge für einen Artikel bestimmen."
+    profile = create_empty_business_problem_profile()
+    profile["product_scope"] = confirmed("single_product")
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps({"inferences": [], "ambiguities": []})),
+        AIMessage(content=json.dumps({
+            "candidates": [{
+                "core_id": "eoq",
+                "source_id": "raw_input",
+                "excerpt": "Bestellmenge für einen Artikel",
+                "open_condition_ids": [],
+            }],
+            "reason": "Bestellmengenplanung.",
+        })),
+        AIMessage(content=json.dumps({"findings": []})),
+    ]
+    node = create_business_intake_node(llm)
+    first = node({
+        "raw_input": raw,
+        "business_intake": {
+            "profile": profile,
+            "asked_question_ids": [],
+        },
+    })
+    assert first["business_intake"]["pending_question_ids"] == [
+        "primary_goal"
+    ]
+
+    result = node({
+        **first,
+        "business_intake": {
+            **first["business_intake"],
+            "pending_answers": [{
+                "question_id": "primary_goal",
+                "option_id": "user_unknown",
+                "source_id": "business_clarification_form",
+            }],
+        },
+    })
+
+    intake = result["business_intake"]
+    assert get_workflow_status(result) == WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT
+    assert intake["pending_question_ids"] == []
+    assert intake["profile"]["primary_goal"]["status"] == "user_unknown"
+    assert intake["core_selection"]["selected_core_id"] is None
+    assert "Optimierungsziel" in build_business_intake_view_data(
+        intake
+    )["message"]
+
+
+def test_single_candidate_waits_when_required_condition_is_unknown() -> None:
+    raw = "Wir planen eine Bestellmenge für einen Verkaufszeitraum."
+    profile = create_empty_business_problem_profile()
+    profile["product_scope"] = confirmed("single_product")
+    profile["primary_goal"] = confirmed("maximize_profit")
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps({"inferences": [], "ambiguities": []})),
+        AIMessage(content=json.dumps({
+            "candidates": [{
+                "core_id": "single_period_newsvendor",
+                "source_id": "raw_input",
+                "excerpt": "Bestellmenge für einen Verkaufszeitraum",
+                "open_condition_ids": [
+                    "single_decision_period",
+                    "no_replenishment_within_period",
+                ],
+            }],
+            "reason": "Einperiodiges Modell ist zu prüfen.",
+        })),
+        AIMessage(content=json.dumps({"findings": []})),
+    ]
+    node = create_business_intake_node(llm)
+    state = node({
+        "raw_input": raw,
+        "business_intake": {
+            "profile": profile,
+            "asked_question_ids": [],
+        },
+    })
+    assert state["business_intake"]["pending_question_ids"] == [
+        "core_condition:single_decision_period"
+    ]
+
+    for condition_id, answer in (
+        ("single_decision_period", "user_unknown"),
+        ("no_replenishment_within_period", "yes"),
+    ):
+        intake = state["business_intake"]
+        state = node({
+            **state,
+            "business_intake": {
+                **intake,
+                "pending_answers": [{
+                    "question_id": f"core_condition:{condition_id}",
+                    "option_id": answer,
+                    "source_id": "business_clarification_form",
+                }],
+            },
+        })
+
+    assert get_workflow_status(state) == WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT
+    assert state["business_intake"]["pending_question_ids"] == []
+    assert state["business_intake"]["core_selection"][
+        "selected_core_id"
+    ] is None
+
+
+def test_text_candidate_does_not_require_fixed_profile_answers() -> None:
+    raw = "Wir bestellen regelmäßig nach. Bitte berechnen Sie eine Bestellmenge."
+    profile = create_empty_business_problem_profile()
+    profile["product_scope"] = confirmed("single_product")
+    profile["primary_goal"] = confirmed("minimize_cost")
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps({"inferences": [], "ambiguities": []})),
+        AIMessage(content=json.dumps({
+            "candidates": [{
+                "core_id": "eoq",
+                "source_id": "raw_input",
+                "excerpt": "Wir bestellen regelmäßig nach",
+                "open_condition_ids": ["steady_demand"],
+            }],
+            "reason": "EOQ ist als Kandidat zu prüfen.",
+        })),
+        AIMessage(content=json.dumps({"findings": []})),
+    ]
+
+    result = create_business_intake_node(llm)({
+        "raw_input": raw,
+        "business_intake": {
+            "profile": profile,
+            "asked_question_ids": [],
+        },
+    })
+
+    assert get_workflow_status(result) == WORKFLOW_BUSINESS_CORE_SELECTED
+    assert result["business_intake"]["pending_question_ids"] == []
+    assert result["business_intake"]["core_selection"][
+        "selected_core_id"
+    ] == "eoq"
+
+
+def test_confirmed_candidate_conditions_survive_later_core_choice() -> None:
+    raw = "Wir planen die Bestellmenge für einen Verkaufszeitraum."
+    profile = create_empty_business_problem_profile()
+    profile["product_scope"] = confirmed("single_product")
+    profile["primary_goal"] = confirmed("minimize_cost")
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps({"inferences": [], "ambiguities": []})),
+        AIMessage(content=json.dumps({
+            "candidates": [
+                {
+                    "core_id": core_id,
+                    "source_id": "raw_input",
+                    "excerpt": "Bestellmenge",
+                    "open_condition_ids": [],
+                }
+                for core_id in ("eoq", "single_period_newsvendor")
+            ],
+            "reason": "Der Ablauf ist noch unklar.",
+        })),
+        AIMessage(content=json.dumps({
+            "question": "Wird die Menge vor dem Zeitraum festgelegt?"
+        })),
+        AIMessage(content=json.dumps({
+            "question": "Sind Nachbestellungen im Zeitraum ausgeschlossen?"
+        })),
+        AIMessage(content=json.dumps({"findings": []})),
+    ]
+    node = create_business_intake_node(llm)
+    state = node({
+        "raw_input": raw,
+        "business_intake": {
+            "profile": profile,
+            "asked_question_ids": [],
+        },
+    })
+
+    for condition_id in (
+        "single_decision_period", "no_replenishment_within_period"
+    ):
+        intake = state["business_intake"]
+        assert intake["pending_question_ids"] == [
+            f"core_condition:{condition_id}"
+        ]
+        state = node({
+            **state,
+            "business_intake": {
+                **intake,
+                "pending_answers": [{
+                    "question_id": f"core_condition:{condition_id}",
+                    "option_id": "yes",
+                    "source_id": "business_clarification_form",
+                }],
+            },
+        })
+
+    intake = state["business_intake"]
+    assert intake["pending_question_ids"] == ["core_choice"]
+    result = node({
+        **state,
+        "business_intake": {
+            **intake,
+            "pending_answers": [{
+                "question_id": "core_choice",
+                "option_id": "single_period_newsvendor",
+                "source_id": "business_clarification_form",
+            }],
+        },
+    })
+
+    assert get_workflow_status(result) == WORKFLOW_BUSINESS_CORE_SELECTED
+    assert result["business_intake"]["applicability_user_answers"] == {
+        "single_decision_period": "supported",
+        "no_replenishment_within_period": "supported",
+    }
 
 
 def test_node_requests_missing_business_answers() -> None:
@@ -349,6 +802,7 @@ def test_initializes_modular_core_from_selection() -> None:
                 "status": "optimal",
             },
             "preparation_error": "Alter Fehler",
+            "review_explanation": "Alte Erklärung",
         },
     }
 
@@ -366,6 +820,7 @@ def test_initializes_modular_core_from_selection() -> None:
     assert "proposal" not in modular_result
     assert "specification" not in modular_result
     assert "validation" not in modular_result
+    assert "review_explanation" not in modular_result
     assert modular_result[
         "pending_input_submissions"
     ] == []

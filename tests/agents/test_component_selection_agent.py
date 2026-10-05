@@ -179,6 +179,149 @@ def test_repair_preserves_reported_unsupported_requirement() -> None:
     assert result["unresolved_requirements"] == [requirement]
 
 
+def test_deduplicates_eoq_questions_about_mandatory_cost_components() -> None:
+    decision = {
+        "objective_components": [],
+        "constraints": [],
+        "unresolved_requirements": [
+            {
+                "description": description,
+                "resolution": "clarification",
+                "candidate_component_ids": [
+                    "annual_ordering_cost", "annual_holding_cost"
+                ],
+                "reason": "Welche Kosten sind relevant?",
+                "sources": ["raw_input"],
+            }
+            for description in (
+                "Bestellkosten berücksichtigen",
+                "Lagerhaltungskosten berücksichtigen",
+            )
+        ],
+    }
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps(decision))
+
+    result = create_component_selection_agent(llm)(
+        core_id="eoq",
+        requirements={"objective": "Jährliche Kosten minimieren"},
+        products=[],
+        global_facts={},
+        evidence=[{
+            "source_id": "raw_input",
+            "content": (
+                "Bestell- und Lagerhaltungskosten sollen "
+                "minimiert werden."
+            ),
+        }],
+    )
+
+    assert result["selection_status"] == "complete"
+    assert result["unresolved_requirements"] == []
+    assert {
+        item["component_id"] for item in result["objective_components"]
+    } == {"annual_ordering_cost", "annual_holding_cost"}
+    assert llm.invoke.call_count == 1
+
+
+def test_deduplication_preserves_other_unsupported_requirement() -> None:
+    duplicated = {
+        "description": "Bestellkosten berücksichtigen",
+        "resolution": "clarification",
+        "candidate_component_ids": ["annual_ordering_cost"],
+        "reason": "Kostenart unklar.",
+        "sources": ["raw_input"],
+    }
+    unsupported = {
+        "description": "Lieferung nur dienstags",
+        "resolution": "unsupported",
+        "candidate_component_ids": [],
+        "reason": "Kein passender Baustein.",
+        "sources": ["raw_input"],
+    }
+    decision = {
+        "objective_components": [],
+        "constraints": [],
+        "unresolved_requirements": [duplicated, unsupported],
+    }
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps(decision))
+
+    result = create_component_selection_agent(llm)(
+        core_id="eoq",
+        requirements={"objective": "Kosten minimieren"},
+        products=[],
+        global_facts={},
+        evidence=[{
+            "source_id": "raw_input",
+            "content": "Bestellkosten und Lieferung nur dienstags.",
+        }],
+    )
+
+    assert result["selection_status"] == "unsupported"
+    assert result["unresolved_requirements"] == [unsupported]
+    assert llm.invoke.call_count == 1
+
+
+def test_nonmandatory_overlap_still_needs_focused_repair() -> None:
+    decision = create_response()
+    decision["unresolved_requirements"] = [{
+        "description": "Ungeklärte Erlösart",
+        "resolution": "clarification",
+        "candidate_component_ids": ["sales_revenue"],
+        "reason": "Erlösart noch offen.",
+        "sources": ["source_1"],
+    }]
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps(decision)),
+        AIMessage(content=json.dumps({"unresolved_requirements": []})),
+    ]
+
+    result = call_agent(llm)
+
+    assert result["unresolved_requirements"] == []
+    assert llm.invoke.call_count == 2
+
+
+def test_profit_goal_collects_missing_purchase_price_in_form() -> None:
+    response = {
+        "objective_sense": "maximize",
+        "objective_components": [{
+            "component_id": "sales_revenue",
+            "reason": "Erlöse berücksichtigen.",
+            "sources": ["raw_input"],
+        }],
+        "constraints": [],
+        "unresolved_requirements": [{
+            "description": "Einkaufskosten fehlen.",
+            "resolution": "clarification",
+            "candidate_component_ids": ["purchase_cost"],
+            "reason": "Ein Einkaufspreis wurde nicht angegeben.",
+            "sources": ["raw_input"],
+        }],
+    }
+    llm = create_mock_llm(response)
+
+    result = create_component_selection_agent(llm)(
+        core_id="single_period_newsvendor",
+        requirements={"objective": "maximize_profit"},
+        products=[],
+        global_facts={},
+        evidence=[{
+            "source_id": "raw_input",
+            "content": "Den erwarteten Gewinn maximieren.",
+        }],
+    )
+
+    assert result["selection_status"] == "complete"
+    assert result["unresolved_requirements"] == []
+    assert {item["component_id"] for item in result[
+        "objective_components"
+    ]} == {"sales_revenue", "purchase_cost"}
+    assert llm.invoke.call_count == 1
+
+
 def test_invalid_focused_repair_still_fails_closed() -> None:
     invalid = create_response()
     invalid["unresolved_requirements"] = None
@@ -333,7 +476,8 @@ def test_prompt_contains_filtered_component_catalog() -> None:
 
     assert "builder" not in user_message
     assert (
-        "Pflichtbausteine des Grundmodells werden vom "
+        "Pflichtbausteine des Grundmodells und des angegebenen "
+        "Optimierungsziels werden vom "
         "System ergänzt"
         in normalized_system_message
     )

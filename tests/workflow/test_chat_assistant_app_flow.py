@@ -125,6 +125,21 @@ class FakeLLM:
         if system.startswith("Prüfe ausschließlich"):
             return AIMessage(content=json.dumps({"findings": []}))
 
+        if system.startswith("Vergleiche die Geschäftssituation"):
+            return AIMessage(content=json.dumps({
+                "candidates": [{
+                    "core_id": "eoq",
+                    "source_id": "raw_input",
+                    "excerpt": "regelmäßig nach",
+                    "open_condition_ids": [
+                        "steady_demand",
+                        "no_quantity_discounts",
+                        "no_shortages",
+                    ],
+                }],
+                "reason": "Wiederkehrende Bestellungen.",
+            }))
+
         if system.startswith("Du wählst"):
             return AIMessage(content=json.dumps(PROPOSAL))
 

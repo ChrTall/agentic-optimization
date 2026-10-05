@@ -118,6 +118,25 @@ def test_user_unknown_remains_open_for_adaptive_clarification() -> None:
     assert "procurement_pattern" in get_question_ids(profile)
 
 
+def test_unknown_primary_goal_is_not_asked_again_immediately() -> None:
+    profile = create_profile()
+    profile["primary_goal"] = create_profile_field(
+        status="user_unknown",
+        evidence=[{
+            "source_id": "form_1",
+            "source_type": "user_selection",
+        }],
+    )
+
+    questions = get_relevant_business_questions(
+        profile, asked_question_ids=["primary_goal"]
+    )
+
+    assert "primary_goal" not in [
+        question["question_id"] for question in questions
+    ]
+
+
 def test_user_unknown_uses_concrete_procurement_follow_up() -> None:
     profile = create_profile()
     profile["procurement_pattern"] = create_profile_field(

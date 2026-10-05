@@ -67,6 +67,8 @@ def render_business_intake_page(
 
     if view["message_type"] == "error":
         st.error(view["message"])
+    elif view["message_type"] == "warning":
+        st.warning(view["message"])
     elif view["message_type"] == "success":
         st.success(view["message"])
 

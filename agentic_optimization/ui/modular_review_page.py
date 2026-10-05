@@ -10,7 +10,7 @@ from agentic_optimization.models.component_catalog import (
     build_component_catalog,
 )
 from agentic_optimization.models.core_applicability import (
-    CONDITION_GUIDANCE,
+    CONDITION_LABELS,
     CORE_ASSUMPTION_CONFIRMATION_PREFIX,
 )
 from agentic_optimization.models.specification import (
@@ -310,6 +310,7 @@ def render_modular_review_page(
     *,
     explanation: str | None = None,
     pending_core_assumptions: list[str] | None = None,
+    core_assumption_evidence: list[dict[str, str]] | None = None,
 ) -> bool:
     """
     Rendert Formular 4.
@@ -332,7 +333,7 @@ def render_modular_review_page(
         else build_default_review_explanation(
             review,
             pending_core_assumptions=[
-                CONDITION_GUIDANCE[condition_id]
+                CONDITION_LABELS[condition_id]
                 for condition_id in (
                     pending_core_assumptions or []
                 )
@@ -595,25 +596,10 @@ def render_modular_review_page(
         )
         return False
 
-    pending_core_assumptions = pending_core_assumptions or []
-    assumptions_confirmed = True
-    if pending_core_assumptions:
-        st.warning(
-            "Bitte bestätigen Sie jede dieser Voraussetzungen "
-            "einzeln. Eine automatische Einschätzung ist noch "
-            "keine Bestätigung:"
-        )
-        for condition_id in pending_core_assumptions:
-            condition_confirmed = st.checkbox(
-                CONDITION_GUIDANCE[condition_id],
-                key=(
-                    CORE_ASSUMPTION_CONFIRMATION_PREFIX
-                    + condition_id
-                ),
-            )
-            assumptions_confirmed = (
-                assumptions_confirmed and condition_confirmed
-            )
+    assumptions_confirmed = _render_core_assumption_confirmations(
+        pending_core_assumptions or [],
+        core_assumption_evidence or [],
+    )
 
     confirmed = st.checkbox(
         "Ich habe Grundmodell, Eingabedaten und "
@@ -628,3 +614,51 @@ def render_modular_review_page(
         disabled=not (confirmed and assumptions_confirmed),
         key="start_modular_optimization",
     )
+
+
+def _render_core_assumption_confirmations(
+    pending_core_assumptions: list[str],
+    core_assumption_evidence: list[dict[str, str]],
+) -> bool:
+    """Zeigt LLM-Textbelege getrennt von der Nutzerbestätigung."""
+
+    supported_evidence = [
+        item for item in core_assumption_evidence
+        if item.get("status") == "supported"
+        and item.get("condition_id") in pending_core_assumptions
+        and item.get("condition_id") in CONDITION_LABELS
+        and isinstance(item.get("excerpt"), str)
+        and item["excerpt"].strip()
+    ]
+    if supported_evidence:
+        st.markdown("#### Aus Ihrer Beschreibung abgeleitet")
+        st.caption(
+            "Diese Einschätzungen stammen vom Sprachmodell. "
+            "Bitte prüfen Sie, ob der jeweilige Textbeleg die "
+            "Voraussetzung tatsächlich stützt."
+        )
+        for item in supported_evidence:
+            st.markdown(
+                f"**{CONDITION_LABELS[item['condition_id']]}**"
+            )
+            st.write(f"Ihre Angabe: „{item['excerpt']}“")
+    assumptions_confirmed = True
+    if pending_core_assumptions:
+        st.warning(
+            "Bitte bestätigen Sie jede dieser Voraussetzungen "
+            "einzeln. Eine automatische Einschätzung ist noch "
+            "keine Bestätigung:"
+        )
+        for condition_id in pending_core_assumptions:
+            condition_confirmed = st.checkbox(
+                CONDITION_LABELS[condition_id],
+                key=(
+                    CORE_ASSUMPTION_CONFIRMATION_PREFIX
+                    + condition_id
+                ),
+            )
+            assumptions_confirmed = (
+                assumptions_confirmed and condition_confirmed
+            )
+
+    return assumptions_confirmed

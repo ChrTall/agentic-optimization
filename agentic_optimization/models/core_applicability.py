@@ -5,6 +5,7 @@ from typing import Literal, TypedDict
 
 
 Finding = Literal["supported", "contradicted", "conflict"]
+UserConditionAnswer = Literal["supported", "contradicted", "unknown"]
 ApplicabilityStatus = Literal[
     "eligible",
     "needs_clarification",
@@ -64,10 +65,9 @@ IMMEDIATE_CLARIFICATION_CONDITIONS = frozenset({
 })
 
 
-CONDITION_GUIDANCE: dict[str, str] = {
+CONDITION_LABELS: dict[str, str] = {
     "steady_demand": (
-        "Der Bedarf ist über die Zeit ungefähr gleichmäßig und "
-        "planbar. Ein Jahresbedarf allein belegt das nicht."
+        "Der Bedarf ist über die Zeit ungefähr gleichmäßig und planbar."
     ),
     "no_quantity_discounts": (
         "Es gelten keine von der Bestellmenge abhängigen "
@@ -79,8 +79,7 @@ CONDITION_GUIDANCE: dict[str, str] = {
     ),
     "single_decision_period": (
         "Die Bestellmenge wird einmal vor dem betrachteten "
-        "Zeitraum festgelegt. Mehrere Verkaufstage allein "
-        "widersprechen dem nicht."
+        "Zeitraum festgelegt."
     ),
     "no_replenishment_within_period": (
         "Während des betrachteten Zeitraums kann nicht "
@@ -91,9 +90,32 @@ CONDITION_GUIDANCE: dict[str, str] = {
         "Abständen überprüft."
     ),
     "constant_lead_time": (
-        "Die Lieferzeit wird für dieses Modell als "
-        "konstant angenommen."
+        "Die Lieferzeit wird für dieses Modell als konstant angenommen."
     ),
+}
+
+
+# Hinweise zur Interpretation sind für die Analyse bestimmt, nicht für
+# Checkboxen, mit denen Nutzer die Voraussetzung selbst bestätigen.
+CONDITION_GUIDANCE: dict[str, str] = {
+    "steady_demand": (
+        CONDITION_LABELS["steady_demand"]
+        + " Ein Jahresbedarf allein belegt das nicht."
+    ),
+    "no_quantity_discounts": CONDITION_LABELS["no_quantity_discounts"],
+    "no_shortages": CONDITION_LABELS["no_shortages"],
+    "single_decision_period": (
+        "Die Bestellmenge wird einmal vor dem betrachteten "
+        "Zeitraum festgelegt. Mehrere Verkaufstage allein "
+        "widersprechen dem nicht."
+    ),
+    "no_replenishment_within_period": CONDITION_LABELS[
+        "no_replenishment_within_period"
+    ],
+    "continuous_inventory_review": CONDITION_LABELS[
+        "continuous_inventory_review"
+    ],
+    "constant_lead_time": CONDITION_LABELS["constant_lead_time"],
 }
 
 CORE_ASSUMPTION_CONFIRMATION_PREFIX = "confirm_core_assumption_"
@@ -209,10 +231,21 @@ def plan_core_applicability(
     findings: Mapping[str, Finding],
     *,
     confirmed_conditions: Collection[str] = (),
+    deferred_conditions: Collection[str] = (),
 ) -> ApplicabilityPlan:
     """Plant Klärung und Review, ohne einen Kern endgültig auszuwählen."""
 
-    assessment = assess_core_applicability(core_id, findings)
+    if core_id not in CORE_CONDITIONS:
+        raise ValueError(f"Unbekanntes Grundmodell: {core_id}")
+    deferred = set(deferred_conditions)
+    if deferred - set(CORE_CONDITIONS[core_id]):
+        raise ValueError("Unbekannte offen gelassene Modellvoraussetzung.")
+    effective_findings = {
+        condition_id: finding
+        for condition_id, finding in findings.items()
+        if condition_id not in deferred
+    }
+    assessment = assess_core_applicability(core_id, effective_findings)
     unknown_confirmations = set(confirmed_conditions) - set(
         CORE_CONDITIONS[core_id]
     )
@@ -257,11 +290,30 @@ def plan_core_applicability(
         if condition in IMMEDIATE_CLARIFICATION_CONDITIONS
     ]
     if immediate_missing:
+        question_candidates = [
+            condition for condition in immediate_missing
+            if condition not in deferred
+        ]
+        if question_candidates:
+            return {
+                **base,
+                "status": "needs_clarification",
+                "question_condition_id": question_candidates[0],
+                "question_reason": "missing",
+            }
         return {
             **base,
             "status": "needs_clarification",
-            "question_condition_id": immediate_missing[0],
-            "question_reason": "missing",
+            "question_condition_id": None,
+            "question_reason": None,
+        }
+
+    if deferred:
+        return {
+            **base,
+            "status": "needs_clarification",
+            "question_condition_id": None,
+            "question_reason": None,
         }
 
     if pending_confirmation:

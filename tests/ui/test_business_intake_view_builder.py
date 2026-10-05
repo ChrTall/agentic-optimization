@@ -106,6 +106,40 @@ def test_hides_technical_model_name_for_unsupported_case() -> None:
     assert "Q,R" not in view["message"]
 
 
+def test_core_choice_describes_situation_without_model_names() -> None:
+    view = build_business_intake_view_data({
+        "profile": create_empty_business_problem_profile(),
+        "pending_question_ids": ["core_choice"],
+        "candidate_proposal": {
+            "candidates": [
+                {
+                    "core_id": core_id,
+                    "source_id": "raw_input",
+                    "excerpt": "Bestellung",
+                    "open_condition_ids": [],
+                }
+                for core_id in ("eoq", "single_period_newsvendor")
+            ],
+            "reason": "Zwei Kandidaten.",
+        },
+    })
+
+    question = view["questions"][0]
+    assert question["question_id"] == "core_choice"
+    assert "Bestellsituation" in question["prompt"]
+    assert {option["option_id"] for option in question["options"]} == {
+        "eoq", "single_period_newsvendor"
+    }
+    visible = " ".join(
+        option["label"] + " " + option["help"]
+        for option in question["options"]
+    )
+    assert "EOQ" not in visible
+    assert "Newsvendor" not in visible
+    assert "bei jeder Bestellung" in visible
+    assert "vor Beginn des Verkaufszeitraums" in visible
+
+
 def test_rejects_unknown_pending_question() -> None:
     with pytest.raises(
         ValueError,

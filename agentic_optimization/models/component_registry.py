@@ -92,6 +92,7 @@ class ConstraintComponentDefinition(TypedDict):
     parameters: list[ConstraintParameterDefinition]
     linear_builder: NotRequired[ConstraintComponentBuilder]
     selection_guidance: NotRequired[str]
+    requires_explicit_request: NotRequired[bool]
 
 
 def build_sales_revenue(
@@ -950,6 +951,12 @@ CONSTRAINT_COMPONENTS: dict[
         ],
         "required_product_facts": [],
         "required_global_facts": [],
+        "requires_explicit_request": True,
+        "selection_guidance": (
+            "Nur bei ausdrücklich gewünschter zusätzlicher Untergrenze "
+            "für den Meldebestand auswählen. Die Bitte, den Meldebestand "
+            "zu bestimmen, ist keine solche Untergrenze."
+        ),
         "parameters": [
             {
                 "name": "reorder_point",
@@ -977,6 +984,12 @@ CONSTRAINT_COMPONENTS: dict[
         ],
         "required_product_facts": [],
         "required_global_facts": [],
+        "requires_explicit_request": True,
+        "selection_guidance": (
+            "Nur bei ausdrücklich gewünschter zusätzlicher Obergrenze "
+            "für den Meldebestand auswählen. Die Bitte, den Meldebestand "
+            "zu bestimmen, ist keine solche Obergrenze."
+        ),
         "parameters": [
             {
                 "name": "reorder_point",

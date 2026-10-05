@@ -16,6 +16,7 @@ from langchain_core.messages import (
 from agentic_optimization.models.component_catalog import (
     build_component_catalog,
 )
+from agentic_optimization.models.core_registry import CORE_REGISTRY
 from agentic_optimization.models.proposal_mapper import (
     validate_component_selection_proposal,
     build_component_selection_proposal,
@@ -40,7 +41,8 @@ Regeln:
    Gib core_id nicht in deiner Antwort zurück; sie wird vom
    System ergänzt.
 3. Erfinde keine Bausteine, Fakten oder Parameterwerte.
-4. Pflichtbausteine des Grundmodells werden vom System ergänzt.
+4. Pflichtbausteine des Grundmodells und des angegebenen
+   Optimierungsziels werden vom System ergänzt.
    Falls der Grundmodellkatalog required_objective_sense enthält,
    ist diese Zielrichtung verbindlich und wird vom System gesetzt.
 5. Wähle zusätzliche, nicht verpflichtende Bausteine nur,
@@ -97,6 +99,10 @@ Regeln:
     unresolved_requirements muss immer eine Liste sein.
     Nur wenn wirklich keine Anforderung offen ist, gib [] zurück;
     niemals null und lasse das Feld nicht weg.
+    Ein bereits ausgewählter oder vom Grundmodell verpflichtend
+    ergänzter Baustein darf nie Kandidat einer Rückfrage sein.
+    Ist die Anforderung dadurch bereits abgedeckt, frage nicht
+    noch einmal danach.
 12. selection_status wird vom System abgeleitet und ist kein
     Ausgabefeld.
 
@@ -308,11 +314,51 @@ def _build_user_message(
     )
 
 
+def _remove_redundant_required_objective_questions(
+    decision: dict[str, Any],
+    *,
+    core_id: str,
+    objective_goal: str | None = None,
+) -> None:
+    """Entfernt nur Rückfragen zwischen ohnehin verpflichtenden Zielen."""
+
+    core = CORE_REGISTRY.get(core_id)
+    unresolved = decision.get("unresolved_requirements")
+    if core is None or not isinstance(unresolved, list):
+        return
+
+    definition = core["definition"]
+    required_ids = set(definition["required_objective_component_ids"])
+    required_ids.update(
+        definition.get("required_objective_components_by_goal", {}).get(
+            objective_goal or "", []
+        )
+    )
+    if not required_ids:
+        return
+
+    decision["unresolved_requirements"] = [
+        item for item in unresolved
+        if not (
+            isinstance(item, dict)
+            and item.get("resolution") == "clarification"
+            and isinstance(item.get("candidate_component_ids"), list)
+            and bool(item["candidate_component_ids"])
+            and all(
+                isinstance(candidate_id, str)
+                and candidate_id in required_ids
+                for candidate_id in item["candidate_component_ids"]
+            )
+        )
+    ]
+
+
 def _parse_and_validate_proposal(
     content: object,
     *,
     expected_core_id: str,
     evidence: list[SelectionEvidence],
+    objective_goal: str | None = None,
     locked_objective_proposal: (
         ComponentSelectionProposal | None
     ) = None,
@@ -332,8 +378,15 @@ def _parse_and_validate_proposal(
             "als das vorgegebene Grundmodell zurückgegeben."
         )
 
+    _remove_redundant_required_objective_questions(
+        raw_decision,
+        core_id=expected_core_id,
+        objective_goal=objective_goal,
+    )
+
     raw_proposal = build_component_selection_proposal(
         core_id=expected_core_id,
+        objective_goal=objective_goal,
         decision=cast(
             ComponentSelectionDecision,
             raw_decision,
@@ -501,28 +554,41 @@ def _repair_unresolved_requirements_list(
     requirements: dict[str, Any],
     evidence: list[SelectionEvidence],
     locked_objective_proposal: ComponentSelectionProposal | None,
+    validation_errors: list[str],
 ) -> ComponentSelectionProposal:
-    """Fragt nur die fehlende Liste nach; validiert danach alles erneut."""
+    """Lässt nur die offene Liste korrigieren; validiert danach alles."""
 
     decision = _parse_json_response(original_content)
+    built_proposal = build_component_selection_proposal(
+        core_id=expected_core_id,
+        decision=cast(ComponentSelectionDecision, decision),
+        objective_goal=requirements.get("objective"),
+    )
     repair_task = {
         "core_id": expected_core_id,
         "requirements": requirements,
         "evidence": evidence,
-        "selected_objective_components": decision.get(
+        "selected_objective_components": built_proposal.get(
             "objective_components"
         ),
         "selected_constraints": decision.get("constraints"),
         "previous_unresolved_value": decision.get(
             "unresolved_requirements"
         ),
+        "validation_errors": validation_errors,
     }
     response = llm.invoke([
         SystemMessage(content=(
-            "Ergänze ausschließlich die Liste ungelöster Anforderungen "
+            "Korrigiere ausschließlich die Liste ungelöster Anforderungen "
             "für den vorliegenden Bausteinentwurf. Prüfe die Anforderungen "
             "gegen die bereits ausgewählten Bausteine. Verliere keine "
             "fachlich offene oder nicht unterstützte Anforderung. "
+            "Ein bereits ausgewählter oder vom Grundmodell verpflichtend "
+            "ergänzter Baustein darf nicht Kandidat einer Rückfrage sein. "
+            "Entferne eine Rückfrage nur, wenn ihre Anforderung bereits "
+            "abgedeckt ist; sonst korrigiere die Kandidaten oder melde "
+            "die Anforderung als unsupported. Ändere weder Zielfunktion "
+            "noch ausgewählte Nebenbedingungen. "
             "Fehlende Zahlenwerte für ausgewählte Bausteine gehören nicht "
             "in diese Liste. Antworte ausschließlich als JSON-Objekt "
             "mit dem einzigen Feld unresolved_requirements. Dessen Wert "
@@ -545,6 +611,36 @@ def _repair_unresolved_requirements_list(
             "ungelöster Anforderungen zurückgeben."
         )
 
+    # Die fokussierte Korrektur darf andere, bereits gültige
+    # Anforderungen nicht stillschweigend verschwinden lassen.
+    original_unresolved = decision.get("unresolved_requirements")
+    if isinstance(original_unresolved, list):
+        selected_ids = {
+            item["component_id"]
+            for group in (
+                built_proposal.get("objective_components"),
+                built_proposal.get("constraints"),
+            )
+            if isinstance(group, list)
+            for item in group
+            if isinstance(item, dict)
+            and isinstance(item.get("component_id"), str)
+        }
+        for requirement in original_unresolved:
+            if not isinstance(requirement, dict):
+                continue
+            candidates = requirement.get("candidate_component_ids")
+            if (
+                isinstance(candidates, list)
+                and all(isinstance(item, str) for item in candidates)
+                and not selected_ids.intersection(candidates)
+                and requirement not in repair["unresolved_requirements"]
+            ):
+                raise ValueError(
+                    "Die gezielte Korrektur hat eine andere offene "
+                    "Anforderung entfernt."
+                )
+
     decision["unresolved_requirements"] = repair[
         "unresolved_requirements"
     ]
@@ -552,6 +648,7 @@ def _repair_unresolved_requirements_list(
         json.dumps(decision, ensure_ascii=False),
         expected_core_id=expected_core_id,
         evidence=evidence,
+        objective_goal=requirements.get("objective"),
         locked_objective_proposal=locked_objective_proposal,
     )
 
@@ -837,6 +934,7 @@ def create_component_selection_agent(
                     response.content,
                     expected_core_id=core_id,
                     evidence=evidence,
+                    objective_goal=requirements.get("objective"),
                     locked_objective_proposal=(
                         locked_objective_proposal
                     ),
@@ -847,10 +945,20 @@ def create_component_selection_agent(
                     and isinstance(
                         error, ComponentSelectionValidationError
                     )
-                    and error.errors == [
-                        "Die ungelösten Anforderungen müssen als "
-                        "Liste vorliegen."
-                    ]
+                    and (
+                        error.errors == [
+                            "Die ungelösten Anforderungen müssen als "
+                            "Liste vorliegen."
+                        ]
+                        or (
+                            error.errors
+                            and all(
+                                "Kandidaten-Baustein" in item
+                                and "bereits ausgewählt" in item
+                                for item in error.errors
+                            )
+                        )
+                    )
                 ):
                     focused_repair_attempted = True
                     try:
@@ -863,6 +971,7 @@ def create_component_selection_agent(
                             locked_objective_proposal=(
                                 locked_objective_proposal
                             ),
+                            validation_errors=error.errors,
                         )
                     except (TypeError, ValueError) as repair_error:
                         error = repair_error

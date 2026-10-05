@@ -107,6 +107,31 @@ def test_builds_proposal_from_semantic_decision() -> None:
     assert proposal["unresolved_requirements"] == []
 
 
+def test_profit_goal_adds_required_cost_component_without_value() -> None:
+    proposal = build_component_selection_proposal(
+        core_id="single_period_newsvendor",
+        objective_goal="maximize_profit",
+        decision={
+            "objective_sense": "maximize",
+            "objective_components": [{
+                "component_id": "sales_revenue",
+                "reason": "Erlöse berücksichtigen.",
+                "sources": ["raw_input"],
+            }],
+            "constraints": [],
+            "unresolved_requirements": [],
+        },
+    )
+
+    assert {item["component_id"] for item in proposal[
+        "objective_components"
+    ]} == {"sales_revenue", "purchase_cost"}
+    assert next(item for item in proposal["objective_components"]
+                if item["component_id"] == "purchase_cost")[
+        "sources"
+    ] == ["core_definition"]
+
+
 def test_adds_required_core_components_deterministically(
 ) -> None:
     decision = {

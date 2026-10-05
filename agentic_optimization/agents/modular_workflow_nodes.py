@@ -21,7 +21,7 @@ from agentic_optimization.agents.modular_review_explanation_agent import (
     create_modular_review_explanation_agent,
 )
 from agentic_optimization.models.core_applicability import (
-    CONDITION_GUIDANCE,
+    CONDITION_LABELS,
 )
 from agentic_optimization.models.proposal_mapper import (
     build_specification_from_proposal,
@@ -197,7 +197,7 @@ def create_modular_review_explanation_node(
             specification,
         )
         pending_assumptions = [
-            CONDITION_GUIDANCE[condition_id]
+            CONDITION_LABELS[condition_id]
             for condition_id in modular_state.get(
                 "pending_core_assumptions", []
             )

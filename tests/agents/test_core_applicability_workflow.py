@@ -10,6 +10,9 @@ from agentic_optimization.agents.business_intake_nodes import (
     create_business_intake_node,
     initialize_modular_core_node,
 )
+from agentic_optimization.agents.core_applicability_workflow import (
+    plan_candidate_applicability,
+)
 from agentic_optimization.agents.modular_workflow_nodes import (
     execute_modular_model_node,
 )
@@ -63,6 +66,21 @@ def _q_r_profile():
     profile["product_scope"] = _confirmed("single_product")
     profile["primary_goal"] = _confirmed("minimize_cost")
     return profile
+
+
+def test_user_unknown_overrides_positive_text_inference() -> None:
+    plan = plan_candidate_applicability(
+        "single_period_newsvendor",
+        _newsvendor_profile(),
+        {
+            "single_decision_period": "supported",
+            "no_replenishment_within_period": "supported",
+        },
+        {"single_decision_period": "unknown"},
+    )
+
+    assert plan["status"] == "needs_clarification"
+    assert plan["question_condition_id"] is None
 
 
 @pytest.mark.parametrize(

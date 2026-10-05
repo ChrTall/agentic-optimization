@@ -31,11 +31,14 @@ def render_business_clarification_page(
 
     if view["message_type"] == "error":
         st.error(view["message"])
+    elif view["message_type"] == "warning":
+        st.warning(view["message"])
 
     if not view["questions"]:
-        st.info(
-            "Derzeit sind keine konkreten Rückfragen offen."
-        )
+        if view["message_type"] not in {"error", "warning"}:
+            st.info(
+                "Derzeit sind keine konkreten Rückfragen offen."
+            )
         return None
 
     st.write(
