@@ -82,9 +82,15 @@ def render_dynamic_product_table_page(
     *,
     core_id: str,
     proposal: ComponentSelectionProposal,
+    prefilled_rows: list[dict[str, Any]] | None = None,
+    editor_version: int = 0,
 ) -> list[ProductSpecification] | None:
     """
     Erfasst Produktkennungen und Produktwerte in einer Tabelle.
+
+    prefilled_rows enthält optional bereits (z. B. im Chat)
+    erfasste Zeilen. Ändern sie sich, muss editor_version erhöht
+    werden, damit der Tabelleneditor neu aufgebaut wird.
 
     None bedeutet, dass die Tabelle noch nicht erfolgreich
     abgesendet wurde.
@@ -101,15 +107,24 @@ def render_dynamic_product_table_page(
             *schema["fact_fields"],
         ]
     ]
+    empty_row = {
+        "product_id": "",
+        **{
+            field_name: None
+            for field_name in field_names
+        },
+    }
     initial_rows = [
         {
-            "product_id": "",
+            **empty_row,
             **{
-                field_name: None
-                for field_name in field_names
+                key: value
+                for key, value in row.items()
+                if key in empty_row
             },
         }
-    ]
+        for row in (prefilled_rows or [])
+    ] or [empty_row]
 
     st.subheader("Angaben zur Berechnung")
     st.write(
@@ -135,7 +150,11 @@ def render_dynamic_product_table_page(
         hide_index=False,
         use_container_width=True,
         num_rows="dynamic",
-        key="dynamic_modular_product_table",
+        key=(
+            "dynamic_modular_product_table"
+            if not editor_version
+            else f"dynamic_modular_product_table_{editor_version}"
+        ),
     )
 
     submitted = st.button(
