@@ -236,6 +236,7 @@ def create_modular_model_agent(
         )
 
         if enable_coverage_audit:
+            before_coverage = proposal
             proposal = component_coverage_agent(
                 core_id=core_id,
                 requirements=requirements,
@@ -243,6 +244,15 @@ def create_modular_model_agent(
                 evidence=evidence,
                 proposal=proposal,
             )
+            if (
+                proposal["unresolved_requirements"]
+                != before_coverage["unresolved_requirements"]
+            ):
+                proposal = integrity_agent(
+                    proposal=proposal,
+                    evidence=evidence,
+                    objective_goal=requirements.get("objective"),
+                )
 
         if proposal["selection_status"] != "complete":
             return {

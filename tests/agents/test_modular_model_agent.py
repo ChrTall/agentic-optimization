@@ -584,6 +584,10 @@ def test_returns_unsupported_proposal_without_specification() -> None:
             )
         ),
         AIMessage(content=json.dumps(response)),
+        AIMessage(content=json.dumps({
+            "rejected_constraints": [],
+            "input_only_requirements": [],
+        })),
         AIMessage(
             content=json.dumps(
                 {
@@ -629,7 +633,7 @@ def test_returns_unsupported_proposal_without_specification() -> None:
     assert draft["global_facts"] == {}
     assert "specification" not in draft
     assert "validation" not in draft
-    assert llm.invoke.call_count == 3
+    assert llm.invoke.call_count == 4
 
 
 def test_coverage_audit_detects_overlooked_requirement(
@@ -690,6 +694,10 @@ def test_coverage_audit_detects_overlooked_requirement(
                 }
             )
         ),
+        AIMessage(content=json.dumps({
+            "rejected_constraints": [],
+            "input_only_requirements": [],
+        })),
     ]
 
     agent = create_modular_model_agent(llm)
@@ -736,4 +744,90 @@ def test_coverage_audit_detects_overlooked_requirement(
     ]
     assert "specification" not in draft
     assert "validation" not in draft
-    assert llm.invoke.call_count == 3
+    assert llm.invoke.call_count == 4
+
+
+@pytest.mark.parametrize("misclassification_stage", [
+    "selection", "coverage",
+])
+def test_missing_newsvendor_forecast_is_input_after_all_audits(
+    misclassification_stage: str,
+) -> None:
+    missing_forecast = [
+        {
+            "description": description,
+            "resolution": "unsupported",
+            "candidate_component_ids": [],
+            "reason": "Ein Forecast-Wert fehlt.",
+            "sources": ["raw_input"],
+        }
+        for description in (
+            "Erwartete Nachfrage ist nicht angegeben.",
+            "Nachfragequantile fehlen noch.",
+        )
+    ]
+    selection = {
+        "objective_sense": "maximize",
+        "objective_components": [
+            {
+                "component_id": component_id,
+                "reason": "Für den erwarteten Gewinn erforderlich.",
+                "sources": ["raw_input"],
+            }
+            for component_id in ("sales_revenue", "purchase_cost")
+        ],
+        "constraints": [],
+        "unresolved_requirements": (
+            missing_forecast if misclassification_stage == "selection" else []
+        ),
+    }
+    input_audit = {
+        "rejected_constraints": [],
+        "input_only_requirements": [
+            {"index": 0, "field_names": ["expected_value"]},
+            {"index": 1, "field_names": ["quantiles"]},
+        ],
+    }
+    responses = [
+        {"products": [], "global_facts": {}},
+        selection,
+    ]
+    if misclassification_stage == "selection":
+        responses.append(input_audit)
+    responses.append({
+        "uncovered_requirements": (
+            missing_forecast if misclassification_stage == "coverage" else []
+        ),
+    })
+    if misclassification_stage == "coverage":
+        responses.append(input_audit)
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps(response)) for response in responses
+    ]
+
+    draft = create_modular_model_agent(llm)(
+        core_id="single_period_newsvendor",
+        requirements={"objective": "maximize_profit"},
+        products=[{
+            "product_id": "product_1",
+            "forecast": {},
+            "facts": {"selling_price": 20.0, "purchase_cost": 10.0},
+        }],
+        global_facts={},
+        evidence=[{
+            "source_id": "raw_input",
+            "content": (
+                "Wir bestellen einmal vor der Veranstaltung und können "
+                "nicht nachbestellen. Die Nachfrage ist unsicher. "
+                "Wir möchten den erwarteten Gewinn maximieren."
+            ),
+        }],
+    )
+
+    assert draft["proposal"]["selection_status"] == "complete"
+    assert draft["proposal"]["unresolved_requirements"] == []
+    assert {item["field"]["name"] for item in draft["validation"][
+        "missing_inputs"
+    ]} >= {"expected_value", "quantiles", "horizon_days"}
+    assert llm.invoke.call_count == 4

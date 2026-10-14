@@ -1,6 +1,7 @@
 import json
 from unittest.mock import Mock
 
+import pytest
 from langchain_core.messages import AIMessage
 
 from agentic_optimization.agents.component_selection_integrity import (
@@ -99,7 +100,47 @@ def test_preserves_explicit_minimum_bound_without_numeric_value():
     assert result["selection_status"] == "complete"
 
 
-def test_cannot_remove_unsupported_business_requirement():
+@pytest.mark.parametrize("description", [
+    "Erwartete Nachfrage fehlt in der Prognose.",
+    "Nachfragequantile sind noch nicht angegeben.",
+])
+def test_moves_misclassified_unsupported_forecast_input_to_form(
+    description: str,
+):
+    proposal = _proposal()
+    proposal["constraints"] = []
+    proposal["unresolved_requirements"] = [{
+        "description": description,
+        "resolution": "unsupported",
+        "candidate_component_ids": [],
+        "reason": "Ein Prognosewert fehlt.",
+        "sources": ["raw_input"],
+    }]
+    proposal["selection_status"] = "unsupported"
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps({
+        "rejected_constraints": [],
+        "input_only_requirements": [{
+            "index": 0,
+            "field_names": ["expected_value", "quantiles"],
+        }],
+    }))
+
+    result = create_component_selection_integrity_agent(llm)(
+        proposal=proposal,
+        evidence=[{
+            "source_id": "raw_input",
+            "content": "Die Nachfrage ist unsicher.",
+        }],
+        objective_goal="minimize_cost",
+    )
+
+    assert result["selection_status"] == "complete"
+    assert result["unresolved_requirements"] == []
+    assert llm.invoke.call_count == 1
+
+
+def test_preserves_unsupported_business_requirement():
     proposal = _proposal()
     proposal["constraints"] = []
     proposal["unresolved_requirements"] = [{
@@ -111,6 +152,10 @@ def test_cannot_remove_unsupported_business_requirement():
     }]
     proposal["selection_status"] = "unsupported"
     llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps({
+        "rejected_constraints": [],
+        "input_only_requirements": [],
+    }))
 
     result = create_component_selection_integrity_agent(llm)(
         proposal=proposal,
@@ -122,4 +167,80 @@ def test_cannot_remove_unsupported_business_requirement():
     )
 
     assert result == proposal
-    llm.invoke.assert_not_called()
+    assert llm.invoke.call_count == 1
+
+
+def test_removes_only_registered_input_and_keeps_business_requirement():
+    proposal = _proposal()
+    proposal["constraints"] = []
+    proposal["unresolved_requirements"] = [
+        {
+            "description": "Prognosewerte sind noch nicht eingetragen.",
+            "resolution": "unsupported",
+            "candidate_component_ids": [],
+            "reason": "Erwartungswert und Quantile fehlen.",
+            "sources": ["raw_input"],
+        },
+        {
+            "description": "Lieferung nur dienstags.",
+            "resolution": "unsupported",
+            "candidate_component_ids": [],
+            "reason": "Kein passender Baustein vorhanden.",
+            "sources": ["raw_input"],
+        },
+    ]
+    proposal["selection_status"] = "unsupported"
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps({
+        "rejected_constraints": [],
+        "input_only_requirements": [{
+            "index": 0,
+            "field_names": ["expected_value", "quantiles"],
+        }],
+    }))
+
+    result = create_component_selection_integrity_agent(llm)(
+        proposal=proposal,
+        evidence=[{
+            "source_id": "raw_input",
+            "content": "Die Nachfrage ist unsicher; Lieferung nur dienstags.",
+        }],
+        objective_goal="minimize_cost",
+    )
+
+    assert result["selection_status"] == "unsupported"
+    assert result["unresolved_requirements"] == [
+        proposal["unresolved_requirements"][1]
+    ]
+
+
+def test_unknown_input_field_cannot_remove_requirement():
+    proposal = _proposal()
+    proposal["constraints"] = []
+    proposal["unresolved_requirements"] = [{
+        "description": "Lieferung nur dienstags.",
+        "resolution": "unsupported",
+        "candidate_component_ids": [],
+        "reason": "Kein passender Baustein vorhanden.",
+        "sources": ["raw_input"],
+    }]
+    proposal["selection_status"] = "unsupported"
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps({
+        "rejected_constraints": [],
+        "input_only_requirements": [{
+            "index": 0,
+            "field_names": ["delivery_weekday"],
+        }],
+    }))
+
+    result = create_component_selection_integrity_agent(llm)(
+        proposal=proposal,
+        evidence=[{
+            "source_id": "raw_input",
+            "content": "Lieferung nur dienstags.",
+        }],
+        objective_goal="minimize_cost",
+    )
+
+    assert result == proposal
