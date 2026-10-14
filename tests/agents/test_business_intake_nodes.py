@@ -411,6 +411,176 @@ def test_unknown_primary_goal_is_not_repeated_or_assumed() -> None:
     )["message"]
 
 
+def test_form_only_unknown_goal_does_not_select_core() -> None:
+    profile = create_empty_business_problem_profile()
+    profile["recommendation"] = confirmed("order_quantity")
+    profile["procurement_pattern"] = confirmed("recurring")
+    profile["product_scope"] = confirmed("single_product")
+    profile["primary_goal"] = create_profile_field(
+        status="user_unknown",
+        evidence=[{"source_id": "form", "source_type": "user_selection"}],
+    )
+    result = create_business_intake_node(Mock())({
+        "raw_input": "",
+        "business_intake": {
+            "profile": profile,
+            "asked_question_ids": ["primary_goal"],
+        },
+    })
+    assert get_workflow_status(result) == WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT
+    assert result["business_intake"]["core_selection"]["selected_core_id"] is None
+
+
+@pytest.mark.parametrize("status", ["conflict", "ambiguous"])
+def test_candidate_keeps_unresolved_recommendation_question(status) -> None:
+    profile = create_empty_business_problem_profile()
+    profile["recommendation"] = create_profile_field(
+        status=status,
+        evidence=[{"source_id": "raw_input", "source_type": "free_text"}],
+        candidate_values=["order_quantity", "reorder_point"],
+    )
+    profile["product_scope"] = confirmed("single_product")
+    profile["primary_goal"] = confirmed("minimize_cost")
+    result = create_business_intake_node(Mock())({
+        "raw_input": "",
+        "business_intake": {
+            "profile": profile,
+            "asked_question_ids": [],
+            "candidate_proposal": {
+                "candidates": [{"core_id": "eoq", "source_id": "raw_input", "excerpt": "Bestellung"}],
+                "reason": "Zu prüfen.",
+            },
+            "candidate_analyzed_raw_input": "",
+        },
+    })
+    assert get_workflow_status(result) == WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT
+    assert "recommendation" in result["business_intake"]["pending_question_ids"]
+
+
+def test_new_text_keeps_answer_submitted_in_same_turn() -> None:
+    old_raw = "Wir planen eine Bestellung."
+    new_raw = "Wir planen eine Bestellung für eine Veranstaltung."
+    profile = create_empty_business_problem_profile()
+    profile["product_scope"] = confirmed("single_product")
+    profile["primary_goal"] = confirmed("maximize_profit")
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps({"inferences": [], "ambiguities": []})),
+        AIMessage(content=json.dumps({
+            "candidates": [{
+                "core_id": "single_period_newsvendor",
+                "source_id": "raw_input", "excerpt": "für eine Veranstaltung",
+            }], "reason": "Einmalige Veranstaltung.",
+        })),
+        AIMessage(content=json.dumps({"findings": []})),
+    ]
+    result = create_business_intake_node(llm)({
+        "raw_input": new_raw,
+        "business_intake": {
+            "profile": profile,
+            "asked_question_ids": [],
+            "pending_question_ids": ["core_condition:single_decision_period"],
+            "pending_answers": [{
+                "question_id": "core_condition:single_decision_period",
+                "option_id": "yes", "source_id": "business_clarification_form",
+            }],
+            "analyzed_raw_input": old_raw,
+        },
+    })
+    intake = result["business_intake"]
+    assert intake["applicability_user_answers"]["single_decision_period"] == "supported"
+    assert intake["pending_question_ids"] == [
+        "core_condition:no_replenishment_within_period"
+    ]
+
+
+def test_new_text_keeps_core_choice_submitted_in_same_turn() -> None:
+    raw = "Wir möchten Bestellmenge und Meldebestand bestimmen."
+    profile = create_empty_business_problem_profile()
+    profile["product_scope"] = confirmed("single_product")
+    profile["primary_goal"] = confirmed("minimize_cost")
+    candidates = [{
+        "core_id": core_id, "source_id": "raw_input", "excerpt": "Bestellmenge",
+    } for core_id in ("eoq", "continuous_review_q_r")]
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps({"inferences": [], "ambiguities": []})),
+        AIMessage(content=json.dumps({
+            "candidates": candidates, "reason": "Zwei denkbare Modelle.",
+        })),
+        AIMessage(content=json.dumps({"findings": []})),
+    ]
+    result = create_business_intake_node(llm)({
+        "raw_input": raw,
+        "business_intake": {
+            "profile": profile,
+            "asked_question_ids": [],
+            "pending_question_ids": ["core_choice"],
+            "pending_answers": [{
+                "question_id": "core_choice",
+                "option_id": "continuous_review_q_r",
+                "source_id": "business_clarification_form",
+            }],
+            "candidate_proposal": {
+                "candidates": candidates, "reason": "Bisherige Kandidaten.",
+            },
+            "analyzed_raw_input": "Ältere Beschreibung",
+        },
+    })
+    intake = result["business_intake"]
+    assert intake["chosen_core_id"] == "continuous_review_q_r"
+    assert intake["applicability_core_id"] == "continuous_review_q_r"
+
+
+def test_applicability_failure_retains_answers_for_retry() -> None:
+    raw = "Bestellmenge für eine Veranstaltung."
+    profile = create_empty_business_problem_profile()
+    profile["product_scope"] = confirmed("single_product")
+    profile["primary_goal"] = confirmed("maximize_profit")
+    proposal = {
+        "candidates": [{
+            "core_id": "single_period_newsvendor",
+            "source_id": "raw_input", "excerpt": "Veranstaltung",
+        }], "reason": "Zu prüfen.",
+    }
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content="{}"), AIMessage(content="{}"),
+        AIMessage(content="{}"),
+    ]
+    node = create_business_intake_node(llm)
+    failed = node({
+        "raw_input": raw,
+        "business_intake": {
+            "profile": profile,
+            "asked_question_ids": [],
+            "pending_question_ids": ["core_condition:single_decision_period"],
+            "pending_answers": [{
+                "question_id": "core_condition:single_decision_period",
+                "option_id": "yes", "source_id": "business_clarification_form",
+            }],
+            "analyzed_raw_input": raw,
+            "candidate_proposal": proposal,
+            "candidate_analyzed_raw_input": raw,
+        },
+    })
+    intake = failed["business_intake"]
+    assert get_workflow_status(failed) == WORKFLOW_BUSINESS_PROFILE_ANALYSIS_FAILED
+    assert "core_condition:single_decision_period" in intake["asked_question_ids"]
+    assert intake["applicability_user_answers"]["single_decision_period"] == "supported"
+    assert intake["candidate_proposal"] == proposal
+
+    llm.invoke.side_effect = None
+    llm.invoke.return_value = AIMessage(content=json.dumps({"findings": []}))
+    retried = node(failed)
+    assert retried["business_intake"]["applicability_user_answers"][
+        "single_decision_period"
+    ] == "supported"
+    assert retried["business_intake"]["pending_question_ids"] == [
+        "core_condition:no_replenishment_within_period"
+    ]
+
+
 def test_single_candidate_waits_when_required_condition_is_unknown() -> None:
     raw = "Wir planen eine Bestellmenge für einen Verkaufszeitraum."
     profile = create_empty_business_problem_profile()

@@ -87,6 +87,21 @@ def test_confirmed_reorder_point_rejects_eoq():
     assert result["status"] == "unsupported"
 
 
+def test_qr_accepts_order_quantity_as_requested_decision():
+    profile = create_empty_business_problem_profile()
+    _confirm(profile, "recommendation", "order_quantity")
+    _confirm(profile, "procurement_pattern", "recurring")
+    _confirm(profile, "inventory_review", "continuous")
+    _confirm(profile, "primary_goal", "minimize_cost")
+
+    result = select_from_core_candidates(
+        _proposal("continuous_review_q_r"), profile
+    )
+
+    assert result["status"] == "selected"
+    assert result["selected_core_id"] == "continuous_review_q_r"
+
+
 def test_explicitly_denied_condition_rejects_candidate():
     result = select_from_core_candidates(
         _proposal("eoq"), create_empty_business_problem_profile(),

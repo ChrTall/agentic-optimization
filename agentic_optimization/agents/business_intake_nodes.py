@@ -44,6 +44,7 @@ from agentic_optimization.state import (
     with_control,
 )
 from agentic_optimization.ui.business_problem_form import (
+    BUSINESS_QUESTIONS,
     apply_business_question_answer,
     get_relevant_business_questions,
 )
@@ -96,6 +97,8 @@ def create_business_intake_node(
             intake_state.get("applicability_user_answers", {})
         )
         chosen_core_id = intake_state.get("chosen_core_id")
+        submitted_condition_answers: dict[str, str] = {}
+        submitted_chosen_core_id = None
 
         for answer in intake_state.get(
             "pending_answers",
@@ -119,6 +122,7 @@ def create_business_intake_node(
                 if answer["option_id"] not in allowed:
                     raise ValueError("Ungültige Grundmodell-Auswahl.")
                 chosen_core_id = answer["option_id"]
+                submitted_chosen_core_id = chosen_core_id
             elif question_id.startswith("core_condition:"):
                 condition_id = question_id.split(":", 1)[1]
                 if answer["option_id"] not in {
@@ -129,6 +133,9 @@ def create_business_intake_node(
                     "supported" if answer["option_id"] == "yes"
                     else "contradicted" if answer["option_id"] == "no"
                     else "unknown"
+                )
+                submitted_condition_answers[condition_id] = (
+                    applicability_answers[condition_id]
                 )
             else:
                 profile = apply_business_question_answer(
@@ -235,8 +242,10 @@ def create_business_intake_node(
                     event=None,
                     workflow_status=WORKFLOW_BUSINESS_PROFILE_ANALYSIS_FAILED,
                 )
-            chosen_core_id = None
-            applicability_answers = {}
+            # A changed description invalidates earlier selections, but not
+            # answers submitted in this same request.
+            chosen_core_id = submitted_chosen_core_id
+            applicability_answers = submitted_condition_answers
             candidate_active = True
         elif (
             candidate_proposal is not None
@@ -266,7 +275,12 @@ def create_business_intake_node(
             # mehr anhand einer festen Antwortkombination über den Kern.
             question_ids = [
                 question_id for question_id in question_ids
-                if question_id in {"product_scope", "primary_goal"}
+                if (
+                    question_id in {"product_scope", "primary_goal"}
+                    or preparation["profile"][
+                        BUSINESS_QUESTIONS[question_id]["target_field"]
+                    ]["status"] in {"conflict", "ambiguous"}
+                )
             ]
             core_selection = select_from_core_candidates(
                 candidate_proposal,
@@ -274,21 +288,20 @@ def create_business_intake_node(
                 condition_answers=applicability_answers,
                 chosen_core_id=chosen_core_id,
             )
-            if (
-                not question_ids
-                and core_selection["status"] == "selected"
-                and preparation["profile"]["primary_goal"]["status"]
-                == "user_unknown"
-            ):
-                core_selection = {
-                    **core_selection,
-                    "status": "needs_clarification",
-                    "selected_core_id": None,
-                    "reason": (
-                        "Das Optimierungsziel ist noch nicht bekannt. "
-                        "Ohne Ziel kann keine Berechnung gestartet werden."
-                    ),
-                }
+        if (
+            core_selection["status"] == "selected"
+            and preparation["profile"]["primary_goal"]["status"]
+            == "user_unknown"
+        ):
+            core_selection = {
+                **core_selection,
+                "status": "needs_clarification",
+                "selected_core_id": None,
+                "reason": (
+                    "Das Optimierungsziel ist noch nicht bekannt. "
+                    "Ohne Ziel kann keine Berechnung gestartet werden."
+                ),
+            }
         applicability_plan = None
         applicability_core_id = core_selection.get("selected_core_id")
         text_findings = dict(
@@ -339,6 +352,15 @@ def create_business_intake_node(
                                 "business_intake": {
                                     **intake_state,
                                     "profile": preparation["profile"],
+                                    "asked_question_ids": asked_question_ids,
+                                    "applicability_user_answers": applicability_answers,
+                                    "chosen_core_id": chosen_core_id,
+                                    "analyzed_raw_input": raw_input,
+                                    "candidate_proposal": candidate_proposal,
+                                    "candidate_analyzed_raw_input": (
+                                        raw_input if candidate_active else None
+                                    ),
+                                    "core_selection": core_selection,
                                     "analysis_error": (
                                         "Die Modellvoraussetzungen konnten "
                                         "nicht zuverlässig geprüft werden. "

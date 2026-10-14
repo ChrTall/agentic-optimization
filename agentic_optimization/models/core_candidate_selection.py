@@ -35,6 +35,10 @@ def _matches_resolved_profile(
         for field_id, compatible_values in rule[
             "compatible_profile_values"
         ].items():
+            # The registered decision quantities below are authoritative for
+            # recommendations; legacy routing rules can be narrower.
+            if field_id == "recommendation":
+                continue
             field = profile[field_id]
             if (
                 field["status"] in {"inferred", "confirmed"}
