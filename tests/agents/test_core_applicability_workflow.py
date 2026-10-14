@@ -29,6 +29,9 @@ from agentic_optimization.state import (
 from agentic_optimization.ui.business_intake_view_builder import (
     build_business_intake_view_data,
 )
+from agentic_optimization.ui.business_problem_form import (
+    apply_business_question_answer,
+)
 
 
 def _confirmed(value):
@@ -178,6 +181,89 @@ def test_weak_llm_quotes_still_require_user_clarification() -> None:
     })
 
     assert get_workflow_status(result) == WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT
+    assert result["business_intake"]["pending_question_ids"] == [
+        "core_condition:single_decision_period"
+    ]
+
+
+def test_chat_profile_answer_does_not_confirm_structural_condition() -> None:
+    profile = apply_business_question_answer(
+        create_empty_business_problem_profile(),
+        question_id="procurement_pattern",
+        option_id="one_time",
+        source_id="chat_assistant",
+    )
+    assert profile["procurement_pattern"]["status"] == "confirmed"
+
+    first = plan_candidate_applicability(
+        "single_period_newsvendor", profile, {}
+    )
+    assert first["question_condition_id"] == "single_decision_period"
+
+    second = plan_candidate_applicability(
+        "single_period_newsvendor", profile, {},
+        {"single_decision_period": "supported"},
+    )
+    assert second["question_condition_id"] == (
+        "no_replenishment_within_period"
+    )
+
+
+def test_direct_form_profile_answer_confirms_structural_condition() -> None:
+    profile = apply_business_question_answer(
+        create_empty_business_problem_profile(),
+        question_id="procurement_pattern",
+        option_id="one_time",
+        source_id="business_clarification_form",
+    )
+
+    plan = plan_candidate_applicability(
+        "single_period_newsvendor", profile, {}
+    )
+    assert plan["question_condition_id"] == (
+        "no_replenishment_within_period"
+    )
+
+
+def test_chat_profile_answer_does_not_skip_core_question_in_workflow() -> None:
+    raw = (
+        "Für eine dreitägige Veranstaltung möchten wir einen Artikel "
+        "bestellen. Die Nachfrage ist unsicher. Wir wollen die "
+        "Bestellmenge festlegen und den erwarteten Gewinn maximieren."
+    )
+    profile = create_empty_business_problem_profile()
+    profile["recommendation"] = _confirmed("order_quantity")
+    profile["product_scope"] = _confirmed("single_product")
+    profile["primary_goal"] = _confirmed("maximize_profit")
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps({
+        "findings": [],
+    }))
+
+    result = create_business_intake_node(llm)({
+        "raw_input": raw,
+        "business_intake": {
+            "profile": profile,
+            "analyzed_raw_input": raw,
+            "asked_question_ids": [],
+            "pending_question_ids": ["procurement_pattern"],
+            "pending_answers": [{
+                "question_id": "procurement_pattern",
+                "option_id": "one_time",
+                "source_id": "chat_assistant",
+            }],
+            "candidate_proposal": {
+                "candidates": [{
+                    "core_id": "single_period_newsvendor",
+                    "source_id": "raw_input",
+                    "excerpt": "Bestellmenge festlegen",
+                }],
+                "reason": "Einperiodiger Kandidat",
+            },
+            "candidate_analyzed_raw_input": raw,
+        },
+    })
+
     assert result["business_intake"]["pending_question_ids"] == [
         "core_condition:single_decision_period"
     ]

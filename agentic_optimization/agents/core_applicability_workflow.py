@@ -67,6 +67,10 @@ def plan_candidate_applicability(
             and field["status"] == "confirmed"
             and any(
                 item["source_type"] == "user_selection"
+                # Der Chat kann offene Profilfragen aus einer Beschreibung
+                # selbst beantworten. Das ist keine direkte Bestätigung der
+                # daraus abgeleiteten strukturellen Modellvoraussetzung.
+                and item["source_id"] != "chat_assistant"
                 for item in field["evidence"]
             )
         ):
