@@ -225,7 +225,8 @@ def recover_missing_product_scope(
     value = answer["value"]
     excerpt = answer["excerpt"]
     if (
-        value not in {"single_product", "multiple_products"}
+        not isinstance(value, str)
+        or value not in {"single_product", "multiple_products"}
         or not isinstance(excerpt, str)
         or not excerpt.strip()
         or excerpt not in raw_input

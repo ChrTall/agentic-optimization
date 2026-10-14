@@ -55,6 +55,28 @@ def test_does_not_recover_product_scope_from_invented_quote() -> None:
     assert profile["product_scope"]["status"] == "missing"
 
 
+@pytest.mark.parametrize("invalid_value", [["single_product"], {"kind": "single_product"}])
+def test_malformed_product_scope_recovery_leaves_question_open(invalid_value) -> None:
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps({
+        "value": invalid_value,
+        "excerpt": "einen Artikel",
+    }))
+
+    profile = recover_missing_product_scope(
+        llm,
+        profile=create_empty_business_problem_profile(),
+        raw_input="Wir führen einen Artikel.",
+        source_id="raw_input",
+    )
+
+    assert profile["product_scope"]["status"] == "missing"
+    assert "product_scope" in [
+        question["question_id"]
+        for question in get_relevant_business_questions(profile)
+    ]
+
+
 def test_infers_business_profile_from_user_description() -> None:
     raw_input = (
         "Das Produkt wird dauerhaft verkauft. "

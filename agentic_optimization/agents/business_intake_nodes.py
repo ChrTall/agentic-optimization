@@ -158,6 +158,28 @@ def create_business_intake_node(
             if raw_input == analyzed_raw_input
             else raw_input
         )
+        if raw_input_for_analysis.strip():
+            # An earlier "not known" answer must not indefinitely block a
+            # fresh clarification after the description gains information.
+            reopened_conditions = {
+                condition_id
+                for condition_id, answer in intake_state.get(
+                    "applicability_user_answers", {}
+                ).items()
+                if (
+                    answer == "unknown"
+                    and condition_id not in submitted_condition_answers
+                )
+            }
+            for condition_id in reopened_conditions:
+                applicability_answers.pop(condition_id, None)
+            asked_question_ids = [
+                question_id for question_id in asked_question_ids
+                if question_id not in {
+                    f"core_condition:{condition_id}"
+                    for condition_id in reopened_conditions
+                }
+            ]
         # The chat app appends clarification messages to the existing text.
         # This is an extension of the same case, unlike replacing the text.
         additive_clarification = (

@@ -360,6 +360,49 @@ def test_unknown_structural_answers_do_not_force_a_model_choice() -> None:
     assert "nicht bekannt" in view["message"]
 
 
+def test_new_description_reopens_previously_deferred_condition() -> None:
+    old_raw = "Wir planen eine Bestellung für eine Veranstaltung."
+    raw = old_raw + "\nDie Menge wird einmal vor Beginn festgelegt."
+    profile = create_empty_business_problem_profile()
+    profile["product_scope"] = confirmed("single_product")
+    profile["primary_goal"] = confirmed("maximize_profit")
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps({"inferences": [], "ambiguities": []})),
+        AIMessage(content=json.dumps({
+            "candidates": [{
+                "core_id": "single_period_newsvendor",
+                "source_id": "raw_input", "excerpt": "Veranstaltung",
+            }],
+            "reason": "Einmaliger Verkaufszeitraum.",
+        })),
+        AIMessage(content=json.dumps({"findings": [{
+            "condition_id": "single_decision_period",
+            "status": "supported",
+            "source_id": "raw_input",
+            "excerpt": "Die Menge wird einmal vor Beginn festgelegt.",
+        }]})),
+    ]
+    result = create_business_intake_node(llm)({
+        "raw_input": raw,
+        "business_intake": {
+            "profile": profile,
+            "asked_question_ids": ["core_condition:single_decision_period"],
+            "pending_question_ids": [],
+            "applicability_user_answers": {
+                "single_decision_period": "unknown",
+            },
+            "analyzed_raw_input": old_raw,
+        },
+    })
+    intake = result["business_intake"]
+    assert get_workflow_status(result) == WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT
+    assert intake["pending_question_ids"] == [
+        "core_condition:single_decision_period"
+    ]
+    assert "single_decision_period" not in intake["applicability_user_answers"]
+
+
 def test_unknown_primary_goal_is_not_repeated_or_assumed() -> None:
     raw = "Wir möchten eine Bestellmenge für einen Artikel bestimmen."
     profile = create_empty_business_problem_profile()
