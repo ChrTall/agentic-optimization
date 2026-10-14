@@ -5,27 +5,13 @@ from collections.abc import Mapping
 from agentic_optimization.models.core_applicability import (
     CORE_CONDITIONS,
     IMMEDIATE_CLARIFICATION_CONDITIONS,
+    PROFILE_CONDITIONS,
     ApplicabilityPlan,
     Finding,
     UserConditionAnswer,
     plan_core_applicability,
 )
 from agentic_optimization.models.problem_profile import BusinessProblemProfile
-
-
-PROFILE_CONDITIONS = {
-    "single_period_newsvendor": (
-        ("procurement_pattern", "one_time", "single_decision_period"),
-        (
-            "replenishment_during_period",
-            "not_possible",
-            "no_replenishment_within_period",
-        ),
-    ),
-    "continuous_review_q_r": (
-        ("inventory_review", "continuous", "continuous_inventory_review"),
-    ),
-}
 
 
 def plan_candidate_applicability(

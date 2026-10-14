@@ -54,6 +54,23 @@ CORE_CONDITIONS: dict[str, tuple[str, ...]] = {
 }
 
 
+# Profile fields that describe the same structural requirement as an
+# explicit condition answer. Shared by candidate filtering and applicability.
+PROFILE_CONDITIONS = {
+    "single_period_newsvendor": (
+        ("procurement_pattern", "one_time", "single_decision_period"),
+        (
+            "replenishment_during_period",
+            "not_possible",
+            "no_replenishment_within_period",
+        ),
+    ),
+    "continuous_review_q_r": (
+        ("inventory_review", "continuous", "continuous_inventory_review"),
+    ),
+}
+
+
 # Diese Voraussetzungen bestimmen die Entscheidungsstruktur des
 # Grundmodells. Sie müssen vor einem Modellentwurf geklärt werden.
 # Andere unbekannte Annahmen können im Review ausdrücklich bestätigt

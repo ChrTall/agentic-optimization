@@ -208,7 +208,11 @@ def create_business_intake_node(
                 **intake_state,
                 "profile": profile,
                 "asked_question_ids": asked_question_ids,
-                "pending_answers": [],
+                # These submissions are not persisted yet. Replay them when
+                # the profile analysis is retried.
+                "pending_answers": list(
+                    intake_state.get("pending_answers", [])
+                ),
                 "analysis_error": (
                     "Die Beschreibung konnte nicht "
                     "zuverlässig ausgewertet werden. "

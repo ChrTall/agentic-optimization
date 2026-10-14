@@ -4,6 +4,7 @@ from typing import TypedDict
 from agentic_optimization.models.core_applicability import (
     CORE_CONDITIONS,
     IMMEDIATE_CLARIFICATION_CONDITIONS,
+    PROFILE_CONDITIONS,
 )
 from agentic_optimization.models.core_registry import CORE_REGISTRY
 from agentic_optimization.models.core_selection_catalog import CORE_SELECTION_RULES
@@ -23,7 +24,9 @@ class CoreCandidateProposal(TypedDict):
 
 
 def _matches_resolved_profile(
-    core_id: str, profile: BusinessProblemProfile
+    core_id: str,
+    profile: BusinessProblemProfile,
+    condition_answers: dict[str, str],
 ) -> bool:
     """Verwirft belegte Widersprüche, ohne aus Antworten ein Modell zu wählen."""
 
@@ -32,12 +35,22 @@ def _matches_resolved_profile(
         None,
     )
     if rule is not None:
+        condition_by_field = {
+            field_id: condition_id
+            for field_id, _expected, condition_id in PROFILE_CONDITIONS.get(
+                core_id, ()
+            )
+        }
         for field_id, compatible_values in rule[
             "compatible_profile_values"
         ].items():
             # The registered decision quantities below are authoritative for
             # recommendations; legacy routing rules can be narrower.
             if field_id == "recommendation":
+                continue
+            # A direct answer supersedes the older profile inference for
+            # this same requirement, as in the applicability check.
+            if condition_by_field.get(field_id) in condition_answers:
                 continue
             field = profile[field_id]
             if (
@@ -95,7 +108,9 @@ def select_from_core_candidates(
         for candidate in proposal["candidates"]
         if (
             candidate["core_id"] in CORE_REGISTRY
-            and _matches_resolved_profile(candidate["core_id"], profile)
+            and _matches_resolved_profile(
+                candidate["core_id"], profile, condition_answers or {}
+            )
             and not rejected_conditions.intersection(
                 CORE_CONDITIONS[candidate["core_id"]]
             )

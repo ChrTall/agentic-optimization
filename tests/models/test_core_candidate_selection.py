@@ -110,6 +110,32 @@ def test_explicitly_denied_condition_rejects_candidate():
     assert result["status"] == "unsupported"
 
 
+def test_explicit_condition_overrides_inferred_profile_for_same_requirement():
+    profile = create_empty_business_problem_profile()
+    _infer(profile, "replenishment_during_period", "possible")
+    _confirm(profile, "primary_goal", "maximize_profit")
+
+    result = select_from_core_candidates(
+        _proposal("single_period_newsvendor"), profile,
+        condition_answers={"no_replenishment_within_period": "supported"},
+    )
+
+    assert result["selected_core_id"] == "single_period_newsvendor"
+
+
+def test_explicit_condition_does_not_override_unrelated_profile_requirement():
+    profile = create_empty_business_problem_profile()
+    _infer(profile, "procurement_pattern", "recurring")
+    _confirm(profile, "primary_goal", "maximize_profit")
+
+    result = select_from_core_candidates(
+        _proposal("single_period_newsvendor"), profile,
+        condition_answers={"no_replenishment_within_period": "supported"},
+    )
+
+    assert result["status"] == "unsupported"
+
+
 def test_structural_question_is_asked_once_before_core_choice():
     candidates = ["eoq", "single_period_newsvendor"]
     first = choose_candidate_condition(

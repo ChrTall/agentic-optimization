@@ -1097,6 +1097,81 @@ def test_node_handles_invalid_agent_response() -> None:
     assert "core_selection" not in intake_result
 
 
+def test_profile_analysis_failure_replays_submitted_condition_answer() -> None:
+    raw = "Wir bestellen einmal vor einer Veranstaltung."
+    profile = create_empty_business_problem_profile()
+    profile["product_scope"] = confirmed("single_product")
+    profile["primary_goal"] = confirmed("maximize_profit")
+    answer = {
+        "question_id": "core_condition:single_decision_period",
+        "option_id": "yes", "source_id": "business_clarification_form",
+    }
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content="{}")
+    node = create_business_intake_node(llm)
+    failed = node({
+        "raw_input": raw,
+        "business_intake": {
+            "profile": profile,
+            "asked_question_ids": [],
+            "pending_question_ids": [answer["question_id"]],
+            "pending_answers": [answer],
+            "analyzed_raw_input": "Ältere Beschreibung.",
+        },
+    })
+
+    assert get_workflow_status(failed) == WORKFLOW_BUSINESS_PROFILE_ANALYSIS_FAILED
+    assert failed["business_intake"]["pending_answers"] == [answer]
+
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps({"inferences": [], "ambiguities": []})),
+        AIMessage(content=json.dumps({
+            "candidates": [{
+                "core_id": "single_period_newsvendor",
+                "source_id": "raw_input", "excerpt": "Veranstaltung",
+            }],
+            "reason": "Einmalige Bestellung.",
+        })),
+        AIMessage(content=json.dumps({"findings": []})),
+    ]
+    retried = node(failed)
+    intake = retried["business_intake"]
+    assert intake["applicability_user_answers"]["single_decision_period"] == "supported"
+    assert intake["pending_question_ids"] == [
+        "core_condition:no_replenishment_within_period"
+    ]
+
+
+def test_profile_analysis_failure_retains_submitted_core_choice() -> None:
+    answer = {
+        "question_id": "core_choice",
+        "option_id": "eoq",
+        "source_id": "business_clarification_form",
+    }
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content="{}")
+    result = create_business_intake_node(llm)({
+        "raw_input": "Wir planen regelmäßig Bestellungen.",
+        "business_intake": {
+            "profile": create_empty_business_problem_profile(),
+            "asked_question_ids": [],
+            "pending_question_ids": ["core_choice"],
+            "pending_answers": [answer],
+            "candidate_proposal": {
+                "candidates": [{
+                    "core_id": "eoq", "source_id": "raw_input",
+                    "excerpt": "Bestellungen",
+                }],
+                "reason": "Bisheriger Kandidat.",
+            },
+            "analyzed_raw_input": "Vorherige Beschreibung.",
+        },
+    })
+
+    assert get_workflow_status(result) == WORKFLOW_BUSINESS_PROFILE_ANALYSIS_FAILED
+    assert result["business_intake"]["pending_answers"] == [answer]
+
+
 def test_node_applies_pending_business_answers() -> None:
     profile = create_empty_business_problem_profile()
     llm = Mock()
