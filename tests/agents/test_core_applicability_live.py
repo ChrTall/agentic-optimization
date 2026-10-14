@@ -36,7 +36,7 @@ def agent():
             "eoq",
             "Der Jahresbedarf beträgt 3.500 Einheiten. Wir bestellen "
             "regelmäßig nach.",
-            {},
+            {"recurring_orders": "supported"},
         ),
         (
             "eoq",
@@ -45,7 +45,7 @@ def agent():
             "entstehen Kosten von 120 Euro, die jährlichen Lagerhaltungskosten "
             "betragen 12 Euro je Einheit. Die Bestell- und Lagerhaltungskosten "
             "sollen minimiert werden. Bitte bestimme die Bestellmenge.",
-            {},
+            {"recurring_orders": "supported"},
         ),
         (
             "eoq",

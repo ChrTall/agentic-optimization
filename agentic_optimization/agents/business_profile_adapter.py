@@ -1,8 +1,12 @@
 """Kompatibilitätsadapter vom Geschäftsprofil zu Requirements."""
 
+from copy import deepcopy
+
+from agentic_optimization.models.core_applicability import PROFILE_CONDITIONS
 from agentic_optimization.models.problem_profile import (
     BusinessProblemProfile,
     ProfileField,
+    create_profile_field,
 )
 from agentic_optimization.state import (
     Requirements,
@@ -23,10 +27,33 @@ def _resolved_value(
     return field["value"]
 
 
+def reconcile_profile_with_condition_answers(
+    profile: BusinessProblemProfile,
+    *,
+    core_id: str,
+    condition_answers: dict[str, str],
+) -> BusinessProblemProfile:
+    """Direkte Antworten überstimmen ältere Profilableitungen desselben Kerns."""
+
+    reconciled = deepcopy(profile)
+    for field_id, expected, condition_id in PROFILE_CONDITIONS.get(core_id, ()):
+        if condition_answers.get(condition_id) == "supported":
+            reconciled[field_id] = create_profile_field(
+                status="confirmed",
+                value=expected,
+                evidence=[{
+                    "source_id": "business_answers",
+                    "source_type": "user_selection",
+                }],
+            )
+    return reconciled
+
+
 def build_requirements_from_business_profile(
     profile: BusinessProblemProfile,
     *,
     raw_input: str = "",
+    condition_answers: dict[str, str] | None = None,
 ) -> Requirements:
     """Überführt bekannte Profilwerte in das Übergangsformat."""
 
@@ -34,6 +61,13 @@ def build_requirements_from_business_profile(
         "constraints": [],
         "raw_description": raw_input,
     }
+    explicit_conditions = {
+        condition_id: answer
+        for condition_id, answer in (condition_answers or {}).items()
+        if answer in {"supported", "contradicted"}
+    }
+    if explicit_conditions:
+        requirements["explicit_model_conditions"] = explicit_conditions
 
     recommendation = _resolved_value(
         profile["recommendation"]

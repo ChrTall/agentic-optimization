@@ -179,7 +179,7 @@ def test_repair_preserves_reported_unsupported_requirement() -> None:
     assert result["unresolved_requirements"] == [requirement]
 
 
-def test_deduplicates_eoq_questions_about_mandatory_cost_components() -> None:
+def test_repairs_redundant_eoq_questions_about_mandatory_components() -> None:
     decision = {
         "objective_components": [],
         "constraints": [],
@@ -200,7 +200,10 @@ def test_deduplicates_eoq_questions_about_mandatory_cost_components() -> None:
         ],
     }
     llm = Mock()
-    llm.invoke.return_value = AIMessage(content=json.dumps(decision))
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps(decision)),
+        AIMessage(content=json.dumps({"unresolved_requirements": []})),
+    ]
 
     result = create_component_selection_agent(llm)(
         core_id="eoq",
@@ -221,7 +224,7 @@ def test_deduplicates_eoq_questions_about_mandatory_cost_components() -> None:
     assert {
         item["component_id"] for item in result["objective_components"]
     } == {"annual_ordering_cost", "annual_holding_cost"}
-    assert llm.invoke.call_count == 1
+    assert llm.invoke.call_count == 2
 
 
 def test_deduplication_preserves_other_unsupported_requirement() -> None:
@@ -245,7 +248,12 @@ def test_deduplication_preserves_other_unsupported_requirement() -> None:
         "unresolved_requirements": [duplicated, unsupported],
     }
     llm = Mock()
-    llm.invoke.return_value = AIMessage(content=json.dumps(decision))
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps(decision)),
+        AIMessage(content=json.dumps({
+            "unresolved_requirements": [unsupported],
+        })),
+    ]
 
     result = create_component_selection_agent(llm)(
         core_id="eoq",
@@ -260,7 +268,7 @@ def test_deduplication_preserves_other_unsupported_requirement() -> None:
 
     assert result["selection_status"] == "unsupported"
     assert result["unresolved_requirements"] == [unsupported]
-    assert llm.invoke.call_count == 1
+    assert llm.invoke.call_count == 2
 
 
 def test_nonmandatory_overlap_still_needs_focused_repair() -> None:
@@ -301,7 +309,11 @@ def test_profit_goal_collects_missing_purchase_price_in_form() -> None:
             "sources": ["raw_input"],
         }],
     }
-    llm = create_mock_llm(response)
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps(response)),
+        AIMessage(content=json.dumps({"unresolved_requirements": []})),
+    ]
 
     result = create_component_selection_agent(llm)(
         core_id="single_period_newsvendor",
@@ -319,7 +331,44 @@ def test_profit_goal_collects_missing_purchase_price_in_form() -> None:
     assert {item["component_id"] for item in result[
         "objective_components"
     ]} == {"sales_revenue", "purchase_cost"}
-    assert llm.invoke.call_count == 1
+    assert llm.invoke.call_count == 2
+
+
+def test_seasonal_holding_cost_requirement_is_not_silently_removed() -> None:
+    decision = {
+        "objective_components": [],
+        "constraints": [],
+        "unresolved_requirements": [{
+            "description": "Saisonal wechselnde Lagerhaltungskosten abbilden",
+            "resolution": "clarification",
+            "candidate_component_ids": ["annual_holding_cost"],
+            "reason": "Der Kostensatz ändert sich im Jahresverlauf.",
+            "sources": ["raw_input"],
+        }],
+    }
+    unsupported = {
+        **decision["unresolved_requirements"][0],
+        "resolution": "unsupported",
+        "candidate_component_ids": [],
+    }
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps(decision)),
+        AIMessage(content=json.dumps({
+            "unresolved_requirements": [unsupported],
+        })),
+    ]
+    result = create_component_selection_agent(llm)(
+        core_id="eoq",
+        requirements={"objective": "minimize_cost"},
+        products=[], global_facts={},
+        evidence=[{
+            "source_id": "raw_input",
+            "content": "Die Lagerhaltungskosten wechseln saisonal.",
+        }],
+    )
+    assert result["selection_status"] == "unsupported"
+    assert result["unresolved_requirements"] == [unsupported]
 
 
 def test_invalid_focused_repair_still_fails_closed() -> None:

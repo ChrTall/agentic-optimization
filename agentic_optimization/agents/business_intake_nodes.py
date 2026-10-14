@@ -27,7 +27,13 @@ from agentic_optimization.agents.core_applicability_workflow import (
 )
 from agentic_optimization.models.core_applicability import (
     CONDITION_GUIDANCE,
+    CONDITION_LABELS,
     CORE_CONDITIONS,
+    PROFILE_CONDITIONS,
+)
+from agentic_optimization.models.problem_profile import (
+    BusinessProblemProfile,
+    PROFILE_FIELD_ALLOWED_VALUES,
 )
 from agentic_optimization.models.core_candidate_selection import (
     select_from_core_candidates,
@@ -50,9 +56,55 @@ from agentic_optimization.ui.business_problem_form import (
 )
 from agentic_optimization.agents.business_profile_adapter import (
     build_requirements_from_business_profile,
+    reconcile_profile_with_condition_answers,
 )
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _answer_evidence(
+    profile: BusinessProblemProfile,
+    condition_answers: dict[str, str],
+) -> dict[str, str] | None:
+    """Macht direkte Antworten als belegbare, vorrangige Quelle sichtbar."""
+
+    conditions = {
+        condition_id: {
+            "statement": CONDITION_LABELS[condition_id],
+            "answer": answer,
+        }
+        for condition_id, answer in sorted(condition_answers.items())
+        if condition_id in CONDITION_LABELS
+        and answer in {"supported", "contradicted"}
+    }
+    overridden_fields = {
+        field_id
+        for mappings in PROFILE_CONDITIONS.values()
+        for field_id, _expected, condition_id in mappings
+        if condition_id in conditions
+    }
+    profile_answers = {
+        field_id: field["value"]
+        for field_id in sorted(PROFILE_FIELD_ALLOWED_VALUES)
+        if field_id not in overridden_fields
+        if (field := profile[field_id])["status"] == "confirmed"
+        and any(
+            item["source_type"] == "user_selection"
+            and item["source_id"] != "chat_assistant"
+            for item in field["evidence"]
+        )
+    }
+    if not conditions and not profile_answers:
+        return None
+    return {
+        "source_id": "business_answers",
+        "content": json.dumps({
+            "precedence": "Direct user answers override older contradictory text.",
+            "condition_answers": conditions,
+            "profile_answers": profile_answers,
+        }, ensure_ascii=False, sort_keys=True),
+    }
+
 
 def create_business_intake_node(
     llm: BaseChatModel,
@@ -247,13 +299,25 @@ def create_business_intake_node(
         ]
         core_selection = preparation["core_selection"]
         candidate_proposal = intake_state.get("candidate_proposal")
+        if raw_input_for_analysis.strip() and not additive_clarification:
+            chosen_core_id = submitted_chosen_core_id
+            applicability_answers = submitted_condition_answers
+        answer_evidence = _answer_evidence(
+            preparation["profile"], applicability_answers
+        )
+        answer_context = answer_evidence["content"] if answer_evidence else ""
+        candidate_answer_context = intake_state.get(
+            "candidate_analyzed_answer_context", ""
+        )
         candidate_active = False
         core_question_prompt = None
         if raw_input_for_analysis.strip():
             try:
-                candidate_proposal = candidate_agent(evidence=[{
-                    "source_id": "raw_input", "content": raw_input,
-                }])
+                candidate_proposal = candidate_agent(evidence=[
+                    {"source_id": "raw_input", "content": raw_input},
+                    *([answer_evidence] if answer_evidence else []),
+                ])
+                candidate_answer_context = answer_context
             except (TypeError, ValueError) as error:
                 LOGGER.exception(
                     "Die Modellkandidaten konnten nicht geprüft werden: %s",
@@ -280,11 +344,6 @@ def create_business_intake_node(
                     event=None,
                     workflow_status=WORKFLOW_BUSINESS_PROFILE_ANALYSIS_FAILED,
                 )
-            # A replacement invalidates earlier answers; an appended chat
-            # clarification belongs to the same case and keeps them.
-            if not additive_clarification:
-                chosen_core_id = submitted_chosen_core_id
-                applicability_answers = submitted_condition_answers
             candidate_active = True
         elif (
             candidate_proposal is not None
@@ -327,6 +386,48 @@ def create_business_intake_node(
                 condition_answers=applicability_answers,
                 chosen_core_id=chosen_core_id,
             )
+            # A cached shortlist may be obsolete after direct answers rule
+            # every candidate out. Reconsider all registered cores once for
+            # this answer context before declaring the case unsupported.
+            if (
+                core_selection["status"] == "unsupported"
+                and raw_input.strip()
+                and answer_evidence is not None
+                and candidate_answer_context != answer_context
+            ):
+                try:
+                    candidate_proposal = candidate_agent(evidence=[
+                        {"source_id": "raw_input", "content": raw_input},
+                        answer_evidence,
+                    ])
+                except (TypeError, ValueError) as error:
+                    LOGGER.exception(
+                        "Die Modellkandidaten konnten nach den Antworten "
+                        "nicht geprüft werden: %s", error
+                    )
+                    return with_control({
+                        **state,
+                        "business_intake": {
+                            **intake_state,
+                            "profile": preparation["profile"],
+                            "pending_answers": list(
+                                intake_state.get("pending_answers", [])
+                            ),
+                            "analysis_error": (
+                                "Die Modellkandidaten konnten nicht "
+                                "zuverlässig geprüft werden. Bitte versuchen "
+                                "Sie es erneut."
+                            ),
+                        },
+                    }, event=None,
+                       workflow_status=WORKFLOW_BUSINESS_PROFILE_ANALYSIS_FAILED)
+                candidate_answer_context = answer_context
+                core_selection = select_from_core_candidates(
+                    candidate_proposal,
+                    preparation["profile"],
+                    condition_answers=applicability_answers,
+                    chosen_core_id=chosen_core_id,
+                )
         if (
             core_selection["status"] == "selected"
             and preparation["profile"]["primary_goal"]["status"]
@@ -390,6 +491,9 @@ def create_business_intake_node(
                                     "candidate_proposal": candidate_proposal,
                                     "candidate_analyzed_raw_input": (
                                         raw_input if candidate_active else None
+                                    ),
+                                    "candidate_analyzed_answer_context": (
+                                        candidate_answer_context
                                     ),
                                     "core_selection": core_selection,
                                     "analysis_error": (
@@ -515,6 +619,7 @@ def create_business_intake_node(
             "candidate_analyzed_raw_input": (
                 raw_input if candidate_active else None
             ),
+            "candidate_analyzed_answer_context": candidate_answer_context,
             "chosen_core_id": chosen_core_id,
             "core_question_plan": core_question_plan,
             "core_question_prompt": core_question_prompt,
@@ -566,6 +671,15 @@ def initialize_modular_core_node(
             "ausgewählt."
         )
 
+    condition_answers = dict(
+        intake_state.get("applicability_user_answers", {})
+    )
+    model_profile = reconcile_profile_with_condition_answers(
+        profile,
+        core_id=core_selection["selected_core_id"],
+        condition_answers=condition_answers,
+    )
+
     existing_modular_state = state.get(
         "modular_model",
         {},
@@ -578,7 +692,7 @@ def initialize_modular_core_node(
         )
     )
 
-    product_scope = profile["product_scope"]
+    product_scope = model_profile["product_scope"]
 
     if (
         not products
@@ -602,7 +716,7 @@ def initialize_modular_core_node(
         dict(item)
         for item in existing_modular_state.get("evidence", [])
         if item.get("source_id")
-        not in {"raw_input", "business_intake_form"}
+        not in {"raw_input", "business_intake_form", "business_answers"}
     ]
 
     raw_input = state.get("raw_input", "").strip()
@@ -614,6 +728,12 @@ def initialize_modular_core_node(
                 "content": raw_input,
             }
         )
+    condition_evidence = _answer_evidence(model_profile, condition_answers)
+    if condition_evidence is not None and any(
+        answer in {"supported", "contradicted"}
+        for answer in condition_answers.values()
+    ):
+        evidence.append(condition_evidence)
 
     form_values = {
         field_name: field["value"]
@@ -626,7 +746,7 @@ def initialize_modular_core_node(
             "primary_goal",
         )
         if (
-            (field := profile[field_name])["status"]
+            (field := model_profile[field_name])["status"]
             == "confirmed"
             and any(
                 source["source_type"] == "user_selection"
@@ -684,11 +804,12 @@ def initialize_modular_core_node(
 
     requirements = (
         build_requirements_from_business_profile(
-            profile,
+            model_profile,
             raw_input=state.get(
                 "raw_input",
                 "",
             ),
+            condition_answers=condition_answers,
         )
     )
 

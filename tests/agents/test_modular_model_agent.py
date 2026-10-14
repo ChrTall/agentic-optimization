@@ -442,6 +442,9 @@ def test_preliminary_revenue_only_does_not_block_purchase_cost_input() -> None:
             "products": [], "global_facts": {},
         })),
         AIMessage(content=json.dumps(final_decision)),
+        AIMessage(content=json.dumps({
+            "unresolved_requirements": [],
+        })),
     ]
 
     draft = create_modular_model_agent(

@@ -36,6 +36,9 @@ den sonst plausiblen Kern vorschlagen. Die spätere Prüfung bewertet
 seine Voraussetzungen gesondert und fragt den Nutzer nötigenfalls dazu.
 Fehlende Eingabewerte allein sind kein Ausschluss:
 Sie können später im Eingabeformular erhoben werden.
+Explizite Nutzerantworten in business_answers haben Vorrang vor älteren,
+damit widersprüchlichen Aussagen in raw_input. Berücksichtige bei einer
+erneuten Prüfung alle registrierten Modelle, auch zuvor nicht genannte.
 
 Antworte ausschließlich als JSON-Objekt:
 {"candidates": [{"core_id": "...", "source_id": "...",

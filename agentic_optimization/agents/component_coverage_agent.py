@@ -31,6 +31,9 @@ Vollständigkeit.
 
 Prüfe jede ausdrücklich genannte betriebliche Anforderung
 aus requirements und evidence.
+Explizite Modellvoraussetzungen in requirements und direkte Antworten
+aus business_answers haben Vorrang vor älteren, widersprüchlichen
+Aussagen in raw_input. Melde überstimmte Aussagen nicht erneut.
 
 Eine Anforderung ist abgedeckt, wenn sie:
 

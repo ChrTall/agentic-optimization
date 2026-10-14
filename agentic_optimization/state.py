@@ -156,6 +156,7 @@ class Requirements(TypedDict, total=False):
     review_type: ReviewType | None
     constraints: list[str]
     raw_description: str
+    explicit_model_conditions: dict[str, str]
 
 
 class ControlState(TypedDict, total=False):
@@ -198,6 +199,7 @@ class BusinessIntakeState(TypedDict, total=False):
     applicability_user_answers: dict[str, UserConditionAnswer]
     candidate_proposal: CoreCandidateProposal
     candidate_analyzed_raw_input: str | None
+    candidate_analyzed_answer_context: str
     chosen_core_id: str | None
     core_question_plan: CoreQuestionPlan | None
     core_question_prompt: str | None

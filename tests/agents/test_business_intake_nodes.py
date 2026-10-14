@@ -37,6 +37,104 @@ def confirmed(value):
     )
 
 
+def test_direct_conditions_override_old_profile_in_model_requirements() -> None:
+    profile = create_empty_business_problem_profile()
+    profile["recommendation"] = confirmed("order_quantity")
+    profile["procurement_pattern"] = create_profile_field(
+        status="inferred", value="one_time",
+        evidence=[{"source_id": "raw_input", "source_type": "free_text"}],
+    )
+    profile["product_scope"] = confirmed("single_product")
+    profile["primary_goal"] = confirmed("minimize_cost")
+    raw = "Wir bestellen einmal; der Lieferant bietet Mengenrabatte."
+    result = initialize_modular_core_node({
+        "raw_input": raw,
+        "business_intake": {
+            "profile": profile,
+            "core_selection": {
+                "status": "selected", "selected_core_id": "eoq",
+                "candidate_core_ids": ["eoq"], "reason": "Bestätigt.",
+            },
+            "applicability_user_answers": {
+                "recurring_orders": "supported",
+                "no_quantity_discounts": "supported",
+            },
+        },
+    })
+    assert result["requirements"]["planning_horizon"] == "repeated_cycles"
+    assert result["requirements"]["explicit_model_conditions"] == {
+        "recurring_orders": "supported",
+        "no_quantity_discounts": "supported",
+    }
+    assert profile["procurement_pattern"]["value"] == "one_time"
+    answer_source = next(
+        item for item in result["modular_model"]["evidence"]
+        if item["source_id"] == "business_answers"
+    )
+    assert "no_quantity_discounts" in answer_source["content"]
+    assert "supported" in answer_source["content"]
+
+
+def test_reconsiders_cached_candidates_after_answer_rules_them_out() -> None:
+    raw = "Wir planen die Bestellmenge und den Meldebestand."
+    profile = create_empty_business_problem_profile()
+    profile["recommendation"] = confirmed(
+        "order_quantity_and_reorder_point"
+    )
+    profile["primary_goal"] = confirmed("minimize_cost")
+    profile["product_scope"] = confirmed("single_product")
+    previous = {
+        "candidates": [{
+            "core_id": core_id, "source_id": "raw_input",
+            "excerpt": "Bestellmenge",
+        } for core_id in ("eoq", "single_period_newsvendor")],
+        "reason": "Frühere, noch unvollständige Kandidatenliste.",
+    }
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps({
+            "candidates": [{
+                "core_id": "continuous_review_q_r",
+                "source_id": "business_answers",
+                "excerpt": "continuous_inventory_review",
+            }],
+            "reason": "Die Antworten beschreiben eine laufende Prüfung.",
+        })),
+        AIMessage(content=json.dumps({"findings": []})),
+    ]
+    result = create_business_intake_node(llm)({
+        "raw_input": raw,
+        "business_intake": {
+            "profile": profile,
+            "analyzed_raw_input": raw,
+            "candidate_proposal": previous,
+            "candidate_analyzed_raw_input": raw,
+            "asked_question_ids": [],
+            "pending_question_ids": [
+                "core_condition:continuous_inventory_review"
+            ],
+            "pending_answers": [{
+                "question_id": "core_condition:continuous_inventory_review",
+                "option_id": "yes",
+                "source_id": "business_clarification_form",
+            }],
+            "applicability_user_answers": {
+                "single_decision_period": "contradicted",
+            },
+        },
+    })
+    assert get_workflow_status(result) == WORKFLOW_BUSINESS_CORE_SELECTED
+    assert result["business_intake"]["core_selection"][
+        "selected_core_id"
+    ] == "continuous_review_q_r"
+    candidate_payload = json.loads(llm.invoke.call_args_list[0].args[0][1].content)
+    assert any(
+        item["source_id"] == "business_answers"
+        and "continuous_inventory_review" in item["content"]
+        for item in candidate_payload["evidence"]
+    )
+
+
 def test_node_selects_core_from_analyzed_description() -> None:
     raw_input = (
         "Wir möchten nur die Bestellmenge bestimmen. "
