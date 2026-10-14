@@ -80,18 +80,20 @@ def build_business_intake_view_data(
             }
 
         if question is None and question_id.startswith("core_condition:"):
-            core_id = (
-                intake_state.get("candidate_question_core_id")
-                or intake_state.get("applicability_core_id")
-            )
-            if core_id is not None:
-                condition_id = question_id.split(":", 1)[1]
+            plan = intake_state.get("core_question_plan")
+            if (
+                plan is not None
+                and plan["question_id"] == question_id
+                and plan["core_id"] is not None
+                and plan["condition_id"] is not None
+            ):
+                condition_id = plan["condition_id"]
                 question = build_applicability_question(
-                    core_id, condition_id
+                    plan["core_id"], condition_id
                 )
-                if intake_state.get("candidate_question_core_id"):
+                if plan["kind"] == "candidate_condition":
                     proposed_prompt = intake_state.get(
-                        "candidate_question_prompt"
+                        "core_question_prompt"
                     )
                     if proposed_prompt:
                         question["prompt"] = proposed_prompt
@@ -112,8 +114,7 @@ def build_business_intake_view_data(
                             "label": "Noch nicht bekannt",
                         },
                     ]
-                plan = intake_state.get("applicability_plan")
-                if plan and plan["question_reason"] == "conflict":
+                if plan["reason"] == "conflict":
                     question["prompt"] = (
                         "Ihre Angaben dazu widersprechen sich. "
                         + question["prompt"]

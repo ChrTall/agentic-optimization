@@ -30,8 +30,10 @@ from agentic_optimization.models.core_applicability import (
     CORE_CONDITIONS,
 )
 from agentic_optimization.models.core_candidate_selection import (
-    choose_candidate_condition,
     select_from_core_candidates,
+)
+from agentic_optimization.models.core_question_planner import (
+    plan_next_core_question,
 )
 from agentic_optimization.state import (
     WORKFLOW_BUSINESS_CASE_UNSUPPORTED,
@@ -205,8 +207,7 @@ def create_business_intake_node(
         core_selection = preparation["core_selection"]
         candidate_proposal = intake_state.get("candidate_proposal")
         candidate_active = False
-        candidate_question_core_id = None
-        candidate_question_prompt = None
+        core_question_prompt = None
         if raw_input_for_analysis.strip():
             try:
                 candidate_proposal = candidate_agent(evidence=[{
@@ -273,53 +274,6 @@ def create_business_intake_node(
                 condition_answers=applicability_answers,
                 chosen_core_id=chosen_core_id,
             )
-            if core_selection["status"] == "needs_clarification":
-                target = choose_candidate_condition(
-                    core_selection["candidate_core_ids"],
-                    answered_condition_ids=set(applicability_answers),
-                    asked_question_ids=set(asked_question_ids),
-                )
-                if target is None:
-                    unknown_conditions = {
-                        condition_id
-                        for condition_id, answer in
-                        applicability_answers.items()
-                        if answer == "unknown"
-                    }
-                    if not any(
-                        unknown_conditions.intersection(
-                            CORE_CONDITIONS[core_id]
-                        )
-                        for core_id in core_selection[
-                            "candidate_core_ids"
-                        ]
-                    ):
-                        question_ids.append("core_choice")
-                else:
-                    candidate_question_core_id, condition_id = target
-                    question_id = f"core_condition:{condition_id}"
-                    question_ids.append(question_id)
-                    if (
-                        question_id in pending_question_ids
-                        and intake_state.get("candidate_question_core_id")
-                        == candidate_question_core_id
-                    ):
-                        candidate_question_prompt = intake_state.get(
-                            "candidate_question_prompt"
-                        )
-                    else:
-                        try:
-                            candidate_question_prompt = followup_agent(
-                                core_id=candidate_question_core_id,
-                                condition_id=condition_id,
-                                raw_input=raw_input,
-                            )
-                        except (TypeError, ValueError) as error:
-                            LOGGER.warning(
-                                "Dynamische Rückfrage ungültig; "
-                                "Standardfrage wird verwendet: %s",
-                                error,
-                            )
             if (
                 not question_ids
                 and core_selection["status"] == "selected"
@@ -429,11 +383,42 @@ def create_business_intake_node(
                     "selected_core_id": None,
                     "reason": "Eine Voraussetzung des Grundmodells ist offen.",
                 }
-                if applicability_plan["question_condition_id"] is not None:
-                    question_ids.append(
-                        "core_condition:"
-                        + applicability_plan["question_condition_id"]
+
+        core_question_plan = (
+            plan_next_core_question(
+                core_selection,
+                applicability_plan=applicability_plan,
+                applicability_core_id=applicability_core_id,
+                condition_answers=applicability_answers,
+                asked_question_ids=asked_question_ids,
+            )
+            if candidate_active or applicability_plan is not None
+            else None
+        )
+        if core_question_plan is not None:
+            question_ids.append(core_question_plan["question_id"])
+            if core_question_plan["kind"] == "candidate_condition":
+                if (
+                    core_question_plan["question_id"] in pending_question_ids
+                    and intake_state.get("core_question_plan")
+                    == core_question_plan
+                ):
+                    core_question_prompt = intake_state.get(
+                        "core_question_prompt"
                     )
+                else:
+                    try:
+                        core_question_prompt = followup_agent(
+                            core_id=core_question_plan["core_id"],
+                            condition_id=core_question_plan["condition_id"],
+                            raw_input=raw_input,
+                        )
+                    except (TypeError, ValueError) as error:
+                        LOGGER.warning(
+                            "Dynamische Rückfrage ungültig; "
+                            "Standardfrage wird verwendet: %s",
+                            error,
+                        )
 
         if core_selection["status"] == "unsupported":
             workflow_status = (
@@ -471,8 +456,8 @@ def create_business_intake_node(
                 raw_input if candidate_active else None
             ),
             "chosen_core_id": chosen_core_id,
-            "candidate_question_core_id": candidate_question_core_id,
-            "candidate_question_prompt": candidate_question_prompt,
+            "core_question_plan": core_question_plan,
+            "core_question_prompt": core_question_prompt,
             "analysis_error": None,
         }
 

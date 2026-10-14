@@ -83,6 +83,106 @@ def test_user_unknown_overrides_positive_text_inference() -> None:
     assert plan["question_condition_id"] is None
 
 
+def test_text_findings_cannot_skip_structural_questions() -> None:
+    profile = create_empty_business_problem_profile()
+    text_findings = {
+        "single_decision_period": "supported",
+        "no_replenishment_within_period": "supported",
+    }
+
+    first = plan_candidate_applicability(
+        "single_period_newsvendor", profile, text_findings
+    )
+    assert first["status"] == "needs_clarification"
+    assert first["question_condition_id"] == "single_decision_period"
+
+    second = plan_candidate_applicability(
+        "single_period_newsvendor", profile, text_findings,
+        {"single_decision_period": "supported"},
+    )
+    assert second["question_condition_id"] == (
+        "no_replenishment_within_period"
+    )
+
+    confirmed = plan_candidate_applicability(
+        "single_period_newsvendor", profile, text_findings,
+        {
+            "single_decision_period": "supported",
+            "no_replenishment_within_period": "supported",
+        },
+    )
+    assert confirmed["status"] == "review_ready"
+
+
+def test_weak_llm_quotes_still_require_user_clarification() -> None:
+    raw = (
+        "Für eine dreitägige Veranstaltung möchten wir einen Artikel "
+        "bestellen. Die Nachfrage ist unsicher. Wir wollen die "
+        "Bestellmenge festlegen und den erwarteten Gewinn maximieren."
+    )
+    profile = create_empty_business_problem_profile()
+    profile["recommendation"] = _confirmed("order_quantity")
+    profile["product_scope"] = _confirmed("single_product")
+    profile["primary_goal"] = _confirmed("maximize_profit")
+    profile["procurement_pattern"] = create_profile_field(
+        status="inferred",
+        value="one_time",
+        evidence=[{
+            "source_id": "raw_input",
+            "source_type": "free_text",
+            "excerpt": "dreitägige Veranstaltung",
+        }],
+    )
+    profile["replenishment_during_period"] = create_profile_field(
+        status="inferred",
+        value="not_possible",
+        evidence=[{
+            "source_id": "raw_input",
+            "source_type": "free_text",
+            "excerpt": "dreitägige Veranstaltung",
+        }],
+    )
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps({
+            "candidates": [{
+                "core_id": "single_period_newsvendor",
+                "source_id": "raw_input",
+                "excerpt": "Bestellmenge festlegen",
+            }],
+            "reason": "Einperiodiger Kandidat",
+        })),
+        AIMessage(content=json.dumps({"findings": [
+            {
+                "condition_id": "single_decision_period",
+                "status": "supported",
+                "source_id": "raw_input",
+                "excerpt": "Bestellmenge festlegen",
+            },
+            {
+                "condition_id": "no_replenishment_within_period",
+                "status": "supported",
+                "source_id": "raw_input",
+                "excerpt": "dreitägige Veranstaltung",
+            },
+        ]})),
+    ]
+
+    result = create_business_intake_node(llm)({
+        "raw_input": raw,
+        "business_intake": {
+            "profile": profile,
+            "analyzed_raw_input": raw,
+            "asked_question_ids": [],
+        },
+    })
+
+    assert get_workflow_status(result) == WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT
+    assert result["business_intake"]["pending_question_ids"] == [
+        "core_condition:single_decision_period"
+    ]
+
+
 @pytest.mark.parametrize(
     ("profile_factory", "raw", "condition_id", "excerpt", "expected"),
     [

@@ -4,6 +4,7 @@ from collections.abc import Mapping
 
 from agentic_optimization.models.core_applicability import (
     CORE_CONDITIONS,
+    IMMEDIATE_CLARIFICATION_CONDITIONS,
     ApplicabilityPlan,
     Finding,
     UserConditionAnswer,
@@ -87,6 +88,16 @@ def plan_candidate_applicability(
             confirmed_conditions.discard(condition_id)
         else:
             findings[condition_id] = answer
+
+    # Ein zutreffend erscheinender Freitextbeleg ist noch keine ausdrückliche
+    # Nutzerantwort. Strukturentscheidende Voraussetzungen werden deshalb
+    # erst nach einer Auswahl im Formular oder einer Rückfrage erfüllt.
+    for condition_id in IMMEDIATE_CLARIFICATION_CONDITIONS:
+        if (
+            findings.get(condition_id) == "supported"
+            and condition_id not in confirmed_conditions
+        ):
+            findings.pop(condition_id)
 
     return plan_core_applicability(
         core_id,

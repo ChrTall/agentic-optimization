@@ -25,6 +25,9 @@ from agentic_optimization.models.core_applicability import (
 from agentic_optimization.models.core_candidate_selection import (
     CoreCandidateProposal,
 )
+from agentic_optimization.models.core_question_planner import (
+    CoreQuestionPlan,
+)
 from agentic_optimization.models.problem_profile import (
     BusinessProblemProfile,
 )
@@ -196,8 +199,8 @@ class BusinessIntakeState(TypedDict, total=False):
     candidate_proposal: CoreCandidateProposal
     candidate_analyzed_raw_input: str | None
     chosen_core_id: str | None
-    candidate_question_core_id: str | None
-    candidate_question_prompt: str | None
+    core_question_plan: CoreQuestionPlan | None
+    core_question_prompt: str | None
 
 
 class ModularInputSubmission(TypedDict):

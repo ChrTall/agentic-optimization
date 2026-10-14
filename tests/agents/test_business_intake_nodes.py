@@ -139,7 +139,7 @@ def test_node_selects_core_from_analyzed_description() -> None:
     )
 
 
-def test_event_description_does_not_trigger_redundant_core_questions():
+def test_event_description_requires_explicit_structural_answers():
     raw_input = (
         "Für eine dreitägige Veranstaltung bestellen wir einen Artikel "
         "einmal vor Beginn. Während der Veranstaltung können wir nicht "
@@ -179,13 +179,39 @@ def test_event_description_does_not_trigger_redundant_core_questions():
         AIMessage(content=json.dumps({"findings": []})),
     ]
 
-    result = create_business_intake_node(llm)({
+    node = create_business_intake_node(llm)
+    result = node({
         "raw_input": raw_input,
         "business_intake": {
             "profile": create_empty_business_problem_profile(),
             "asked_question_ids": [],
         },
     })
+
+    assert get_workflow_status(result) == WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT
+    assert result["business_intake"]["pending_question_ids"] == [
+        "core_condition:single_decision_period"
+    ]
+
+    for condition_id in (
+        "single_decision_period",
+        "no_replenishment_within_period",
+    ):
+        intake = result["business_intake"]
+        assert intake["pending_question_ids"] == [
+            f"core_condition:{condition_id}"
+        ]
+        result = node({
+            **result,
+            "business_intake": {
+                **intake,
+                "pending_answers": [{
+                    "question_id": f"core_condition:{condition_id}",
+                    "option_id": "yes",
+                    "source_id": "business_clarification_form",
+                }],
+            },
+        })
 
     assert get_workflow_status(result) == WORKFLOW_BUSINESS_CORE_SELECTED
     assert result["business_intake"]["pending_question_ids"] == []
@@ -237,6 +263,9 @@ def test_text_candidates_need_explicit_choice_when_both_plausible() -> None:
     assert intake["pending_question_ids"] == [
         "core_condition:single_decision_period"
     ]
+    assert intake["core_question_plan"]["kind"] == (
+        "candidate_condition"
+    )
     question = build_business_intake_view_data(intake)["questions"][0]
     assert {item["option_id"] for item in question["options"]} == {
         "yes", "no", "user_unknown"

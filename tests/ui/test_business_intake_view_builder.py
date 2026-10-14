@@ -139,6 +139,43 @@ def test_core_choice_describes_situation_without_model_names() -> None:
     assert "vor Beginn des Verkaufszeitraums" in visible
 
 
+def test_candidate_question_uses_llm_wording_and_explanatory_options() -> None:
+    question = build_business_intake_view_data({
+        "profile": create_empty_business_problem_profile(),
+        "pending_question_ids": ["core_condition:single_decision_period"],
+        "core_question_plan": {
+            "question_id": "core_condition:single_decision_period",
+            "kind": "candidate_condition",
+            "core_id": "single_period_newsvendor",
+            "condition_id": "single_decision_period",
+            "reason": None,
+        },
+        "core_question_prompt": "Wird nur einmal vor Beginn bestellt?",
+    })["questions"][0]
+
+    assert question["prompt"] == "Wird nur einmal vor Beginn bestellt?"
+    assert question["options"][0]["label"].startswith("Ja — ")
+
+
+def test_applicability_conflict_uses_fixed_question() -> None:
+    question = build_business_intake_view_data({
+        "profile": create_empty_business_problem_profile(),
+        "pending_question_ids": ["core_condition:no_quantity_discounts"],
+        "core_question_plan": {
+            "question_id": "core_condition:no_quantity_discounts",
+            "kind": "applicability_condition",
+            "core_id": "eoq",
+            "condition_id": "no_quantity_discounts",
+            "reason": "conflict",
+        },
+    })["questions"][0]
+
+    assert question["prompt"].startswith(
+        "Ihre Angaben dazu widersprechen sich. "
+    )
+    assert question["options"][0]["label"] == "Ja"
+
+
 def test_rejects_unknown_pending_question() -> None:
     with pytest.raises(
         ValueError,
