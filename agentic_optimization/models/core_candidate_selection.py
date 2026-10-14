@@ -15,7 +15,6 @@ class CoreCandidate(TypedDict):
     core_id: str
     source_id: str
     excerpt: str
-    open_condition_ids: list[str]
 
 
 class CoreCandidateProposal(TypedDict):

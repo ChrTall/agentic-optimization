@@ -86,9 +86,6 @@ def test_node_selects_core_from_analyzed_description() -> None:
                 "core_id": "eoq",
                 "source_id": "raw_input",
                 "excerpt": "Das Produkt wird regelmäßig nachbestellt",
-                "open_condition_ids": [
-                    "steady_demand", "no_quantity_discounts", "no_shortages"
-                ],
             }],
             "reason": "Wiederkehrende Bestellmengenplanung.",
         })),
@@ -171,16 +168,10 @@ def test_event_description_does_not_trigger_redundant_core_questions():
                     "core_id": core_id,
                     "source_id": "raw_input",
                     "excerpt": "Bestellmenge festlegen",
-                    "open_condition_ids": list(condition_ids),
                 }
-                for core_id, condition_ids in (
-                    ("single_period_newsvendor", (
-                        "single_decision_period",
-                        "no_replenishment_within_period",
-                    )),
-                    ("continuous_review_q_r", (
-                        "continuous_inventory_review",
-                    )),
+                for core_id in (
+                    "single_period_newsvendor",
+                    "continuous_review_q_r",
                 )
             ],
             "reason": "Beide Kandidaten zunächst prüfen.",
@@ -218,7 +209,6 @@ def test_text_candidates_need_explicit_choice_when_both_plausible() -> None:
                     "core_id": core_id,
                     "source_id": "raw_input",
                     "excerpt": "eine Bestellung",
-                    "open_condition_ids": [],
                 }
                 for core_id in ("eoq", "single_period_newsvendor")
             ],
@@ -288,7 +278,6 @@ def test_unknown_structural_answers_do_not_force_a_model_choice() -> None:
                     "core_id": core_id,
                     "source_id": "raw_input",
                     "excerpt": "Bestellmenge bestimmen",
-                    "open_condition_ids": [],
                 }
                 for core_id in ("eoq", "single_period_newsvendor")
             ],
@@ -354,7 +343,6 @@ def test_unknown_primary_goal_is_not_repeated_or_assumed() -> None:
                 "core_id": "eoq",
                 "source_id": "raw_input",
                 "excerpt": "Bestellmenge für einen Artikel",
-                "open_condition_ids": [],
             }],
             "reason": "Bestellmengenplanung.",
         })),
@@ -407,10 +395,6 @@ def test_single_candidate_waits_when_required_condition_is_unknown() -> None:
                 "core_id": "single_period_newsvendor",
                 "source_id": "raw_input",
                 "excerpt": "Bestellmenge für einen Verkaufszeitraum",
-                "open_condition_ids": [
-                    "single_decision_period",
-                    "no_replenishment_within_period",
-                ],
             }],
             "reason": "Einperiodiges Modell ist zu prüfen.",
         })),
@@ -465,7 +449,6 @@ def test_text_candidate_does_not_require_fixed_profile_answers() -> None:
                 "core_id": "eoq",
                 "source_id": "raw_input",
                 "excerpt": "Wir bestellen regelmäßig nach",
-                "open_condition_ids": ["steady_demand"],
             }],
             "reason": "EOQ ist als Kandidat zu prüfen.",
         })),
@@ -501,7 +484,6 @@ def test_confirmed_candidate_conditions_survive_later_core_choice() -> None:
                     "core_id": core_id,
                     "source_id": "raw_input",
                     "excerpt": "Bestellmenge",
-                    "open_condition_ids": [],
                 }
                 for core_id in ("eoq", "single_period_newsvendor")
             ],

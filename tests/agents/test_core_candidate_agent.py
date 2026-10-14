@@ -22,7 +22,6 @@ def proposal(core_id: str = "eoq") -> dict:
             "core_id": core_id,
             "source_id": "raw_input",
             "excerpt": "Wir bestellen regelmäßig nach",
-            "open_condition_ids": ["steady_demand"],
         }],
         "reason": "Wiederkehrende Bestellungen sind plausibel.",
     }
@@ -40,9 +39,9 @@ def test_validates_grounded_registered_candidate() -> None:
     {"core_id": "invented"},
     {"source_id": "invented"},
     {"excerpt": "nicht in der Quelle"},
-    {"open_condition_ids": ["not_a_condition"]},
+    {"open_condition_ids": ["steady_demand"]},
 ])
-def test_rejects_unregistered_or_ungrounded_candidate(change: dict) -> None:
+def test_rejects_invalid_candidate(change: dict) -> None:
     response = proposal()
     response["candidates"][0].update(change)
 

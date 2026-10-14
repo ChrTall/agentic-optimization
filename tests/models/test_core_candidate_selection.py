@@ -15,7 +15,6 @@ def _proposal(*core_ids):
                 "core_id": core_id,
                 "source_id": "raw_input",
                 "excerpt": "Bestellung",
-                "open_condition_ids": [],
             }
             for core_id in core_ids
         ],

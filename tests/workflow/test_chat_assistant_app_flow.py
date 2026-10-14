@@ -131,11 +131,6 @@ class FakeLLM:
                     "core_id": "eoq",
                     "source_id": "raw_input",
                     "excerpt": "regelmäßig nach",
-                    "open_condition_ids": [
-                        "steady_demand",
-                        "no_quantity_discounts",
-                        "no_shortages",
-                    ],
                 }],
                 "reason": "Wiederkehrende Bestellungen.",
             }))

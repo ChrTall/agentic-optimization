@@ -116,7 +116,6 @@ def test_core_choice_describes_situation_without_model_names() -> None:
                     "core_id": core_id,
                     "source_id": "raw_input",
                     "excerpt": "Bestellung",
-                    "open_condition_ids": [],
                 }
                 for core_id in ("eoq", "single_period_newsvendor")
             ],
