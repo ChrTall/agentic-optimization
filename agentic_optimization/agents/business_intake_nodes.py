@@ -158,6 +158,14 @@ def create_business_intake_node(
             if raw_input == analyzed_raw_input
             else raw_input
         )
+        # The chat app appends clarification messages to the existing text.
+        # This is an extension of the same case, unlike replacing the text.
+        additive_clarification = (
+            isinstance(analyzed_raw_input, str)
+            and bool(analyzed_raw_input.strip())
+            and raw_input.startswith(f"{analyzed_raw_input.rstrip()}\n")
+            and bool(raw_input[len(analyzed_raw_input.rstrip()) + 1:].strip())
+        )
 
         try:
             preparation = prepare_business_intake(
@@ -236,16 +244,21 @@ def create_business_intake_node(
                                 "zuverlässig geprüft werden. Bitte "
                                 "versuchen Sie es erneut."
                             ),
-                            "pending_answers": [],
+                            # The submitted answers have only been applied to
+                            # local variables. Replay them on the next attempt.
+                            "pending_answers": list(
+                                intake_state.get("pending_answers", [])
+                            ),
                         },
                     },
                     event=None,
                     workflow_status=WORKFLOW_BUSINESS_PROFILE_ANALYSIS_FAILED,
                 )
-            # A changed description invalidates earlier selections, but not
-            # answers submitted in this same request.
-            chosen_core_id = submitted_chosen_core_id
-            applicability_answers = submitted_condition_answers
+            # A replacement invalidates earlier answers; an appended chat
+            # clarification belongs to the same case and keeps them.
+            if not additive_clarification:
+                chosen_core_id = submitted_chosen_core_id
+                applicability_answers = submitted_condition_answers
             candidate_active = True
         elif (
             candidate_proposal is not None
@@ -318,16 +331,8 @@ def create_business_intake_node(
                 or intake_state.get("applicability_analyzed_raw_input")
                 != raw_input
             ):
-                applicability_answers = (
-                    {
-                        condition_id: answer
-                        for condition_id, answer in applicability_answers.items()
-                        if condition_id in CORE_CONDITIONS[
-                            applicability_core_id
-                        ]
-                    }
-                    if candidate_active else {}
-                )
+                if not candidate_active:
+                    applicability_answers = {}
                 text_findings = {}
                 text_evidence = []
                 if raw_input.strip():
@@ -376,11 +381,18 @@ def create_business_intake_node(
                             ),
                         )
 
+            # Keep answers about other candidates for subsequent selection
+            # turns; only the selected core's answers enter its own check.
+            core_applicability_answers = {
+                condition_id: answer
+                for condition_id, answer in applicability_answers.items()
+                if condition_id in CORE_CONDITIONS[applicability_core_id]
+            }
             applicability_plan = plan_candidate_applicability(
                 applicability_core_id,
                 preparation["profile"],
                 text_findings,
-                applicability_answers,
+                core_applicability_answers,
             )
             if applicability_plan["status"] == "rejected":
                 core_selection = {
