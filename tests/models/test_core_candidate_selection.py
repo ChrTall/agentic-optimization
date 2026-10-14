@@ -143,21 +143,20 @@ def test_structural_question_is_asked_once_before_core_choice():
         answered_condition_ids=set(),
         asked_question_ids=set(),
     )
-    assert first == ("single_period_newsvendor", "single_decision_period")
+    assert first == ("eoq", "recurring_orders")
 
     second = choose_candidate_condition(
         candidates,
-        answered_condition_ids={"single_decision_period"},
-        asked_question_ids={"core_condition:single_decision_period"},
+        answered_condition_ids={"recurring_orders"},
+        asked_question_ids={"core_condition:recurring_orders"},
     )
-    assert second == (
-        "single_period_newsvendor", "no_replenishment_within_period"
-    )
+    assert second == ("single_period_newsvendor", "single_decision_period")
 
     final = choose_candidate_condition(
         candidates,
         answered_condition_ids={
-            "single_decision_period", "no_replenishment_within_period"
+            "recurring_orders", "single_decision_period",
+            "no_replenishment_within_period",
         },
         asked_question_ids=set(),
     )

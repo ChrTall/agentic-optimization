@@ -271,6 +271,10 @@ def create_component_coverage_agent(
         products: list[ProductSpecification],
         evidence: list[SelectionEvidence],
         proposal: ComponentSelectionProposal,
+        normalize_missing_inputs: (
+            Callable[[ComponentSelectionProposal], ComponentSelectionProposal]
+            | None
+        ) = None,
     ) -> ComponentSelectionProposal:
         payload = {
             "core_id": core_id,
@@ -329,32 +333,41 @@ def create_component_coverage_agent(
             ),
         )
 
+        # First validate every structural and source-independent rule. A
+        # finding about a missing value may still reference its already
+        # selected component; the input audit can remove only that finding.
         errors = validate_component_selection_proposal(
-            updated_proposal
+            updated_proposal,
+            allow_selected_candidate_overlap=True,
         )
-
         if errors:
             raise ValueError(
                 "Ungültige Vollständigkeitsprüfung: "
                 + "; ".join(errors)
             )
-
-        allowed_source_ids = {
-            item["source_id"]
-            for item in evidence
-        }
+        allowed_source_ids = {item["source_id"] for item in evidence}
         unknown_source_ids = {
             source_id
             for requirement in uncovered
             for source_id in requirement["sources"]
             if source_id not in allowed_source_ids
         }
-
         if unknown_source_ids:
             raise ValueError(
                 "Die Vollständigkeitsprüfung hat unbekannte "
                 "Quellen verwendet: "
                 + ", ".join(sorted(unknown_source_ids))
+            )
+        strict_errors = validate_component_selection_proposal(
+            updated_proposal
+        )
+        if strict_errors and normalize_missing_inputs is not None:
+            updated_proposal = normalize_missing_inputs(updated_proposal)
+        errors = validate_component_selection_proposal(updated_proposal)
+        if errors:
+            raise ValueError(
+                "Ungültige Vollständigkeitsprüfung: "
+                + "; ".join(errors)
             )
 
         return cast(

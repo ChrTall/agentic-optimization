@@ -292,6 +292,16 @@ def run_business_intake(
 
     graph_state = ensure_graph_state()
     intake_state = graph_state["business_intake"]
+    # The retry form does not render questions answered in the failed turn.
+    # Replay those submissions only for the same description; fresh answers
+    # from the form take precedence by question ID.
+    if raw_input == graph_state.get("raw_input"):
+        retained = {
+            answer["question_id"]: answer
+            for answer in intake_state.get("pending_answers", [])
+        }
+        retained.update({answer["question_id"]: answer for answer in answers})
+        answers = list(retained.values())
     workflow = build_graph(get_or_create_llm())
     result_state = workflow.invoke(
         {

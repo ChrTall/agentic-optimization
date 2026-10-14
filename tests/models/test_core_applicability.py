@@ -14,6 +14,7 @@ def test_unknown_eoq_assumptions_are_not_accepted() -> None:
 
     assert result["status"] == "needs_clarification"
     assert set(result["unresolved"]) == {
+        "recurring_orders",
         "steady_demand",
         "no_quantity_discounts",
         "no_shortages",
@@ -36,6 +37,7 @@ def test_supported_eoq_assumptions_make_it_eligible() -> None:
     result = assess_core_applicability(
         "eoq",
         {
+            "recurring_orders": "supported",
             "steady_demand": "supported",
             "no_quantity_discounts": "supported",
             "no_shortages": "supported",
@@ -164,20 +166,12 @@ def test_conflicting_evidence_requires_clarification() -> None:
     assert assessment["conflicted"] == ["no_quantity_discounts"]
 
 
-def test_unknown_eoq_assumptions_wait_for_review_confirmation() -> None:
+def test_unknown_eoq_ordering_pattern_requires_clarification() -> None:
     plan = plan_core_applicability("eoq", {})
 
-    assert plan == {
-        "status": "provisional",
-        "question_condition_id": None,
-        "question_reason": None,
-        "pending_confirmation": [
-            "steady_demand",
-            "no_quantity_discounts",
-            "no_shortages",
-        ],
-        "contradicted": [],
-    }
+    assert plan["status"] == "needs_clarification"
+    assert plan["question_condition_id"] == "recurring_orders"
+    assert plan["question_reason"] == "missing"
 
 
 def test_newsvendor_asks_about_decision_period_first() -> None:
@@ -240,10 +234,11 @@ def test_conflicting_eoq_claims_trigger_targeted_question() -> None:
     assert "no_quantity_discounts" not in plan["pending_confirmation"]
 
 
-def test_llm_supported_conditions_still_need_review_confirmation() -> None:
+def test_llm_supported_eoq_structure_still_needs_direct_confirmation() -> None:
     plan = plan_core_applicability(
         "eoq",
         {
+            "recurring_orders": "supported",
             "steady_demand": "supported",
             "no_quantity_discounts": "supported",
             "no_shortages": "supported",

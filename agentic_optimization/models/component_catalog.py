@@ -99,9 +99,6 @@ def build_component_catalog(
                     "selection_guidance",
                     "",
                 ),
-                "requires_explicit_request": definition.get(
-                    "requires_explicit_request", False
-                ),
                 "required_product_facts": deepcopy(
                     definition["required_product_facts"]
                 ),
@@ -127,6 +124,9 @@ def build_component_catalog(
                 "selection_guidance": definition.get(
                     "selection_guidance",
                     "",
+                ),
+                "requires_explicit_request": definition.get(
+                    "requires_explicit_request", False
                 ),
                 "required_product_facts": deepcopy(
                     definition["required_product_facts"]

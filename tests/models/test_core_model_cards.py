@@ -26,6 +26,7 @@ def test_eoq_card_exposes_conditions_and_required_objective() -> None:
 
     assert card["required_objective_sense"] == "minimize"
     assert {item["condition_id"] for item in card["conditions"]} == {
+        "recurring_orders",
         "steady_demand", "no_quantity_discounts", "no_shortages"
     }
     steady_demand = next(

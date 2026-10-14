@@ -71,6 +71,28 @@ def _q_r_profile():
     return profile
 
 
+def test_eoq_requires_direct_recurring_order_confirmation() -> None:
+    profile = create_empty_business_problem_profile()
+    profile["primary_goal"] = _confirmed("minimize_cost")
+    inferred = plan_candidate_applicability(
+        "eoq", profile, {"recurring_orders": "supported"},
+    )
+    assert inferred["status"] == "needs_clarification"
+    assert inferred["question_condition_id"] == "recurring_orders"
+
+    deferred = plan_candidate_applicability(
+        "eoq", profile, {"recurring_orders": "supported"},
+        {"recurring_orders": "unknown"},
+    )
+    assert deferred["status"] == "needs_clarification"
+    assert deferred["question_condition_id"] is None
+
+    confirmed = plan_candidate_applicability(
+        "eoq", profile, {}, {"recurring_orders": "supported"},
+    )
+    assert confirmed["status"] == "provisional"
+
+
 def test_user_unknown_overrides_positive_text_inference() -> None:
     plan = plan_candidate_applicability(
         "single_period_newsvendor",

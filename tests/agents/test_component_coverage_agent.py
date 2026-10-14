@@ -8,6 +8,9 @@ from langchain_core.messages import AIMessage
 from agentic_optimization.agents.component_coverage_agent import (
     create_component_coverage_agent,
 )
+from agentic_optimization.agents.component_selection_integrity import (
+    create_component_selection_integrity_agent,
+)
 
 
 def create_proposal() -> dict:
@@ -143,6 +146,93 @@ def test_preserves_complete_proposal_when_nothing_is_missing(
 
     assert result == original_proposal
     assert proposal == original_proposal
+
+
+def test_normalizes_missing_input_before_selected_component_check() -> None:
+    finding = {
+        "description": "Die Bestellkosten wurden noch nicht eingegeben.",
+        "resolution": "clarification",
+        "candidate_component_ids": ["annual_ordering_cost"],
+        "reason": "Der Zahlenwert fehlt noch.",
+        "sources": ["raw_input"],
+    }
+    llm = create_agent_response([finding])
+    normalized = []
+
+    def remove_input_only(proposal):
+        normalized.append(proposal)
+        result = deepcopy(proposal)
+        result["unresolved_requirements"] = []
+        result["selection_status"] = "complete"
+        return result
+
+    agent = create_component_coverage_agent(llm)
+    result = agent(
+        core_id="eoq",
+        requirements={"objective": "Kosten minimieren"},
+        products=[],
+        evidence=[{"source_id": "raw_input", "content": "Bestellkosten fehlen."}],
+        proposal=create_proposal(),
+        normalize_missing_inputs=remove_input_only,
+    )
+    assert normalized[0]["unresolved_requirements"] == [finding]
+    assert result["selection_status"] == "complete"
+
+
+def test_invalid_coverage_source_is_rejected_before_normalization() -> None:
+    finding = {
+        "description": "Ein Eingabewert fehlt.",
+        "resolution": "clarification",
+        "candidate_component_ids": ["annual_ordering_cost"],
+        "reason": "Wert fehlt.",
+        "sources": ["invented"],
+    }
+    agent = create_component_coverage_agent(create_agent_response([finding]))
+    normalizer = Mock()
+    with pytest.raises(ValueError, match="unbekannte Quellen"):
+        agent(
+            core_id="eoq",
+            requirements={},
+            products=[],
+            evidence=[{"source_id": "raw_input", "content": "Text"}],
+            proposal=create_proposal(),
+            normalize_missing_inputs=normalizer,
+        )
+    normalizer.assert_not_called()
+
+
+def test_registered_missing_input_is_removed_by_integrity_audit() -> None:
+    coverage_llm = create_agent_response([{
+        "description": "Die Bestellkosten pro Bestellung sind nicht angegeben.",
+        "resolution": "clarification",
+        "candidate_component_ids": ["annual_ordering_cost"],
+        "reason": "Der numerische Eingabewert fehlt.",
+        "sources": ["raw_input"],
+    }])
+    integrity_llm = Mock()
+    integrity_llm.invoke.return_value = AIMessage(content=json.dumps({
+        "rejected_constraints": [],
+        "input_only_requirements": [{
+            "index": 0,
+            "field_names": ["ordering_cost"],
+        }],
+    }))
+    integrity = create_component_selection_integrity_agent(integrity_llm)
+    result = create_component_coverage_agent(coverage_llm)(
+        core_id="eoq",
+        requirements={"objective": "Kosten minimieren"},
+        products=[],
+        evidence=[{"source_id": "raw_input", "content": "Bestellkosten fehlen."}],
+        proposal=create_proposal(),
+        normalize_missing_inputs=lambda proposal: integrity(
+            proposal=proposal,
+            evidence=[{"source_id": "raw_input", "content": "Bestellkosten fehlen."}],
+            objective_goal="Kosten minimieren",
+        ),
+    )
+    assert result["selection_status"] == "complete"
+    assert result["unresolved_requirements"] == []
+    assert integrity_llm.invoke.call_count == 1
 
 
 @pytest.mark.parametrize(

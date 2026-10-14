@@ -39,6 +39,7 @@ class ApplicabilityPlan(TypedDict):
 # Fehlender Eintrag bedeutet: noch unbekannt, nicht automatisch erfüllt.
 CORE_CONDITIONS: dict[str, tuple[str, ...]] = {
     "eoq": (
+        "recurring_orders",
         "steady_demand",
         "no_quantity_discounts",
         "no_shortages",
@@ -57,6 +58,9 @@ CORE_CONDITIONS: dict[str, tuple[str, ...]] = {
 # Profile fields that describe the same structural requirement as an
 # explicit condition answer. Shared by candidate filtering and applicability.
 PROFILE_CONDITIONS = {
+    "eoq": (
+        ("procurement_pattern", "recurring", "recurring_orders"),
+    ),
     "single_period_newsvendor": (
         ("procurement_pattern", "one_time", "single_decision_period"),
         (
@@ -76,6 +80,7 @@ PROFILE_CONDITIONS = {
 # Andere unbekannte Annahmen können im Review ausdrücklich bestätigt
 # werden; ohne Bestätigung darf nicht optimiert werden.
 IMMEDIATE_CLARIFICATION_CONDITIONS = frozenset({
+    "recurring_orders",
     "single_decision_period",
     "no_replenishment_within_period",
     "continuous_inventory_review",
@@ -83,6 +88,9 @@ IMMEDIATE_CLARIFICATION_CONDITIONS = frozenset({
 
 
 CONDITION_LABELS: dict[str, str] = {
+    "recurring_orders": (
+        "Der Artikel wird dauerhaft in wiederkehrenden Bestellzyklen beschafft."
+    ),
     "steady_demand": (
         "Der Bedarf ist über die Zeit ungefähr gleichmäßig und planbar."
     ),
@@ -115,6 +123,7 @@ CONDITION_LABELS: dict[str, str] = {
 # Hinweise zur Interpretation sind für die Analyse bestimmt, nicht für
 # Checkboxen, mit denen Nutzer die Voraussetzung selbst bestätigen.
 CONDITION_GUIDANCE: dict[str, str] = {
+    "recurring_orders": CONDITION_LABELS["recurring_orders"],
     "steady_demand": (
         CONDITION_LABELS["steady_demand"]
         + " Ein Jahresbedarf allein belegt das nicht."

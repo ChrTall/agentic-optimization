@@ -47,6 +47,9 @@ UNKNOWN_OPTION: BusinessQuestionOption = {
 
 
 APPLICABILITY_QUESTION_PROMPTS = {
+    "recurring_orders": (
+        "Wird der Artikel dauerhaft und regelmäßig nachbestellt?"
+    ),
     "steady_demand": "Ist der Bedarf über die Zeit ungefähr gleichmäßig?",
     "no_quantity_discounts": (
         "Bleibt der Einkaufspreis je Stück unabhängig von der Bestellmenge?"

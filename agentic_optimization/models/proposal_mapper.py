@@ -142,6 +142,8 @@ def build_component_selection_proposal(
 
 def validate_component_selection_proposal(
     proposal: object,
+    *,
+    allow_selected_candidate_overlap: bool = False,
 ) -> list[str]:
     """Prüft die Struktur eines untrusted Agentenvorschlags."""
 
@@ -585,6 +587,7 @@ def validate_component_selection_proposal(
                 if (
                     candidate_component_id
                     in selected_component_ids
+                    and not allow_selected_candidate_overlap
                 ):
                     errors.append(
                         f"Der Kandidaten-Baustein "

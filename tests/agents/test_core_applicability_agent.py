@@ -35,6 +35,7 @@ def test_extracts_only_grounded_explicit_finding() -> None:
     task = json.loads(llm.invoke.call_args.args[0][1].content)
     assert task["core_id"] == "eoq"
     assert {item["condition_id"] for item in task["conditions"]} == {
+        "recurring_orders",
         "steady_demand", "no_quantity_discounts", "no_shortages"
     }
 
@@ -53,7 +54,7 @@ def test_silence_keeps_all_assumptions_open() -> None:
 
     assert result["findings"] == {}
     assert result["assessment"]["status"] == "needs_clarification"
-    assert len(result["assessment"]["unresolved"]) == 3
+    assert len(result["assessment"]["unresolved"]) == 4
 
 
 def test_retries_after_invented_excerpt() -> None:

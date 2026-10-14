@@ -112,20 +112,20 @@ def test_node_selects_core_from_analyzed_description() -> None:
     result = node(state)
     intake_result = result["business_intake"]
 
-    assert get_workflow_status(result) == (
-        WORKFLOW_BUSINESS_CORE_SELECTED
-    )
+    assert get_workflow_status(result) == WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT
     assert intake_result["core_selection"]["status"] == (
-        "selected"
+        "needs_clarification"
     )
     assert intake_result["core_selection"][
         "selected_core_id"
-    ] == "eoq"
-    assert intake_result["pending_question_ids"] == []
+    ] is None
+    assert intake_result["pending_question_ids"] == [
+        "core_condition:recurring_orders"
+    ]
     assert intake_result["analysis_error"] is None
     assert result["raw_input"] == raw_input
     assert llm.invoke.call_count == 3
-    assert intake_result["applicability_plan"]["status"] == "provisional"
+    assert intake_result["applicability_plan"]["status"] == "needs_clarification"
     assert intake_result["applicability_text_evidence"] == [{
         "condition_id": "no_quantity_discounts",
         "status": "supported",
@@ -133,7 +133,19 @@ def test_node_selects_core_from_analyzed_description() -> None:
         "excerpt": "Es gibt keine Mengenrabatte.",
     }]
 
-    initialized = initialize_modular_core_node(result)
+    confirmed = node({
+        **result,
+        "business_intake": {
+            **intake_result,
+            "pending_answers": [{
+                "question_id": "core_condition:recurring_orders",
+                "option_id": "yes",
+                "source_id": "business_clarification_form",
+            }],
+        },
+    })
+    assert get_workflow_status(confirmed) == WORKFLOW_BUSINESS_CORE_SELECTED
+    initialized = initialize_modular_core_node(confirmed)
     assert initialized["modular_model"]["core_assumption_evidence"] == (
         intake_result["applicability_text_evidence"]
     )
@@ -241,10 +253,10 @@ def test_text_candidates_need_explicit_choice_when_both_plausible() -> None:
             "reason": "Der zeitliche Ablauf ist unklar.",
         })),
         AIMessage(content=json.dumps({
-            "question": (
-                "Legen Sie die Bestellmenge einmal vor einem "
-                "Verkaufszeitraum fest?"
-            ),
+            "question": "Wird der Artikel dauerhaft nachbestellt?",
+        })),
+        AIMessage(content=json.dumps({
+            "question": "Wird die Menge nur einmal festgelegt?",
         })),
         AIMessage(content=json.dumps({"findings": []})),
     ]
@@ -261,7 +273,7 @@ def test_text_candidates_need_explicit_choice_when_both_plausible() -> None:
     assert get_workflow_status(first) == WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT
     intake = first["business_intake"]
     assert intake["pending_question_ids"] == [
-        "core_condition:single_decision_period"
+        "core_condition:recurring_orders"
     ]
     assert intake["core_question_plan"]["kind"] == (
         "candidate_condition"
@@ -270,8 +282,8 @@ def test_text_candidates_need_explicit_choice_when_both_plausible() -> None:
     assert {item["option_id"] for item in question["options"]} == {
         "yes", "no", "user_unknown"
     }
-    assert question["prompt"].startswith("Legen Sie")
-    assert "einmal vor dem betrachteten Zeitraum" in (
+    assert "dauerhaft nachbestellt" in question["prompt"]
+    assert "wiederkehrenden Bestellzyklen" in (
         question["options"][0]["label"]
     )
 
@@ -280,17 +292,31 @@ def test_text_candidates_need_explicit_choice_when_both_plausible() -> None:
         "business_intake": {
             **intake,
             "pending_answers": [{
+                "question_id": "core_condition:recurring_orders",
+                "option_id": "yes",
+                "source_id": "business_clarification_form",
+            }],
+        },
+    })
+    assert second["business_intake"]["pending_question_ids"] == [
+        "core_condition:single_decision_period"
+    ]
+    third = node({
+        **second,
+        "business_intake": {
+            **second["business_intake"],
+            "pending_answers": [{
                 "question_id": "core_condition:single_decision_period",
                 "option_id": "no",
                 "source_id": "business_clarification_form",
             }],
         },
     })
-    assert get_workflow_status(second) == WORKFLOW_BUSINESS_CORE_SELECTED
-    assert second["business_intake"]["core_selection"][
+    assert get_workflow_status(third) == WORKFLOW_BUSINESS_CORE_SELECTED
+    assert third["business_intake"]["core_selection"][
         "selected_core_id"
     ] == "eoq"
-    assert llm.invoke.call_count == 4
+    assert llm.invoke.call_count == 5
 
 
 def test_unknown_structural_answers_do_not_force_a_model_choice() -> None:
@@ -318,6 +344,9 @@ def test_unknown_structural_answers_do_not_force_a_model_choice() -> None:
         AIMessage(content=json.dumps({
             "question": "Keine Nachbestellung im Zeitraum?"
         })),
+        AIMessage(content=json.dumps({
+            "question": "Wird der Artikel dauerhaft nachbestellt?"
+        })),
     ]
     node = create_business_intake_node(llm)
     state = node({
@@ -329,7 +358,8 @@ def test_unknown_structural_answers_do_not_force_a_model_choice() -> None:
     })
 
     for condition_id in (
-        "single_decision_period", "no_replenishment_within_period"
+        "recurring_orders", "single_decision_period",
+        "no_replenishment_within_period",
     ):
         intake = state["business_intake"]
         assert intake["pending_question_ids"] == [
@@ -352,6 +382,7 @@ def test_unknown_structural_answers_do_not_force_a_model_choice() -> None:
     assert intake["pending_question_ids"] == []
     assert intake["core_selection"]["selected_core_id"] is None
     assert intake["applicability_user_answers"] == {
+        "recurring_orders": "unknown",
         "single_decision_period": "unknown",
         "no_replenishment_within_period": "unknown",
     }
@@ -429,7 +460,7 @@ def test_unknown_primary_goal_is_not_repeated_or_assumed() -> None:
         },
     })
     assert first["business_intake"]["pending_question_ids"] == [
-        "primary_goal"
+        "primary_goal", "core_condition:recurring_orders"
     ]
 
     result = node({
@@ -896,7 +927,8 @@ def test_text_candidate_does_not_require_fixed_profile_answers() -> None:
         AIMessage(content=json.dumps({"findings": []})),
     ]
 
-    result = create_business_intake_node(llm)({
+    node = create_business_intake_node(llm)
+    result = node({
         "raw_input": raw,
         "business_intake": {
             "profile": profile,
@@ -904,8 +936,22 @@ def test_text_candidate_does_not_require_fixed_profile_answers() -> None:
         },
     })
 
+    assert get_workflow_status(result) == WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT
+    assert result["business_intake"]["pending_question_ids"] == [
+        "core_condition:recurring_orders"
+    ]
+    result = node({
+        **result,
+        "business_intake": {
+            **result["business_intake"],
+            "pending_answers": [{
+                "question_id": "core_condition:recurring_orders",
+                "option_id": "yes",
+                "source_id": "business_clarification_form",
+            }],
+        },
+    })
     assert get_workflow_status(result) == WORKFLOW_BUSINESS_CORE_SELECTED
-    assert result["business_intake"]["pending_question_ids"] == []
     assert result["business_intake"]["core_selection"][
         "selected_core_id"
     ] == "eoq"
@@ -936,6 +982,9 @@ def test_confirmed_candidate_conditions_survive_later_core_choice() -> None:
         AIMessage(content=json.dumps({
             "question": "Sind Nachbestellungen im Zeitraum ausgeschlossen?"
         })),
+        AIMessage(content=json.dumps({
+            "question": "Wird der Artikel regelmäßig nachbestellt?"
+        })),
         AIMessage(content=json.dumps({"findings": []})),
     ]
     node = create_business_intake_node(llm)
@@ -948,7 +997,8 @@ def test_confirmed_candidate_conditions_survive_later_core_choice() -> None:
     })
 
     for condition_id in (
-        "single_decision_period", "no_replenishment_within_period"
+        "recurring_orders", "single_decision_period",
+        "no_replenishment_within_period",
     ):
         intake = state["business_intake"]
         assert intake["pending_question_ids"] == [
@@ -982,6 +1032,7 @@ def test_confirmed_candidate_conditions_survive_later_core_choice() -> None:
 
     assert get_workflow_status(result) == WORKFLOW_BUSINESS_CORE_SELECTED
     assert result["business_intake"]["applicability_user_answers"] == {
+        "recurring_orders": "supported",
         "single_decision_period": "supported",
         "no_replenishment_within_period": "supported",
     }

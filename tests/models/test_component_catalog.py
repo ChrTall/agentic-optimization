@@ -177,6 +177,21 @@ def test_builds_continuous_review_q_r_catalog() -> None:
     ]
 
 
+def test_constraint_catalog_preserves_explicit_request_metadata() -> None:
+    catalog = build_component_catalog("continuous_review_q_r")
+    for entry in catalog["objective_components"]:
+        assert "requires_explicit_request" not in entry
+    for entry in catalog["constraint_components"]:
+        assert entry["requires_explicit_request"] == CONSTRAINT_COMPONENTS[
+            entry["component_id"]
+        ].get("requires_explicit_request", False)
+    for component_id in ("minimum_reorder_point", "maximum_reorder_point"):
+        assert next(
+            entry for entry in catalog["constraint_components"]
+            if entry["component_id"] == component_id
+        )["requires_explicit_request"] is True
+
+
 def test_minimum_order_quantity_has_precise_selection_guidance(
 ) -> None:
     component = CONSTRAINT_COMPONENTS[

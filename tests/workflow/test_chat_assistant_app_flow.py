@@ -46,6 +46,19 @@ def _chat_reply(context: dict) -> dict:
         }
 
     if step == "business_clarification":
+        question_ids = {
+            question["question_id"] for question in context["open_questions"]
+        }
+        if "core_condition:recurring_orders" in question_ids:
+            return {
+                "reply": "Ja, wir bestellen regelmäßig nach.",
+                "question_answers": [
+                    {
+                        "question_id": "core_condition:recurring_orders",
+                        "option_id": "yes",
+                    }
+                ],
+            }
         return {
             "reply": "Verstanden – Kosten senken.",
             "question_answers": [
@@ -156,9 +169,58 @@ class FakeLLM:
         raise AssertionError(f"Unerwarteter Prompt: {system[:80]}")
 
 
+class RetryProfileLLM(FakeLLM):
+    fail_profile = True
+
+    def invoke(self, messages):
+        if self.fail_profile and messages[0].content.startswith("Du analysierst"):
+            raise ValueError("Profilanalyse vorübergehend nicht verfügbar")
+        return super().invoke(messages)
+
+
 def _say(app: AppTest, text: str) -> None:
     app.chat_input("chat_assistant_input").set_value(text).run()
     assert not app.exception, app.exception
+
+
+def test_form_retry_replays_answer_after_profile_failure() -> None:
+    llm = RetryProfileLLM()
+    app = AppTest.from_file(str(APP_PATH), default_timeout=60)
+    app.session_state["llm"] = llm
+    app.run()
+    raw = (
+        "Wir bestellen einen Artikel regelmäßig nach und möchten wissen, "
+        "wie viel wir bestellen sollen."
+    )
+    state = app.session_state["graph_state"]
+    state["raw_input"] = raw
+    state["business_intake"]["pending_question_ids"] = ["primary_goal"]
+    state["business_intake"]["asked_question_ids"] = ["primary_goal"]
+    state["business_intake"]["pending_answers"] = [{
+        "question_id": "primary_goal",
+        "option_id": "minimize_cost",
+        "source_id": "business_clarification_form",
+    }]
+    app.session_state["graph_state"] = state
+    app.session_state["raw_problem_description"] = raw
+    app.run()
+    next(
+        button for button in app.button
+        if button.label == "Angaben auswerten"
+    ).click().run()
+    assert not app.exception
+    assert app.session_state["graph_state"]["business_intake"][
+        "pending_answers"
+    ][0]["option_id"] == "minimize_cost"
+
+    llm.fail_profile = False
+    next(
+        button for button in app.button
+        if button.label == "Angaben auswerten"
+    ).click().run()
+    assert not app.exception
+    profile = app.session_state["graph_state"]["business_intake"]["profile"]
+    assert profile["primary_goal"]["value"] == "minimize_cost"
 
 
 def test_complete_workflow_through_chat() -> None:
@@ -177,6 +239,8 @@ def test_complete_workflow_through_chat() -> None:
     assert app.session_state["step"] == "business_clarification"
 
     _say(app, "Vor allem sollen die Kosten niedrig bleiben.")
+    if app.session_state["step"] == "business_clarification":
+        _say(app, "Ja, wir bestellen regelmäßig nach.")
     assert app.session_state["step"] == "model_input_form"
 
     _say(app, "3500 Stück im Jahr, 120 € je Bestellung, 12 € Lager.")

@@ -27,16 +27,17 @@ def plan(core_selection=None, *, applicability_plan=None, core_id=None,
 def test_asks_structural_candidate_condition() -> None:
     question = plan()
     assert question == {
-        "question_id": "core_condition:single_decision_period",
+        "question_id": "core_condition:recurring_orders",
         "kind": "candidate_condition",
-        "core_id": "single_period_newsvendor",
-        "condition_id": "single_decision_period",
+        "core_id": "eoq",
+        "condition_id": "recurring_orders",
         "reason": None,
     }
 
 
 def test_falls_back_to_core_choice_after_structural_questions() -> None:
     question = plan(asked={
+        "core_condition:recurring_orders",
         "core_condition:single_decision_period",
         "core_condition:no_replenishment_within_period",
     })
@@ -47,7 +48,10 @@ def test_falls_back_to_core_choice_after_structural_questions() -> None:
 def test_unknown_answer_never_becomes_implicit_core_choice() -> None:
     question = plan(
         answers={"single_decision_period": "unknown"},
-        asked={"core_condition:no_replenishment_within_period"},
+        asked={
+            "core_condition:recurring_orders",
+            "core_condition:no_replenishment_within_period",
+        },
     )
     assert question is None
 

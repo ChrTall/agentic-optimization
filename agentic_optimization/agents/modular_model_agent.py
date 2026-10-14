@@ -243,6 +243,11 @@ def create_modular_model_agent(
                 products=extracted_products,
                 evidence=evidence,
                 proposal=proposal,
+                normalize_missing_inputs=lambda candidate: integrity_agent(
+                    proposal=candidate,
+                    evidence=evidence,
+                    objective_goal=requirements.get("objective"),
+                ),
             )
             if (
                 proposal["unresolved_requirements"]
