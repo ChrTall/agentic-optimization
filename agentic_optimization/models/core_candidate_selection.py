@@ -4,7 +4,7 @@ from typing import TypedDict
 from agentic_optimization.models.core_applicability import (
     CORE_CONDITIONS,
     IMMEDIATE_CLARIFICATION_CONDITIONS,
-    PROFILE_CONDITIONS,
+    profile_condition_answers,
 )
 from agentic_optimization.models.core_registry import CORE_REGISTRY
 from agentic_optimization.models.core_selection_catalog import CORE_SELECTION_RULES
@@ -35,12 +35,6 @@ def _matches_resolved_profile(
         None,
     )
     if rule is not None:
-        condition_by_field = {
-            field_id: condition_id
-            for field_id, _expected, condition_id in PROFILE_CONDITIONS.get(
-                core_id, ()
-            )
-        }
         for field_id, compatible_values in rule[
             "compatible_profile_values"
         ].items():
@@ -48,9 +42,28 @@ def _matches_resolved_profile(
             # recommendations; legacy routing rules can be narrower.
             if field_id == "recommendation":
                 continue
-            # A direct answer supersedes the older profile inference for
-            # this same requirement, as in the applicability check.
-            if condition_by_field.get(field_id) in condition_answers:
+            # Answers about the same profile field apply across model
+            # candidates. A denial only removes its value; it does not
+            # confirm the alternative candidate's assumption.
+            direct_answers = profile_condition_answers(
+                field_id, condition_answers
+            )
+            if direct_answers:
+                supported = {
+                    expected for expected, answer in direct_answers
+                    if answer == "supported"
+                }
+                contradicted = {
+                    expected for expected, answer in direct_answers
+                    if answer == "contradicted"
+                }
+                if (
+                    len(supported) > 1
+                    or supported.intersection(contradicted)
+                    or not supported.issubset(compatible_values)
+                    or compatible_values.issubset(contradicted)
+                ):
+                    return False
                 continue
             field = profile[field_id]
             if (

@@ -93,6 +93,46 @@ def test_eoq_requires_direct_recurring_order_confirmation() -> None:
     assert confirmed["status"] == "provisional"
 
 
+def test_qr_requires_direct_recurring_order_confirmation() -> None:
+    profile = _q_r_profile()
+    profile["procurement_pattern"] = (
+        create_empty_business_problem_profile()["procurement_pattern"]
+    )
+    first = plan_candidate_applicability(
+        "continuous_review_q_r", profile, {}
+    )
+    assert first["question_condition_id"] == "recurring_orders"
+
+    unknown = plan_candidate_applicability(
+        "continuous_review_q_r", profile, {},
+        {"recurring_orders": "unknown"},
+    )
+    assert unknown["status"] == "needs_clarification"
+    assert unknown["question_condition_id"] is None
+
+    denied = plan_candidate_applicability(
+        "continuous_review_q_r", profile, {},
+        {"recurring_orders": "contradicted"},
+    )
+    assert denied["status"] == "rejected"
+
+
+def test_other_core_correction_invalidates_stale_procurement_inference() -> None:
+    profile = _eoq_profile()
+    profile["procurement_pattern"] = create_profile_field(
+        status="inferred", value="one_time",
+        evidence=[{"source_id": "raw_input", "source_type": "free_text"}],
+    )
+
+    plan = plan_candidate_applicability(
+        "eoq", profile, {}, {},
+        all_condition_answers={"single_decision_period": "contradicted"},
+    )
+
+    assert plan["status"] == "needs_clarification"
+    assert plan["question_condition_id"] == "recurring_orders"
+
+
 def test_user_unknown_overrides_positive_text_inference() -> None:
     plan = plan_candidate_applicability(
         "single_period_newsvendor",

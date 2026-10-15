@@ -28,6 +28,10 @@ def confirmed(value):
     [
         ("eoq", "procurement_pattern", "one_time", "recurring_orders", "recurring"),
         (
+            "continuous_review_q_r", "procurement_pattern", "one_time",
+            "recurring_orders", "recurring",
+        ),
+        (
             "single_period_newsvendor", "replenishment_during_period",
             "possible", "no_replenishment_within_period", "not_possible",
         ),

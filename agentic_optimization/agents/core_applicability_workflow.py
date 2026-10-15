@@ -10,6 +10,7 @@ from agentic_optimization.models.core_applicability import (
     Finding,
     UserConditionAnswer,
     plan_core_applicability,
+    profile_condition_answers,
 )
 from agentic_optimization.models.problem_profile import BusinessProblemProfile
 
@@ -19,6 +20,8 @@ def plan_candidate_applicability(
     profile: BusinessProblemProfile,
     text_findings: Mapping[str, Finding],
     user_answers: Mapping[str, UserConditionAnswer] | None = None,
+    *,
+    all_condition_answers: Mapping[str, UserConditionAnswer] | None = None,
 ) -> ApplicabilityPlan:
     """Explizite Antworten überstimmen ältere, ggf. widersprüchliche Texte."""
 
@@ -42,6 +45,13 @@ def plan_candidate_applicability(
     for field_id, expected, condition_id in PROFILE_CONDITIONS.get(
         core_id, ()
     ):
+        # A newer direct answer about this profile field invalidates its
+        # older inference even if the answer concerned another model.
+        # Only the candidate's own answered condition confirms it below.
+        if profile_condition_answers(
+            field_id, all_condition_answers or user_answers or {}
+        ):
+            continue
         field = profile[field_id]
         if field["status"] not in {"inferred", "confirmed"}:
             continue

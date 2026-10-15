@@ -136,6 +136,57 @@ def test_explicit_condition_does_not_override_unrelated_profile_requirement():
     assert result["status"] == "unsupported"
 
 
+def test_denied_recurring_orders_rejects_eoq_and_qr():
+    profile = create_empty_business_problem_profile()
+    _confirm(profile, "primary_goal", "minimize_cost")
+
+    result = select_from_core_candidates(
+        _proposal("eoq", "continuous_review_q_r"), profile,
+        condition_answers={"recurring_orders": "contradicted"},
+    )
+
+    assert result["status"] == "unsupported"
+
+
+def test_denied_single_decision_reopens_eoq_without_confirming_recurrence():
+    profile = create_empty_business_problem_profile()
+    _infer(profile, "procurement_pattern", "one_time")
+    _confirm(profile, "primary_goal", "minimize_cost")
+
+    result = select_from_core_candidates(
+        _proposal("single_period_newsvendor", "eoq"), profile,
+        condition_answers={"single_decision_period": "contradicted"},
+    )
+
+    assert result["selected_core_id"] == "eoq"
+
+
+def test_confirmed_recurring_orders_overrides_stale_one_time_profile_for_qr():
+    profile = create_empty_business_problem_profile()
+    _infer(profile, "procurement_pattern", "one_time")
+    _confirm(profile, "primary_goal", "minimize_cost")
+
+    result = select_from_core_candidates(
+        _proposal("continuous_review_q_r"), profile,
+        condition_answers={"recurring_orders": "supported"},
+    )
+
+    assert result["selected_core_id"] == "continuous_review_q_r"
+
+
+def test_confirmed_one_time_decision_still_excludes_recurring_models():
+    profile = create_empty_business_problem_profile()
+    _infer(profile, "procurement_pattern", "recurring")
+    _confirm(profile, "primary_goal", "minimize_cost")
+
+    result = select_from_core_candidates(
+        _proposal("eoq", "continuous_review_q_r"), profile,
+        condition_answers={"single_decision_period": "supported"},
+    )
+
+    assert result["status"] == "unsupported"
+
+
 def test_structural_question_is_asked_once_before_core_choice():
     candidates = ["eoq", "single_period_newsvendor"]
     first = choose_candidate_condition(

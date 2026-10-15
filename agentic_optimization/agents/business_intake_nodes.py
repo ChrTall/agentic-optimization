@@ -523,6 +523,7 @@ def create_business_intake_node(
                 preparation["profile"],
                 text_findings,
                 core_applicability_answers,
+                all_condition_answers=applicability_answers,
             )
             if applicability_plan["status"] == "rejected":
                 core_selection = {

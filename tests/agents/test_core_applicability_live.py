@@ -51,7 +51,10 @@ def agent():
             "eoq",
             "Wir bestellen regelmäßig nach. Unser Lieferant gewährt "
             "Mengenrabatte abhängig von der Bestellmenge.",
-            {"no_quantity_discounts": "contradicted"},
+            {
+                "recurring_orders": "supported",
+                "no_quantity_discounts": "contradicted",
+            },
         ),
         (
             "single_period_newsvendor",

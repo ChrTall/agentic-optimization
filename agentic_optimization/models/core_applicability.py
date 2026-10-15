@@ -49,14 +49,15 @@ CORE_CONDITIONS: dict[str, tuple[str, ...]] = {
         "no_replenishment_within_period",
     ),
     "continuous_review_q_r": (
+        "recurring_orders",
         "continuous_inventory_review",
         "constant_lead_time",
     ),
 }
 
 
-# Profile fields that describe the same structural requirement as an
-# explicit condition answer. Shared by candidate filtering and applicability.
+# Profile fields that describe structural requirements. Their condition
+# answers may also correct an older inference when switching candidates.
 PROFILE_CONDITIONS = {
     "eoq": (
         ("procurement_pattern", "recurring", "recurring_orders"),
@@ -70,9 +71,29 @@ PROFILE_CONDITIONS = {
         ),
     ),
     "continuous_review_q_r": (
+        ("procurement_pattern", "recurring", "recurring_orders"),
         ("inventory_review", "continuous", "continuous_inventory_review"),
     ),
 }
+
+
+def profile_condition_answers(
+    field_id: str,
+    condition_answers: Mapping[str, str],
+) -> list[tuple[str, str]]:
+    """Direkte Antworten zu einem Profilfeld, unabhängig vom Kandidaten."""
+
+    related = {
+        (expected, condition_id)
+        for mappings in PROFILE_CONDITIONS.values()
+        for mapped_field, expected, condition_id in mappings
+        if mapped_field == field_id
+    }
+    return [
+        (expected, condition_answers[condition_id])
+        for expected, condition_id in sorted(related)
+        if condition_id in condition_answers
+    ]
 
 
 # Diese Voraussetzungen bestimmen die Entscheidungsstruktur des
