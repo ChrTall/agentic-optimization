@@ -509,7 +509,7 @@ def test_prepares_product_table_schema_before_products_exist(
     result = node(
         {
             "requirements": {
-                "objective": "Gewinn maximieren",
+                "objective": "maximize_profit",
             },
             "modular_model": {
                 "core_id": "single_period_newsvendor",
@@ -531,9 +531,14 @@ def test_prepares_product_table_schema_before_products_exist(
     assert get_workflow_status(result) == (
         WORKFLOW_PRODUCT_TABLE_READY
     )
-    assert result["modular_model"][
-        "preliminary_proposal"
-    ] == proposal
+    preliminary = result["modular_model"]["preliminary_proposal"]
+    assert [
+        item["component_id"] for item in preliminary["objective_components"]
+    ] == [
+        "sales_revenue", "purchase_cost"
+    ]
+    assert preliminary["constraints"] == []
+    llm.invoke.assert_not_called()
     assert result["modular_model"][
         "products"
     ] == []

@@ -287,7 +287,18 @@ def get_relevant_business_questions(
     asked_question_id_set = set(asked_question_ids)
     question_ids: list[BusinessQuestionId] = []
 
-    if _needs_clarification(profile["recommendation"]):
+    # If the ordering pattern is unresolved, a text-inferred decision is not
+    # enough to settle which quantity the user wants calculated.
+    # Ask directly so equivalent profile inferences lead to the same form.
+    if (
+        _needs_clarification(profile["recommendation"])
+        or (
+            profile["recommendation"]["status"] == "inferred"
+            and profile["procurement_pattern"]["status"] in {
+                "missing", "ambiguous", "conflict"
+            }
+        )
+    ):
         question_ids.append("recommendation")
 
     if _needs_clarification(
@@ -315,7 +326,8 @@ def get_relevant_business_questions(
     recommendation = _known_value(profile["recommendation"])
 
     if (
-        procurement_pattern == "one_time"
+        profile["procurement_pattern"]["status"] == "confirmed"
+        and procurement_pattern == "one_time"
         and _needs_clarification(
             profile["replenishment_during_period"]
         )

@@ -38,6 +38,10 @@ aus der Beschreibung sein, der die Ableitung belegt.
 
 Wenn ein Merkmal nicht erkennbar ist, lasse es weg.
 Fehlende Informationen sind keine Fehler.
+Jede field_id darf höchstens einmal insgesamt in inferences
+und ambiguities vorkommen. Wenn Hinweise zu einem Feld
+widersprüchlich oder uneindeutig sind, verwende ambiguities
+statt mehrerer inferences.
 
 Gib ausschließlich ein JSON-Objekt in diesem Format zurück:
 
@@ -51,9 +55,9 @@ Gib ausschließlich ein JSON-Objekt in diesem Format zurück:
   ],
   "ambiguities": [
     {
-      "field_id": "procurement_pattern",
-      "candidate_values": ["one_time", "recurring"],
-      "excerpt": "Ob später erneut bestellt werden kann, ist unklar"
+      "field_id": "inventory_review",
+      "candidate_values": ["continuous", "periodic"],
+      "excerpt": "Ob der Bestand laufend oder nur freitags geprüft wird, ist unklar"
     }
   ]
 }
@@ -306,8 +310,6 @@ def create_business_profile_agent(
         _repair_invalid_excerpts(llm, parsed_response, raw_input)
 
         updated_profile = deepcopy(profile)
-        seen_field_ids: set[str] = set()
-
         for index, inference in enumerate(inferences):
             if not isinstance(inference, dict):
                 raise ValueError(
@@ -326,14 +328,6 @@ def create_business_profile_agent(
                     f"Das Profilfeld '{field_id}' ist "
                     "nicht registriert."
                 )
-
-            if field_id in seen_field_ids:
-                raise ValueError(
-                    f"Das Profilfeld '{field_id}' wurde "
-                    "mehrfach abgeleitet."
-                )
-
-            seen_field_ids.add(field_id)
 
             value = inference.get("value")
             allowed_values = (
@@ -412,14 +406,6 @@ def create_business_profile_agent(
                     f"Das Profilfeld '{field_id}' ist "
                     "nicht registriert."
                 )
-
-            if field_id in seen_field_ids:
-                raise ValueError(
-                    f"Das Profilfeld '{field_id}' wurde "
-                    "mehrfach abgeleitet."
-                )
-
-            seen_field_ids.add(field_id)
 
             candidate_values = ambiguity.get(
                 "candidate_values"

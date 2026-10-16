@@ -52,6 +52,32 @@ def test_empty_profile_starts_with_general_questions() -> None:
     ]
 
 
+def test_inferred_recommendation_still_requires_direct_choice() -> None:
+    profile = create_profile()
+    profile["procurement_pattern"] = create_profile_field(
+        status="ambiguous",
+        candidate_values=["one_time", "recurring"],
+        evidence=[{
+            "source_id": "raw_input",
+            "source_type": "free_text",
+            "excerpt": "Wie oft bestellt wird, ist noch offen",
+        }],
+    )
+    profile["recommendation"] = create_profile_field(
+        status="inferred",
+        value="order_quantity",
+        evidence=[{
+            "source_id": "raw_input",
+            "source_type": "free_text",
+            "excerpt": "eine Bestellung",
+        }],
+    )
+
+    assert "recommendation" in get_question_ids(profile)
+    profile["recommendation"] = confirmed("order_quantity")
+    assert "recommendation" not in get_question_ids(profile)
+
+
 def test_one_time_procurement_asks_about_replenishment() -> None:
     profile = create_profile()
     profile["recommendation"] = confirmed(
@@ -63,6 +89,33 @@ def test_one_time_procurement_asks_about_replenishment() -> None:
 
     assert "replenishment_during_period" in question_ids
     assert "inventory_review" not in question_ids
+
+
+def test_inferred_one_time_procurement_does_not_ask_replenishment_yet() -> None:
+    profile = create_profile()
+    profile["procurement_pattern"] = create_profile_field(
+        status="inferred",
+        value="one_time",
+        evidence=[{
+            "source_id": "raw_input",
+            "source_type": "free_text",
+            "excerpt": "eine Bestellung",
+        }],
+    )
+    profile["replenishment_during_period"] = create_profile_field(
+        status="ambiguous",
+        candidate_values=["possible", "not_possible"],
+        evidence=[{
+            "source_id": "raw_input",
+            "source_type": "free_text",
+            "excerpt": "später nachbestellen",
+        }],
+    )
+
+    assert "replenishment_during_period" not in get_question_ids(profile)
+
+    profile["procurement_pattern"] = confirmed("one_time")
+    assert "replenishment_during_period" in get_question_ids(profile)
 
 
 def test_recurring_quantity_only_skips_inventory_review() -> None:

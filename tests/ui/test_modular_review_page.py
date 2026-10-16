@@ -45,6 +45,32 @@ def test_assumption_evidence_does_not_confirm_checkbox(
         "steady_demand"
     ]
 
+
+def test_contrary_text_evidence_is_warned_and_still_needs_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    streamlit = Mock()
+    streamlit.checkbox.return_value = False
+    monkeypatch.setattr(modular_review_page, "st", streamlit)
+
+    confirmed = _render_core_assumption_confirmations(
+        ["no_shortages"],
+        [{
+            "condition_id": "no_shortages",
+            "status": "contradicted",
+            "source_id": "raw_input",
+            "excerpt": "Wir planen Rückstände.",
+        }],
+    )
+
+    assert confirmed is False
+    assert "Möglicher Widerspruch" in streamlit.warning.call_args_list[0].args[0]
+    streamlit.write.assert_any_call("Ihre Angabe: „Wir planen Rückstände.“")
+    streamlit.checkbox.assert_called_once_with(
+        CONDITION_LABELS["no_shortages"],
+        key="confirm_core_assumption_no_shortages",
+    )
+
 def test_uses_component_specific_parameter_labels() -> None:
     labels = _build_constraint_parameter_labels(
         "single_period_newsvendor"

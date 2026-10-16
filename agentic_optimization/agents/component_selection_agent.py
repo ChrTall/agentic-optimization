@@ -43,6 +43,8 @@ Regeln:
 3. Erfinde keine Bausteine, Fakten oder Parameterwerte.
 4. Pflichtbausteine des Grundmodells und des angegebenen
    Optimierungsziels werden vom System ergänzt.
+   Die IDs unter already_selected_by_system_component_ids sind deshalb
+   bereits ausgewählt: Führe sie nicht als Rückfragekandidaten auf.
    Falls der Grundmodellkatalog required_objective_sense enthält,
    ist diese Zielrichtung verbindlich und wird vom System gesetzt.
 5. Wähle zusätzliche, nicht verpflichtende Bausteine nur,
@@ -153,6 +155,23 @@ Erwartetes Format:
   ],
   "unresolved_requirements": []
 }
+""".strip()
+
+EXPLICIT_REQUIREMENT_PROMPT = """
+Für die endgültige Modellvorbereitung gilt ein getrennter Datenvertrag:
+Gib das Feld additional_requirements aus.
+Diese Liste enthält nur ausdrücklich genannte zusätzliche betriebliche
+Vorgaben, die weder Grundmodell noch gewählte Bausteine abdecken.
+Fehlende Zahlen oder Forecast-Werte sind Formularfelder und gehören nie
+in additional_requirements. Gib [] zurück, wenn keine Zusatzvorgabe
+ausdrücklich belegt ist.
+Jeder Eintrag benötigt einen wörtlichen, zusammenhängenden Beleg aus
+genau einer angegebenen Quelle: entweder als description selbst oder
+zusätzlich unter evidence_excerpt. Gib die entsprechende source_id in
+sources an. Gibt es keinen
+solchen wörtlichen Beleg für eine zusätzliche Vorgabe, gib [] zurück.
+Eine bloße Bitte, das bekannte Optimierungsziel zu berechnen, ist keine
+zusätzliche Vorgabe. Erfinde keinen Beleg und paraphrasiere ihn nicht.
 """.strip()
 
 
@@ -282,10 +301,27 @@ def _build_user_message(
     """Erzeugt die strukturierte Eingabe für das LLM."""
 
     catalog = build_component_catalog(core_id)
+    core_catalog = catalog["core"]
+    already_selected_by_system = set(
+        core_catalog["required_objective_component_ids"]
+    )
+    already_selected_by_system.update(
+        core_catalog["required_objective_components_by_goal"].get(
+            requirements.get("objective"), []
+        )
+    )
+    if locked_objective_proposal is not None:
+        already_selected_by_system.update(
+            item["component_id"]
+            for item in locked_objective_proposal["objective_components"]
+        )
 
     payload = {
         "core_id": core_id,
         "component_catalog": catalog,
+        "already_selected_by_system_component_ids": sorted(
+            already_selected_by_system
+        ),
         "requirements": requirements,
         "products": products,
         "global_facts": global_facts,
@@ -327,10 +363,27 @@ def _parse_and_validate_proposal(
     locked_objective_proposal: (
         ComponentSelectionProposal | None
     ) = None,
+    require_explicit_requirement_evidence: bool = False,
 ) -> ComponentSelectionProposal:
     """Prüft eine einzelne Antwort des Auswahlagenten."""
 
     raw_decision = _parse_json_response(content)
+
+    if require_explicit_requirement_evidence:
+        legacy_unresolved = raw_decision.get("unresolved_requirements", [])
+        if legacy_unresolved not in ([], None):
+            raise ComponentSelectionValidationError([
+                "Offene Formularwerte und Zusatzvorgaben dürfen nicht "
+                "in unresolved_requirements vermischt werden. Gib nur "
+                "ausdrücklich belegte Zusatzvorgaben unter "
+                "additional_requirements aus."
+            ])
+        additional = raw_decision.pop("additional_requirements", [])
+        if not isinstance(additional, list):
+            raise ComponentSelectionValidationError([
+                "additional_requirements muss eine Liste sein."
+            ])
+        raw_decision["unresolved_requirements"] = additional
 
     reported_core_id = raw_decision.get("core_id")
 
@@ -401,6 +454,47 @@ def _parse_and_validate_proposal(
                     else source_id
                     for source_id in sources
                 ]
+
+    if require_explicit_requirement_evidence:
+        evidence_by_id = {
+            item["source_id"]: " ".join(item["content"].split())
+            for item in evidence
+        }
+        explicit_errors: list[str] = []
+        unresolved = raw_proposal.get("unresolved_requirements")
+        if isinstance(unresolved, list):
+            for index, requirement in enumerate(unresolved):
+                if not isinstance(requirement, dict):
+                    continue
+                excerpt = requirement.pop("evidence_excerpt", None)
+                if not excerpt:
+                    # Eine wörtliche Beschreibung ist bereits ein Beleg;
+                    # ein zusätzliches Feld ist dann nicht nötig.
+                    excerpt = requirement.get("description")
+                sources = requirement.get("sources")
+                normalized_excerpt = (
+                    " ".join(excerpt.split())
+                    if isinstance(excerpt, str)
+                    else ""
+                )
+                if (
+                    not normalized_excerpt
+                    or not isinstance(sources, list)
+                    or not any(
+                        isinstance(source_id, str)
+                        and normalized_excerpt
+                        in evidence_by_id.get(source_id, "")
+                        for source_id in sources
+                    )
+                ):
+                    explicit_errors.append(
+                        "Die zusätzliche Anforderung an Position "
+                        f"{index} braucht einen wörtlichen Textbeleg "
+                        "aus ihrer angegebenen Quelle. Fehlende "
+                        "Formularwerte gehören nicht in diese Liste."
+                    )
+        if explicit_errors:
+            raise ComponentSelectionValidationError(explicit_errors)
 
     # Numerische Constraint-Parameter dürfen nicht allein aus
     # dem Sprachmodell stammen. Fehlt die Zahl in sämtlichen
@@ -514,6 +608,7 @@ def _repair_unresolved_requirements_list(
     evidence: list[SelectionEvidence],
     locked_objective_proposal: ComponentSelectionProposal | None,
     validation_errors: list[str],
+    require_explicit_requirement_evidence: bool = False,
 ) -> ComponentSelectionProposal:
     """Lässt nur die offene Liste korrigieren; validiert danach alles."""
 
@@ -523,17 +618,58 @@ def _repair_unresolved_requirements_list(
         decision=cast(ComponentSelectionDecision, decision),
         objective_goal=requirements.get("objective"),
     )
+    selected_ids = {
+        item["component_id"]
+        for group in (
+            built_proposal.get("objective_components"),
+            built_proposal.get("constraints"),
+        )
+        if isinstance(group, list)
+        for item in group
+        if isinstance(item, dict)
+        and isinstance(item.get("component_id"), str)
+    }
+    catalog = build_component_catalog(expected_core_id)
+    selected_components = [
+        {
+            "component_id": item["component_id"],
+            "name": item["name"],
+            "selection_guidance": item["selection_guidance"],
+        }
+        for group in (
+            catalog["objective_components"],
+            catalog["constraint_components"],
+        )
+        for item in group
+        if item["component_id"] in selected_ids
+    ]
+    available_candidate_ids = [
+        item["component_id"]
+        for group in (
+            catalog["objective_components"],
+            catalog["constraint_components"],
+        )
+        for item in group
+        if item["component_id"] not in selected_ids
+    ]
+    original_unresolved = decision.get("unresolved_requirements")
+    overlapping_questions = [
+        {"index": index, **item}
+        for index, item in enumerate(original_unresolved)
+        if isinstance(item, dict)
+        and item.get("resolution") == "clarification"
+        and isinstance(item.get("candidate_component_ids"), list)
+        and selected_ids.intersection(item["candidate_component_ids"])
+    ] if isinstance(original_unresolved, list) else []
     repair_task = {
         "core_id": expected_core_id,
         "requirements": requirements,
         "evidence": evidence,
-        "selected_objective_components": built_proposal.get(
-            "objective_components"
-        ),
-        "selected_constraints": decision.get("constraints"),
-        "previous_unresolved_value": decision.get(
-            "unresolved_requirements"
-        ),
+        "selected_components": selected_components,
+        "forbidden_clarification_candidate_ids": sorted(selected_ids),
+        "available_clarification_candidate_ids": available_candidate_ids,
+        "overlapping_questions": overlapping_questions,
+        "previous_unresolved_value": original_unresolved,
         "validation_errors": validation_errors,
     }
     response = llm.invoke([
@@ -544,9 +680,15 @@ def _repair_unresolved_requirements_list(
             "fachlich offene oder nicht unterstützte Anforderung. "
             "Ein bereits ausgewählter oder vom Grundmodell verpflichtend "
             "ergänzter Baustein darf nicht Kandidat einer Rückfrage sein. "
-            "Entferne eine Rückfrage nur, wenn ihre Anforderung bereits "
-            "abgedeckt ist; sonst korrigiere die Kandidaten oder melde "
-            "die Anforderung als unsupported. Ändere weder Zielfunktion "
+            "Prüfe jede überlappende Rückfrage einzeln: Ist ihre "
+            "Anforderung bereits durch ausgewählte Bausteine abgedeckt, "
+            "entferne nur diese Rückfrage. Fehlt bloß ein Zahlenwert, "
+            "gehört er ins Eingabeformular und nicht in diese Liste. "
+            "Bei einer eigenständigen weiteren Anforderung wähle nur "
+            "einen noch nicht ausgewählten, fachlich passenden Kandidaten; "
+            "ist keiner vorhanden, behalte die Anforderung als unsupported "
+            "mit leerer Kandidatenliste. Entferne keine solche Anforderung "
+            "stillschweigend. Ändere weder Zielfunktion "
             "noch ausgewählte Nebenbedingungen. "
             "Fehlende Zahlenwerte für ausgewählte Bausteine gehören nicht "
             "in diese Liste. Antworte ausschließlich als JSON-Objekt "
@@ -572,19 +714,7 @@ def _repair_unresolved_requirements_list(
 
     # Die fokussierte Korrektur darf andere, bereits gültige
     # Anforderungen nicht stillschweigend verschwinden lassen.
-    original_unresolved = decision.get("unresolved_requirements")
     if isinstance(original_unresolved, list):
-        selected_ids = {
-            item["component_id"]
-            for group in (
-                built_proposal.get("objective_components"),
-                built_proposal.get("constraints"),
-            )
-            if isinstance(group, list)
-            for item in group
-            if isinstance(item, dict)
-            and isinstance(item.get("component_id"), str)
-        }
         for requirement in original_unresolved:
             if not isinstance(requirement, dict):
                 continue
@@ -609,6 +739,9 @@ def _repair_unresolved_requirements_list(
         evidence=evidence,
         objective_goal=requirements.get("objective"),
         locked_objective_proposal=locked_objective_proposal,
+        require_explicit_requirement_evidence=(
+            require_explicit_requirement_evidence
+        ),
     )
 
 
@@ -617,6 +750,8 @@ def _build_correction_message(
     error: TypeError | ValueError,
     evidence: list[SelectionEvidence],
     attempt_number: int,
+    forbidden_clarification_candidate_ids: list[str] | None = None,
+    additional_requirements_mode: bool = False,
 ) -> str:
     """Erzeugt strukturiertes Feedback für den nächsten Versuch."""
 
@@ -664,6 +799,9 @@ def _build_correction_message(
         "attempt_number": attempt_number,
         "maximum_attempts": MAX_SELECTION_ATTEMPTS,
         "validation_errors": validation_errors,
+        "forbidden_clarification_candidate_ids": (
+            forbidden_clarification_candidate_ids or []
+        ),
         "allowed_source_ids": sorted(
             item["source_id"]
             for item in evidence
@@ -683,7 +821,12 @@ def _build_correction_message(
             ),
             (
                 "Ist eine Anforderung bereits abgedeckt, "
-                "entferne sie aus unresolved_requirements."
+                "entferne sie aus "
+                + (
+                    "additional_requirements."
+                    if additional_requirements_mode
+                    else "unresolved_requirements."
+                )
             ),
             (
                 "Gib ausschließlich das korrigierte "
@@ -804,6 +947,8 @@ def _build_critic_feedback_message(
 
 def create_component_selection_agent(
     llm: BaseChatModel,
+    *,
+    require_explicit_requirement_evidence: bool = False,
 ) -> Callable[..., ComponentSelectionProposal]:
     """Erzeugt einen Agenten zur Auswahl registrierter Bausteine."""
 
@@ -834,7 +979,13 @@ def create_component_selection_agent(
         )
 
         messages = [
-            SystemMessage(content=SYSTEM_PROMPT),
+            SystemMessage(content=(
+                SYSTEM_PROMPT.replace(
+                    "unresolved_requirements", "additional_requirements"
+                ) + "\n\n" + EXPLICIT_REQUIREMENT_PROMPT
+                if require_explicit_requirement_evidence
+                else SYSTEM_PROMPT
+            )),
             HumanMessage(content=user_message),
         ]
 
@@ -897,10 +1048,14 @@ def create_component_selection_agent(
                     locked_objective_proposal=(
                         locked_objective_proposal
                     ),
+                    require_explicit_requirement_evidence=(
+                        require_explicit_requirement_evidence
+                    ),
                 )
             except (TypeError, ValueError) as error:
                 if (
-                    not focused_repair_attempted
+                    not require_explicit_requirement_evidence
+                    and not focused_repair_attempted
                     and isinstance(
                         error, ComponentSelectionValidationError
                     )
@@ -931,6 +1086,9 @@ def create_component_selection_agent(
                                 locked_objective_proposal
                             ),
                             validation_errors=error.errors,
+                            require_explicit_requirement_evidence=(
+                                require_explicit_requirement_evidence
+                            ),
                         )
                     except (TypeError, ValueError) as repair_error:
                         error = repair_error
@@ -943,6 +1101,29 @@ def create_component_selection_agent(
                         f"{error}"
                     ) from error
 
+                forbidden_candidate_ids: list[str] = []
+                try:
+                    failed_decision = _parse_json_response(response.content)
+                    failed_proposal = build_component_selection_proposal(
+                        core_id=core_id,
+                        objective_goal=requirements.get("objective"),
+                        decision=cast(
+                            ComponentSelectionDecision, failed_decision
+                        ),
+                    )
+                    forbidden_candidate_ids = sorted({
+                        item["component_id"]
+                        for group in (
+                            failed_proposal.get("objective_components"),
+                            failed_proposal.get("constraints"),
+                        )
+                        if isinstance(group, list)
+                        for item in group
+                        if isinstance(item, dict)
+                        and isinstance(item.get("component_id"), str)
+                    })
+                except (TypeError, ValueError):
+                    pass
                 messages.extend(
                     [
                         response,
@@ -951,6 +1132,12 @@ def create_component_selection_agent(
                                 error=error,
                                 evidence=evidence,
                                 attempt_number=attempt + 2,
+                                forbidden_clarification_candidate_ids=(
+                                    forbidden_candidate_ids
+                                ),
+                                additional_requirements_mode=(
+                                    require_explicit_requirement_evidence
+                                ),
                             )
                         ),
                     ]

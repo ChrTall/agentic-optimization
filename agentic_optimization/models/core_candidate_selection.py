@@ -27,6 +27,8 @@ def _matches_resolved_profile(
     core_id: str,
     profile: BusinessProblemProfile,
     condition_answers: dict[str, str],
+    *,
+    ignore_inferred: bool = False,
 ) -> bool:
     """Verwirft belegte Widersprüche, ohne aus Antworten ein Modell zu wählen."""
 
@@ -66,6 +68,8 @@ def _matches_resolved_profile(
                     return False
                 continue
             field = profile[field_id]
+            if ignore_inferred and field["status"] == "inferred":
+                continue
             if (
                 field["status"] in {"inferred", "confirmed"}
                 and field["value"] not in compatible_values
@@ -74,7 +78,9 @@ def _matches_resolved_profile(
 
     definition = CORE_REGISTRY[core_id]["definition"]
     recommendation = profile["recommendation"]
-    if recommendation["status"] in {"inferred", "confirmed"}:
+    if recommendation["status"] in {"inferred", "confirmed"} and not (
+        ignore_inferred and recommendation["status"] == "inferred"
+    ):
         requested = recommendation["value"]
         needed = (
             {"order_quantity", "reorder_point"}
@@ -92,14 +98,50 @@ def _matches_resolved_profile(
             return False
 
     primary_goal = profile["primary_goal"]
-    if primary_goal["status"] in {"inferred", "confirmed"}:
+    if primary_goal["status"] in {"inferred", "confirmed"} and not (
+        ignore_inferred and primary_goal["status"] == "inferred"
+    ):
         fixed_sense = definition.get("required_objective_sense")
         goal = primary_goal["value"]
+        goals_with_required_components = definition.get(
+            "required_objective_components_by_goal", {}
+        )
+        if (
+            goals_with_required_components
+            and goal not in goals_with_required_components
+        ):
+            return False
         if fixed_sense == "minimize" and goal != "minimize_cost":
             return False
         if fixed_sense == "maximize" and goal != "maximize_profit":
             return False
     return True
+
+
+def compatible_registered_core_ids(
+    profile: BusinessProblemProfile,
+    condition_answers: dict[str, str],
+    *,
+    ignore_inferred: bool = False,
+) -> list[str]:
+    """Findet nur mögliche Kerne für Rückfragen, ohne einen auszuwählen."""
+
+    rejected_conditions = {
+        condition_id
+        for condition_id, answer in condition_answers.items()
+        if answer == "contradicted"
+    }
+    return [
+        core_id
+        for core_id in CORE_REGISTRY
+        if (
+            _matches_resolved_profile(
+                core_id, profile, condition_answers,
+                ignore_inferred=ignore_inferred,
+            )
+            and not rejected_conditions.intersection(CORE_CONDITIONS[core_id])
+        )
+    ]
 
 
 def select_from_core_candidates(

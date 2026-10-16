@@ -64,13 +64,12 @@ PreliminaryComponentSelectionAgent = Callable[
 ]
 
 
-def _build_preliminary_fallback_proposal(
+def _build_preliminary_proposal(
     *,
     core_id: str,
     requirements: dict[str, Any],
-    evidence: list[SelectionEvidence],
 ) -> ComponentSelectionProposal:
-    """Baut nur die für eine Produkttabelle sicheren Pflichtspalten."""
+    """Baut Formularspalten ausschließlich aus registrierten Pflichtteilen."""
 
     registered_core = CORE_REGISTRY.get(core_id)
 
@@ -80,37 +79,32 @@ def _build_preliminary_fallback_proposal(
         )
 
     objective = requirements.get("objective")
-    objective_sense = "minimize"
+    objective_sense = registered_core["definition"].get(
+        "required_objective_sense"
+    )
     component_ids = list(
         registered_core["definition"][
             "required_objective_component_ids"
         ]
     )
 
-    goal_components = registered_core["definition"].get(
+    components_by_goal = registered_core["definition"].get(
         "required_objective_components_by_goal", {}
-    ).get("maximize_profit", [])
-    if (
-        goal_components
-        and objective in {"maximize_profit", "Gewinn maximieren"}
-    ):
-        objective_sense = "maximize"
+    )
+    goal_components = components_by_goal.get(objective, [])
+    if goal_components:
         component_ids.extend(goal_components)
         component_ids = list(dict.fromkeys(component_ids))
+        if objective_sense is None:
+            objective_sense = (
+                "maximize" if objective == "maximize_profit" else "minimize"
+            )
 
     if not component_ids:
         raise ValueError(
             "Für die Produkttabelle konnte keine sichere "
             "Zielfunktionsauswahl abgeleitet werden."
         )
-
-    if not evidence:
-        raise ValueError(
-            "Für die vorläufige Bausteinauswahl fehlt ein "
-            "Quellenbeleg."
-        )
-
-    source_id = evidence[0]["source_id"]
 
     return {
         "core_id": core_id,
@@ -120,10 +114,10 @@ def _build_preliminary_fallback_proposal(
             {
                 "component_id": component_id,
                 "reason": (
-                    "Deterministische Rückfallebene für die "
-                    "Spalten der Produkttabelle."
+                    "Vom registrierten Grundmodell für die "
+                    "Produkttabelle benötigt."
                 ),
-                "sources": [source_id],
+                "sources": ["core_definition"],
             }
             for component_id in component_ids
         ],
@@ -136,17 +130,12 @@ def create_preliminary_component_selection_agent(
     llm: BaseChatModel,
 ) -> PreliminaryComponentSelectionAgent:
     """
-    Wählt Bausteine vorläufig aus, bevor Produkte existieren.
+    Ermittelt Pflichtbausteine vor der Produkteingabe deterministisch.
 
     Diese Auswahl dient ausschließlich zur Bestimmung der
     Tabellenspalten. Nach der Produkteingabe wird die vollständige
     Modellvorbereitung erneut ausgeführt.
     """
-
-    component_selection_agent = (
-        create_component_selection_agent(llm)
-    )
-    integrity_agent = create_component_selection_integrity_agent(llm)
 
     def select_preliminary_components(
         *,
@@ -155,25 +144,10 @@ def create_preliminary_component_selection_agent(
         global_facts: dict[str, Any],
         evidence: list[SelectionEvidence],
     ) -> ComponentSelectionProposal:
-        try:
-            proposal = component_selection_agent(
-                core_id=core_id,
-                requirements=requirements,
-                products=[],
-                global_facts=global_facts,
-                evidence=evidence,
-            )
-            return integrity_agent(
-                proposal=proposal,
-                evidence=evidence,
-                objective_goal=requirements.get("objective"),
-            )
-        except (TypeError, ValueError):
-            return _build_preliminary_fallback_proposal(
-                core_id=core_id,
-                requirements=requirements,
-                evidence=evidence,
-            )
+        return _build_preliminary_proposal(
+            core_id=core_id,
+            requirements=requirements,
+        )
 
     return select_preliminary_components
 
@@ -190,7 +164,10 @@ def create_modular_model_agent(
     )
 
     component_selection_agent = (
-        create_component_selection_agent(llm)
+        create_component_selection_agent(
+            llm,
+            require_explicit_requirement_evidence=True,
+        )
     )
     integrity_agent = create_component_selection_integrity_agent(llm)
 

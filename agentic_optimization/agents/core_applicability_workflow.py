@@ -37,6 +37,12 @@ def plan_candidate_applicability(
         )
         for condition_id, finding in text_findings.items()
     }
+    single_negative_text_findings = {
+        condition_id
+        for condition_id, finding in text_findings.items()
+        if finding == "contradicted"
+    }
+    separately_supported_conditions: set[str] = set()
     confirmed_conditions = {
         condition_id
         for condition_id, answer in (user_answers or {}).items()
@@ -58,6 +64,8 @@ def plan_candidate_applicability(
         profile_finding: Finding = (
             "supported" if field["value"] == expected else "contradicted"
         )
+        if profile_finding == "supported":
+            separately_supported_conditions.add(condition_id)
         if (
             profile_finding == "supported"
             and field["status"] == "confirmed"
@@ -99,7 +107,19 @@ def plan_candidate_applicability(
         ):
             findings.pop(condition_id)
 
-    return plan_core_applicability(
+    # Non-structural assumptions are confirmed on the review page. An LLM
+    # interpretation of a contrary passage is shown there as a warning,
+    # but does not change the intake question sequence. A direct user answer
+    # still takes precedence and can reject the model above.
+    for condition_id in CORE_CONDITIONS[core_id]:
+        if (
+            condition_id not in IMMEDIATE_CLARIFICATION_CONDITIONS
+            and condition_id not in (user_answers or {})
+            and findings.get(condition_id) == "conflict"
+        ):
+            findings.pop(condition_id)
+
+    plan = plan_core_applicability(
         core_id,
         findings,
         confirmed_conditions=confirmed_conditions,
@@ -109,3 +129,13 @@ def plan_candidate_applicability(
             if answer == "unknown"
         },
     )
+    questioned_condition = plan["question_condition_id"]
+    if (
+        plan["question_reason"] == "conflict"
+        and questioned_condition in single_negative_text_findings
+        and questioned_condition not in separately_supported_conditions
+    ):
+        # One unconfirmed negative text interpretation still needs a
+        # question, but it is not a contradiction between user statements.
+        plan["question_reason"] = "missing"
+    return plan

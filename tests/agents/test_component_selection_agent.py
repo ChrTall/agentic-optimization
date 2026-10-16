@@ -225,6 +225,27 @@ def test_repairs_redundant_eoq_questions_about_mandatory_components() -> None:
         item["component_id"] for item in result["objective_components"]
     } == {"annual_ordering_cost", "annual_holding_cost"}
     assert llm.invoke.call_count == 2
+    initial_messages = llm.invoke.call_args_list[0].args[0]
+    initial_task = json.loads(initial_messages[1].content)
+    assert initial_task["already_selected_by_system_component_ids"] == [
+        "annual_holding_cost", "annual_ordering_cost"
+    ]
+    repair_messages = llm.invoke.call_args_list[1].args[0]
+    repair_task = json.loads(repair_messages[1].content)
+    assert repair_task["forbidden_clarification_candidate_ids"] == [
+        "annual_holding_cost", "annual_ordering_cost"
+    ]
+    assert [item["index"] for item in repair_task[
+        "overlapping_questions"
+    ]] == [0, 1]
+    assert {item["component_id"] for item in repair_task[
+        "selected_components"
+    ]} == {"annual_ordering_cost", "annual_holding_cost"}
+    assert not set(repair_task[
+        "available_clarification_candidate_ids"
+    ]).intersection(repair_task[
+        "forbidden_clarification_candidate_ids"
+    ])
 
 
 def test_deduplication_preserves_other_unsupported_requirement() -> None:
@@ -269,6 +290,51 @@ def test_deduplication_preserves_other_unsupported_requirement() -> None:
     assert result["selection_status"] == "unsupported"
     assert result["unresolved_requirements"] == [unsupported]
     assert llm.invoke.call_count == 2
+
+
+def test_full_retry_receives_selected_ids_after_invalid_focused_repair() -> None:
+    repeated_question = {
+        "description": "Welche Kosten sollen berücksichtigt werden?",
+        "resolution": "clarification",
+        "candidate_component_ids": [
+            "annual_ordering_cost", "annual_holding_cost",
+        ],
+        "reason": "Die Kostenarten seien noch offen.",
+        "sources": ["raw_input"],
+    }
+    invalid = {
+        "objective_components": [],
+        "constraints": [],
+        "unresolved_requirements": [repeated_question],
+    }
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps(invalid)),
+        AIMessage(content=json.dumps({
+            "unresolved_requirements": [repeated_question],
+        })),
+        AIMessage(content=json.dumps({
+            **invalid, "unresolved_requirements": [],
+        })),
+    ]
+
+    result = create_component_selection_agent(llm)(
+        core_id="eoq",
+        requirements={"objective": "minimize_cost"},
+        products=[], global_facts={},
+        evidence=[{
+            "source_id": "raw_input",
+            "content": "Jährliche Bestell- und Lagerkosten minimieren.",
+        }],
+    )
+
+    assert result["selection_status"] == "complete"
+    assert llm.invoke.call_count == 3
+    retry_messages = llm.invoke.call_args_list[2].args[0]
+    feedback = json.loads(retry_messages[-1].content)
+    assert feedback["forbidden_clarification_candidate_ids"] == [
+        "annual_holding_cost", "annual_ordering_cost"
+    ]
 
 
 def test_nonmandatory_overlap_still_needs_focused_repair() -> None:
@@ -1197,6 +1263,93 @@ def test_corrects_missing_input_reported_as_clarification() -> None:
 
     assert result == corrected_response
     assert llm.invoke.call_count == 2
+
+
+def test_final_selection_rejects_unquoted_missing_input_claim() -> None:
+    decision = {
+        "objective_sense": "minimize",
+        "objective_components": [],
+        "constraints": [],
+        "additional_requirements": [{
+            "description": "Bestellkosten fehlen.",
+            "resolution": "unsupported",
+            "candidate_component_ids": [],
+            "reason": "Ein Eingabewert sei unbekannt.",
+            "sources": ["raw_input"],
+        }],
+    }
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps(decision)),
+        AIMessage(content=json.dumps({
+            **decision, "additional_requirements": [],
+        })),
+    ]
+
+    result = create_component_selection_agent(
+        llm, require_explicit_requirement_evidence=True
+    )(
+        core_id="eoq",
+        requirements={"objective": "minimize_cost"},
+        products=[{
+            "product_id": "product_1",
+            "forecast": {"expected_value": 3500, "horizon_days": 365},
+            "facts": {"ordering_cost": 120, "holding_cost": 12},
+        }],
+        global_facts={},
+        evidence=[{
+            "source_id": "raw_input",
+            "content": (
+                "Für einen Artikel möchten wir die jährlichen Bestell- "
+                "und Lagerkosten minimieren."
+            ),
+        }],
+    )
+
+    assert result["selection_status"] == "complete"
+    assert result["unresolved_requirements"] == []
+    assert llm.invoke.call_count == 2
+    system_prompt = llm.invoke.call_args_list[0].args[0][0].content
+    assert "additional_requirements" in system_prompt
+    assert "unresolved_requirements" not in system_prompt
+    feedback = json.loads(llm.invoke.call_args_list[1].args[0][-1].content)
+    assert "wörtlichen Textbeleg" in feedback["validation_errors"][0]
+
+
+def test_final_selection_preserves_quoted_additional_requirement() -> None:
+    quote = "Jede Lieferung muss an einem Dienstag eintreffen."
+    decision = {
+        "objective_sense": "minimize",
+        "objective_components": [],
+        "constraints": [],
+        "additional_requirements": [{
+            "description": quote,
+            "resolution": "unsupported",
+            "candidate_component_ids": [],
+            "reason": "Kein registrierter Baustein bildet den Liefertag ab.",
+            "sources": ["raw_input"],
+        }],
+    }
+    llm = create_mock_llm(decision)
+
+    result = create_component_selection_agent(
+        llm, require_explicit_requirement_evidence=True
+    )(
+        core_id="eoq",
+        requirements={"objective": "minimize_cost"},
+        products=[],
+        global_facts={},
+        evidence=[{
+            "source_id": "raw_input",
+            "content": "Wir bestellen regelmäßig. " + quote,
+        }],
+    )
+
+    assert result["selection_status"] == "unsupported"
+    assert result["unresolved_requirements"] == decision[
+        "additional_requirements"
+    ]
+    llm.invoke.assert_called_once()
 
 
 def test_corrects_invalid_response_once() -> None:

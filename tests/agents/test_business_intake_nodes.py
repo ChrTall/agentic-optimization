@@ -5,6 +5,7 @@ from langchain_core.messages import AIMessage
 import pytest
 
 from agentic_optimization.agents.business_intake_nodes import (
+    _profile_question_covers_core_condition,
     create_business_intake_node,
     initialize_modular_core_node,
 )
@@ -35,6 +36,25 @@ def confirmed(value):
             }
         ],
     )
+
+
+@pytest.mark.parametrize(
+    ("question_id", "core_id", "condition_id", "covered"),
+    [
+        ("procurement_pattern", "eoq", "recurring_orders", True),
+        ("procurement_pattern", "continuous_review_q_r", "recurring_orders", True),
+        ("procurement_pattern", "single_period_newsvendor", "single_decision_period", True),
+        ("replenishment_during_period", "single_period_newsvendor", "no_replenishment_within_period", True),
+        ("inventory_review", "continuous_review_q_r", "continuous_inventory_review", True),
+        ("procurement_pattern", "eoq", "steady_demand", False),
+    ],
+)
+def test_profile_question_covers_registered_core_condition(
+    question_id: str, core_id: str, condition_id: str, covered: bool,
+) -> None:
+    assert _profile_question_covers_core_condition(
+        [question_id], core_id, condition_id,
+    ) is covered
 
 
 def test_direct_conditions_override_old_profile_in_model_requirements() -> None:
@@ -338,7 +358,7 @@ def test_event_description_requires_explicit_structural_answers():
     assert llm.invoke.call_count == 3
 
 
-def test_text_candidates_need_explicit_choice_when_both_plausible() -> None:
+def test_two_cost_candidates_need_structural_clarification() -> None:
     raw = "Wir planen eine Bestellung für einen Artikel."
     profile = create_empty_business_problem_profile()
     profile["product_scope"] = confirmed("single_product")
@@ -353,12 +373,12 @@ def test_text_candidates_need_explicit_choice_when_both_plausible() -> None:
                     "source_id": "raw_input",
                     "excerpt": "eine Bestellung",
                 }
-                for core_id in ("eoq", "single_period_newsvendor")
+                for core_id in ("eoq", "continuous_review_q_r")
             ],
             "reason": "Der zeitliche Ablauf ist unklar.",
         })),
         AIMessage(content=json.dumps({
-            "question": "Wird der Artikel dauerhaft nachbestellt?",
+            "question": "Wird der Lagerbestand laufend überwacht?",
         })),
         AIMessage(content=json.dumps({"findings": []})),
     ]
@@ -375,7 +395,7 @@ def test_text_candidates_need_explicit_choice_when_both_plausible() -> None:
     assert get_workflow_status(first) == WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT
     intake = first["business_intake"]
     assert intake["pending_question_ids"] == [
-        "core_condition:recurring_orders"
+        "core_condition:continuous_inventory_review"
     ]
     assert intake["core_question_plan"]["kind"] == (
         "candidate_condition"
@@ -384,8 +404,8 @@ def test_text_candidates_need_explicit_choice_when_both_plausible() -> None:
     assert {item["option_id"] for item in question["options"]} == {
         "yes", "no", "user_unknown"
     }
-    assert "dauerhaft nachbestellt" in question["prompt"]
-    assert "wiederkehrenden Bestellzyklen" in (
+    assert "laufend überwacht" in question["prompt"]
+    assert "laufend" in (
         question["options"][0]["label"]
     )
 
@@ -394,17 +414,158 @@ def test_text_candidates_need_explicit_choice_when_both_plausible() -> None:
         "business_intake": {
             **intake,
             "pending_answers": [{
+                "question_id": "core_condition:continuous_inventory_review",
+                "option_id": "no",
+                "source_id": "business_clarification_form",
+            }],
+        },
+    })
+    assert second["business_intake"]["pending_question_ids"] == [
+        "core_condition:recurring_orders"
+    ]
+    third = node({
+        **second,
+        "business_intake": {
+            **second["business_intake"],
+            "pending_answers": [{
                 "question_id": "core_condition:recurring_orders",
                 "option_id": "yes",
                 "source_id": "business_clarification_form",
             }],
         },
     })
-    assert get_workflow_status(second) == WORKFLOW_BUSINESS_CORE_SELECTED
-    assert second["business_intake"]["core_selection"][
+    assert get_workflow_status(third) == WORKFLOW_BUSINESS_CORE_SELECTED
+    assert third["business_intake"]["core_selection"][
         "selected_core_id"
     ] == "eoq"
     assert llm.invoke.call_count == 4
+
+
+@pytest.mark.parametrize("candidate_ids", [
+    ("eoq", "continuous_review_q_r"),
+    ("continuous_review_q_r", "eoq"),
+])
+def test_open_profile_questions_precede_candidate_specific_questions(
+    candidate_ids,
+) -> None:
+    raw = (
+        "Für einen Artikel planen wir eine Bestellung und möchten die "
+        "jährlichen Bestell- und Lagerkosten minimieren. Wie oft bestellt "
+        "wird, müssen wir noch klären."
+    )
+    profile = create_empty_business_problem_profile()
+    profile["product_scope"] = confirmed("single_product")
+    profile["primary_goal"] = confirmed("minimize_cost")
+    for field_id, values in (
+        ("recommendation", ["order_quantity", "reorder_point"]),
+        ("procurement_pattern", ["one_time", "recurring"]),
+    ):
+        profile[field_id] = create_profile_field(
+            status="ambiguous", candidate_values=values,
+            evidence=[{
+                "source_id": "raw_input", "source_type": "free_text",
+                "excerpt": "eine Bestellung",
+            }],
+        )
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps({"inferences": [], "ambiguities": []})),
+        AIMessage(content=json.dumps({
+            "candidates": [{
+                "core_id": core_id, "source_id": "raw_input",
+                "excerpt": "Bestell- und Lagerkosten minimieren",
+            } for core_id in candidate_ids],
+            "reason": "Die Bestellstruktur ist noch offen.",
+        })),
+        AIMessage(content=json.dumps({
+            "question": "Wird der Lagerbestand laufend überwacht?",
+        })),
+    ]
+
+    result = create_business_intake_node(llm)({
+        "raw_input": raw,
+        "business_intake": {
+            "profile": profile,
+            "asked_question_ids": [],
+        },
+    })
+
+    assert get_workflow_status(result) == WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT
+    assert result["business_intake"]["pending_question_ids"] == [
+        "recommendation", "procurement_pattern",
+    ]
+    assert result["business_intake"]["core_question_plan"] is None
+
+    next_result = create_business_intake_node(llm)({
+        **result,
+        "business_intake": {
+            **result["business_intake"],
+            "pending_answers": [
+                {
+                    "question_id": "recommendation",
+                    "option_id": "order_quantity",
+                    "source_id": "business_clarification_form",
+                },
+                {
+                    "question_id": "procurement_pattern",
+                    "option_id": "recurring",
+                    "source_id": "business_clarification_form",
+                },
+            ],
+        },
+    })
+    assert next_result["business_intake"]["pending_question_ids"] == [
+        "core_condition:continuous_inventory_review"
+    ]
+
+
+@pytest.mark.parametrize("recommendation_status", ["missing", "inferred"])
+def test_inferred_recommendation_does_not_change_first_form(
+    recommendation_status,
+) -> None:
+    raw = (
+        "Für einen Artikel planen wir eine Bestellung und möchten die "
+        "jährlichen Bestell- und Lagerkosten minimieren. Wie oft bestellt "
+        "wird, müssen wir noch klären."
+    )
+    profile = create_empty_business_problem_profile()
+    profile["product_scope"] = confirmed("single_product")
+    profile["primary_goal"] = confirmed("minimize_cost")
+    if recommendation_status == "inferred":
+        profile["recommendation"] = create_profile_field(
+            status="inferred", value="order_quantity",
+            evidence=[{
+                "source_id": "raw_input", "source_type": "free_text",
+                "excerpt": "eine Bestellung",
+            }],
+        )
+    profile["procurement_pattern"] = create_profile_field(
+        status="ambiguous", candidate_values=["one_time", "recurring"],
+        evidence=[{
+            "source_id": "raw_input", "source_type": "free_text",
+            "excerpt": "Wie oft bestellt wird, müssen wir noch klären",
+        }],
+    )
+    result = create_business_intake_node(Mock())({
+        "raw_input": raw,
+        "business_intake": {
+            "profile": profile,
+            "analyzed_raw_input": raw,
+            "candidate_proposal": {
+                "candidates": [{
+                    "core_id": core_id, "source_id": "raw_input",
+                    "excerpt": "Bestell- und Lagerkosten minimieren",
+                } for core_id in ("eoq", "continuous_review_q_r")],
+                "reason": "Die Bestellstruktur ist noch offen.",
+            },
+            "candidate_analyzed_raw_input": raw,
+            "asked_question_ids": [],
+        },
+    })
+
+    assert result["business_intake"]["pending_question_ids"] == [
+        "recommendation", "procurement_pattern",
+    ]
 
 
 def test_unknown_structural_answers_do_not_force_a_model_choice() -> None:
@@ -422,18 +583,12 @@ def test_unknown_structural_answers_do_not_force_a_model_choice() -> None:
                     "source_id": "raw_input",
                     "excerpt": "Bestellmenge bestimmen",
                 }
-                for core_id in ("eoq", "single_period_newsvendor")
+                for core_id in ("eoq", "continuous_review_q_r")
             ],
             "reason": "Die Entscheidungsstruktur ist offen.",
         })),
         AIMessage(content=json.dumps({
-            "question": "Einmalige Entscheidung vor dem Zeitraum?"
-        })),
-        AIMessage(content=json.dumps({
-            "question": "Keine Nachbestellung im Zeitraum?"
-        })),
-        AIMessage(content=json.dumps({
-            "question": "Wird der Artikel dauerhaft nachbestellt?"
+            "question": "Wird der Lagerbestand laufend überwacht?"
         })),
     ]
     node = create_business_intake_node(llm)
@@ -445,10 +600,7 @@ def test_unknown_structural_answers_do_not_force_a_model_choice() -> None:
         },
     })
 
-    for condition_id in (
-        "recurring_orders", "single_decision_period",
-        "no_replenishment_within_period",
-    ):
+    for condition_id in ("continuous_inventory_review",):
         intake = state["business_intake"]
         assert intake["pending_question_ids"] == [
             f"core_condition:{condition_id}"
@@ -470,9 +622,7 @@ def test_unknown_structural_answers_do_not_force_a_model_choice() -> None:
     assert intake["pending_question_ids"] == []
     assert intake["core_selection"]["selected_core_id"] is None
     assert intake["applicability_user_answers"] == {
-        "recurring_orders": "unknown",
-        "single_decision_period": "unknown",
-        "no_replenishment_within_period": "unknown",
+        "continuous_inventory_review": "unknown",
     }
     view = build_business_intake_view_data(intake)
     assert view["message_type"] == "warning"
@@ -548,7 +698,7 @@ def test_unknown_primary_goal_is_not_repeated_or_assumed() -> None:
         },
     })
     assert first["business_intake"]["pending_question_ids"] == [
-        "primary_goal", "core_condition:recurring_orders"
+        "primary_goal"
     ]
 
     result = node({
@@ -1173,6 +1323,242 @@ def test_node_reports_unsupported_business_case() -> None:
     assert result["business_intake"][
         "core_selection"
     ]["status"] == "unsupported"
+
+
+@pytest.mark.parametrize(
+    "procurement_status", ["missing", "ambiguous", "inferred"]
+)
+def test_empty_candidate_proposal_asks_open_procurement_question(
+    procurement_status,
+) -> None:
+    raw = (
+        "Für einen Artikel planen wir eine Bestellung und möchten die "
+        "jährlichen Bestell- und Lagerkosten minimieren. Wie oft bestellt "
+        "wird, müssen wir noch klären."
+    )
+    profile = create_empty_business_problem_profile()
+    profile["recommendation"] = confirmed("order_quantity")
+    profile["product_scope"] = confirmed("single_product")
+    profile["primary_goal"] = confirmed("minimize_cost")
+    if procurement_status == "ambiguous":
+        profile["procurement_pattern"] = create_profile_field(
+            status="ambiguous",
+            candidate_values=["one_time", "recurring"],
+            evidence=[{
+                "source_id": "raw_input", "source_type": "free_text",
+                "excerpt": "Wie oft bestellt wird, müssen wir noch klären",
+            }],
+        )
+    elif procurement_status == "inferred":
+        profile["procurement_pattern"] = create_profile_field(
+            status="inferred", value="one_time",
+            evidence=[{
+                "source_id": "raw_input", "source_type": "free_text",
+                "excerpt": "eine Bestellung",
+            }],
+        )
+        profile["replenishment_during_period"] = create_profile_field(
+            status="ambiguous",
+            candidate_values=["possible", "not_possible"],
+            evidence=[{
+                "source_id": "raw_input", "source_type": "free_text",
+                "excerpt": "Wie oft bestellt wird, müssen wir noch klären",
+            }],
+        )
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps({
+            "inferences": [], "ambiguities": [],
+        })),
+        AIMessage(content=json.dumps({
+            "candidates": [], "reason": "Der Bestellrhythmus ist offen.",
+        })),
+        AIMessage(content=json.dumps({
+            "candidates": [{
+                "core_id": "eoq", "source_id": "raw_input",
+                "excerpt": "Bestell- und Lagerkosten minimieren",
+            }],
+            "reason": "Wiederkehrende Bestellungen wurden bestätigt.",
+        })),
+        AIMessage(content=json.dumps({"findings": []})),
+    ]
+    node = create_business_intake_node(llm)
+
+    first = node({
+        "raw_input": raw,
+        "business_intake": {
+            "profile": profile,
+            "asked_question_ids": [],
+        },
+    })
+    assert get_workflow_status(first) == WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT
+    assert first["business_intake"]["pending_question_ids"] == [
+        "procurement_pattern"
+    ]
+    assert first["business_intake"]["core_selection"]["status"] == (
+        "needs_clarification"
+    )
+
+    second = node({
+        **first,
+        "business_intake": {
+            **first["business_intake"],
+            "pending_answers": [{
+                "question_id": "procurement_pattern",
+                "option_id": "recurring",
+                "source_id": "business_clarification_form",
+            }],
+        },
+    })
+    assert get_workflow_status(second) == WORKFLOW_BUSINESS_CORE_SELECTED
+    assert second["business_intake"]["core_selection"][
+        "selected_core_id"
+    ] == "eoq"
+
+
+def test_procurement_question_replaces_duplicate_recurring_order_question() -> None:
+    raw = (
+        "Für einen Artikel planen wir eine Bestellung und möchten die "
+        "jährlichen Bestell- und Lagerkosten minimieren. Wie oft bestellt "
+        "wird, müssen wir noch klären."
+    )
+    profile = create_empty_business_problem_profile()
+    profile["recommendation"] = confirmed("order_quantity")
+    profile["product_scope"] = confirmed("single_product")
+    profile["primary_goal"] = confirmed("minimize_cost")
+    profile["procurement_pattern"] = create_profile_field(
+        status="ambiguous", candidate_values=["one_time", "recurring"],
+        evidence=[{
+            "source_id": "raw_input", "source_type": "free_text",
+            "excerpt": "Wie oft bestellt wird, müssen wir noch klären",
+        }],
+    )
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps({"findings": []}))
+    node = create_business_intake_node(llm)
+    first = node({
+        "raw_input": raw,
+        "business_intake": {
+            "profile": profile,
+            "analyzed_raw_input": raw,
+            "candidate_proposal": {
+                "candidates": [{
+                    "core_id": "eoq", "source_id": "raw_input",
+                    "excerpt": "Bestell- und Lagerkosten minimieren",
+                }],
+                "reason": "Die Kostenentscheidung passt möglicherweise zu EOQ.",
+            },
+            "candidate_analyzed_raw_input": raw,
+            "asked_question_ids": [],
+            "pending_answers": [],
+        },
+    })
+
+    assert get_workflow_status(first) == WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT
+    assert first["business_intake"]["pending_question_ids"] == [
+        "procurement_pattern"
+    ]
+    assert first["business_intake"]["core_question_plan"] is None
+
+    second = node({
+        **first,
+        "business_intake": {
+            **first["business_intake"],
+            "pending_answers": [{
+                "question_id": "procurement_pattern",
+                "option_id": "recurring",
+                "source_id": "business_clarification_form",
+            }],
+        },
+    })
+
+    assert second["business_intake"]["applicability_user_answers"][
+        "recurring_orders"
+    ] == "supported"
+    assert get_workflow_status(second) == WORKFLOW_BUSINESS_CORE_SELECTED
+
+
+def test_empty_candidate_after_quantity_answer_asks_inferred_procurement() -> None:
+    raw = (
+        "Für einen Artikel planen wir eine Bestellung und möchten die "
+        "jährlichen Bestell- und Lagerkosten minimieren. Wie oft bestellt "
+        "wird, müssen wir noch klären."
+    )
+    profile = create_empty_business_problem_profile()
+    profile["product_scope"] = confirmed("single_product")
+    profile["primary_goal"] = create_profile_field(
+        status="inferred", value="minimize_cost",
+        evidence=[{
+            "source_id": "raw_input", "source_type": "free_text",
+            "excerpt": "Bestell- und Lagerkosten minimieren",
+        }],
+    )
+    profile["procurement_pattern"] = create_profile_field(
+        status="inferred", value="recurring",
+        evidence=[{
+            "source_id": "raw_input", "source_type": "free_text",
+            "excerpt": "eine Bestellung",
+        }],
+    )
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps({
+        "candidates": [], "reason": "Der Bestellrhythmus ist nicht belegt.",
+    }))
+    node = create_business_intake_node(llm)
+
+    result = node({
+        "raw_input": raw,
+        "business_intake": {
+            "profile": profile,
+            "analyzed_raw_input": raw,
+            "candidate_proposal": {
+                "candidates": [], "reason": "Noch keine Kandidaten.",
+            },
+            "candidate_analyzed_raw_input": raw,
+            "asked_question_ids": [],
+            "pending_question_ids": ["recommendation"],
+            "pending_answers": [{
+                "question_id": "recommendation",
+                "option_id": "order_quantity",
+                "source_id": "business_clarification_form",
+            }],
+        },
+    })
+
+    assert get_workflow_status(result) == WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT
+    assert result["business_intake"]["pending_question_ids"] == [
+        "procurement_pattern"
+    ]
+
+
+def test_empty_candidate_proposal_still_rejects_known_incompatibility() -> None:
+    profile = create_empty_business_problem_profile()
+    profile["recommendation"] = confirmed(
+        "order_quantity_and_reorder_point"
+    )
+    profile["procurement_pattern"] = confirmed("recurring")
+    profile["inventory_review"] = confirmed("periodic")
+    profile["product_scope"] = confirmed("single_product")
+    profile["primary_goal"] = confirmed("minimize_cost")
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps({
+            "inferences": [], "ambiguities": [],
+        })),
+        AIMessage(content=json.dumps({
+            "candidates": [], "reason": "Kein registriertes Modell passt.",
+        })),
+    ]
+
+    result = create_business_intake_node(llm)({
+        "raw_input": "Wir prüfen den Bestand nur wöchentlich.",
+        "business_intake": {
+            "profile": profile,
+            "asked_question_ids": [],
+        },
+    })
+
+    assert get_workflow_status(result) == WORKFLOW_BUSINESS_CASE_UNSUPPORTED
 
 
 def test_node_handles_invalid_agent_response() -> None:

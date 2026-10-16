@@ -66,6 +66,17 @@ def test_confirmed_profit_goal_rejects_eoq():
     assert result["status"] == "unsupported"
 
 
+def test_confirmed_cost_goal_rejects_newsvendor_profit_components():
+    profile = create_empty_business_problem_profile()
+    _confirm(profile, "primary_goal", "minimize_cost")
+
+    result = select_from_core_candidates(
+        _proposal("single_period_newsvendor"), profile,
+    )
+
+    assert result["status"] == "unsupported"
+
+
 def test_inferred_event_context_vetoes_recurring_candidate():
     profile = create_empty_business_problem_profile()
     _infer(profile, "procurement_pattern", "one_time")

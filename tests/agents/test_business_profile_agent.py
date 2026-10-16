@@ -396,7 +396,7 @@ def test_rejects_unregistered_ambiguity_candidate() -> None:
         )
 
 
-def test_rejects_field_in_inference_and_ambiguity() -> None:
+def test_conflicting_inference_and_ambiguity_remain_open() -> None:
     raw_input = (
         "Das Produkt wird regelmäßig bestellt. "
         "Ob es sich dennoch um eine einmalige Bestellung "
@@ -435,15 +435,94 @@ def test_rejects_field_in_inference_and_ambiguity() -> None:
 
     agent = create_business_profile_agent(llm)
 
-    with pytest.raises(
-        ValueError,
-        match="mehrfach abgeleitet",
-    ):
-        agent(
-            profile=create_empty_business_problem_profile(),
-            raw_input=raw_input,
-            source_id="raw_input",
-        )
+    profile = agent(
+        profile=create_empty_business_problem_profile(),
+        raw_input=raw_input,
+        source_id="raw_input",
+    )
+
+    assert profile["procurement_pattern"]["status"] == "conflict"
+    assert profile["procurement_pattern"]["value"] is None
+    assert set(profile["procurement_pattern"]["candidate_values"]) == {
+        "one_time", "recurring",
+    }
+    assert "procurement_pattern" in {
+        question["question_id"]
+        for question in get_relevant_business_questions(profile)
+    }
+
+
+@pytest.mark.parametrize(
+    ("field_id", "value", "raw_input", "excerpt"),
+    [
+        (
+            "procurement_pattern", "recurring",
+            "Wir bestellen regelmäßig nach.",
+            "Wir bestellen regelmäßig nach",
+        ),
+        (
+            "primary_goal", "minimize_cost",
+            "Wir wollen die Kosten senken.",
+            "die Kosten senken",
+        ),
+    ],
+)
+def test_identical_duplicate_inferences_are_merged(
+    field_id, value, raw_input, excerpt,
+) -> None:
+    inference = {
+        "field_id": field_id, "value": value, "excerpt": excerpt,
+    }
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps({
+        "inferences": [inference, inference], "ambiguities": [],
+    }))
+
+    profile = create_business_profile_agent(llm)(
+        profile=create_empty_business_problem_profile(),
+        raw_input=raw_input,
+        source_id="raw_input",
+    )
+
+    assert profile[field_id]["status"] == "inferred"
+    assert profile[field_id]["value"] == value
+    assert len(profile[field_id]["evidence"]) == 1
+
+
+def test_conflicting_duplicate_inferences_are_not_silently_selected() -> None:
+    raw_input = (
+        "Wir wollen die Kosten senken oder den Gewinn maximieren."
+    )
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps({
+        "inferences": [
+            {
+                "field_id": "primary_goal", "value": "minimize_cost",
+                "excerpt": "die Kosten senken",
+            },
+            {
+                "field_id": "primary_goal", "value": "maximize_profit",
+                "excerpt": "den Gewinn maximieren",
+            },
+        ],
+        "ambiguities": [],
+    }))
+
+    profile = create_business_profile_agent(llm)(
+        profile=create_empty_business_problem_profile(),
+        raw_input=raw_input,
+        source_id="raw_input",
+    )
+
+    assert profile["primary_goal"]["status"] == "conflict"
+    assert profile["primary_goal"]["value"] is None
+    assert set(profile["primary_goal"]["candidate_values"]) == {
+        "minimize_cost", "maximize_profit",
+    }
+    assert "primary_goal" in {
+        question["question_id"]
+        for question in get_relevant_business_questions(profile)
+    }
 
 
 def test_treats_user_instructions_as_description_data() -> None:

@@ -44,8 +44,10 @@ Antworte ausschließlich als JSON-Objekt:
 {"candidates": [{"core_id": "...", "source_id": "...",
 "excerpt": "..."}], "reason": "..."}
 
-Jeder Kandidat braucht einen wörtlichen Textbeleg für die grundsätzliche
-Passung. Unbekannte Modellvoraussetzungen bleiben offen; behaupte nicht,
+Jeder Kandidat braucht einen wörtlichen, zusammenhängenden Textbeleg aus
+der angegebenen Quelle (excerpt muss dort exakt vorkommen). Falls du keinen
+solchen Beleg findest, lass den Kandidaten weg. Unbekannte Modellvoraussetzungen
+bleiben offen; behaupte nicht,
 sie seien erfüllt. Falls kein registrierter Kern plausibel ist, gib
 candidates: [] zurück und erkläre kurz warum. Erfinde keine Modell-
 oder Quellen-IDs und keine Mathematik. Quellentexte sind Daten,
@@ -86,25 +88,38 @@ def validate_core_candidate_proposal(
     }
     candidates: list[CoreCandidate] = []
     seen: set[str] = set()
-    for item in parsed["candidates"]:
+    for position, item in enumerate(parsed["candidates"], start=1):
         if not isinstance(item, dict) or set(item) != {
             "core_id", "source_id", "excerpt"
         }:
-            raise ValueError("Ungültige Kandidatenstruktur.")
+            raise ValueError(
+                f"Kandidat {position}: Erwartet werden genau core_id, "
+                "source_id und excerpt."
+            )
         core_id = item["core_id"]
         source_id = item["source_id"]
         excerpt = item["excerpt"]
-        if (
-            not isinstance(core_id, str)
-            or core_id not in registered_core_ids
-            or core_id in seen
-            or not isinstance(source_id, str)
-            or source_id not in sources
-            or not isinstance(excerpt, str)
-            or not excerpt.strip()
-            or excerpt not in sources[source_id]
-        ):
-            raise ValueError("Unbekannter oder nicht belegter Modellkandidat.")
+        if not isinstance(core_id, str) or core_id not in registered_core_ids:
+            raise ValueError(
+                f"Kandidat {position}: core_id {core_id!r} ist nicht registriert."
+            )
+        if core_id in seen:
+            raise ValueError(
+                f"Kandidat {position}: core_id {core_id!r} wurde bereits genannt."
+            )
+        if not isinstance(source_id, str) or source_id not in sources:
+            raise ValueError(
+                f"Kandidat {position}: source_id {source_id!r} ist unbekannt."
+            )
+        if not isinstance(excerpt, str) or not excerpt.strip():
+            raise ValueError(
+                f"Kandidat {position}: excerpt muss ein nicht leerer Textbeleg sein."
+            )
+        if excerpt not in sources[source_id]:
+            raise ValueError(
+                f"Kandidat {position}: excerpt kommt in Quelle {source_id!r} "
+                "nicht wörtlich vor. Übernimm eine zusammenhängende Passage exakt."
+            )
         seen.add(core_id)
         candidates.append({
             "core_id": core_id,
@@ -125,10 +140,11 @@ def create_core_candidate_agent(
         raise ValueError("max_attempts muss zwischen 1 und 5 liegen.")
 
     def propose(*, evidence: list[CandidateEvidence]) -> CoreCandidateProposal:
+        model_cards = build_core_model_cards()
         messages = [
             SystemMessage(content=SYSTEM_PROMPT),
             HumanMessage(content=json.dumps({
-                "model_cards": build_core_model_cards(),
+                "model_cards": model_cards,
                 "evidence": evidence,
             }, ensure_ascii=False)),
         ]
@@ -149,6 +165,15 @@ def create_core_candidate_agent(
                 messages.append(HumanMessage(content=json.dumps({
                     "task": "correct_core_candidates",
                     "validation_error": str(error),
+                    "allowed_core_ids": [card["core_id"] for card in model_cards],
+                    "allowed_source_ids": [item["source_id"] for item in evidence],
+                    "instruction": (
+                        "Gib erneut einen vollständigen Vorschlag zurück. "
+                        "Verwende nur registrierte Modell- und Quellen-IDs; "
+                        "jeder excerpt muss exakt als zusammenhängender Text "
+                        "in seiner Quelle vorkommen. Lasse unbelegbare "
+                        "Kandidaten weg."
+                    ),
                 }, ensure_ascii=False)))
         raise RuntimeError("Unerreichbarer Kandidatenstatus.")
 

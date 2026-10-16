@@ -642,6 +642,24 @@ def _render_core_assumption_confirmations(
                 f"**{CONDITION_LABELS[item['condition_id']]}**"
             )
             st.write(f"Ihre Angabe: „{item['excerpt']}“")
+    contrary_evidence = [
+        item for item in core_assumption_evidence
+        if item.get("status") == "contradicted"
+        and item.get("condition_id") in pending_core_assumptions
+        and item.get("condition_id") in CONDITION_LABELS
+        and isinstance(item.get("excerpt"), str)
+        and item["excerpt"].strip()
+    ]
+    if contrary_evidence:
+        st.warning(
+            "Möglicher Widerspruch zu einer Modellannahme: Bitte prüfen "
+            "Sie die folgenden Textstellen besonders sorgfältig. "
+            "Bestätigen Sie die Annahme nur, wenn sie für Ihre Situation "
+            "tatsächlich zutrifft."
+        )
+        for item in contrary_evidence:
+            st.markdown(f"**{CONDITION_LABELS[item['condition_id']]}**")
+            st.write(f"Ihre Angabe: „{item['excerpt']}“")
     assumptions_confirmed = True
     if pending_core_assumptions:
         st.warning(

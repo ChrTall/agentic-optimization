@@ -36,7 +36,11 @@ from agentic_optimization.models.problem_profile import (
     PROFILE_FIELD_ALLOWED_VALUES,
 )
 from agentic_optimization.models.core_candidate_selection import (
+    compatible_registered_core_ids,
     select_from_core_candidates,
+)
+from agentic_optimization.models.core_selection_catalog import (
+    CORE_SELECTION_RULES,
 )
 from agentic_optimization.models.core_question_planner import (
     plan_next_core_question,
@@ -104,6 +108,27 @@ def _answer_evidence(
             "profile_answers": profile_answers,
         }, ensure_ascii=False, sort_keys=True),
     }
+
+
+def _profile_question_covers_core_condition(
+    question_ids: list[str], core_id: str | None, condition_id: str | None,
+) -> bool:
+    """Vermeidet gleichzeitige Fragen zu derselben registrierten Voraussetzung."""
+
+    if core_id is None or condition_id is None:
+        return False
+    mapped_fields = {
+        field_id
+        for field_id, _expected, mapped_condition in PROFILE_CONDITIONS.get(
+            core_id, ()
+        )
+        if mapped_condition == condition_id
+    }
+    return any(
+        BUSINESS_QUESTIONS[question_id]["target_field"] in mapped_fields
+        for question_id in question_ids
+        if question_id in BUSINESS_QUESTIONS
+    )
 
 
 def create_business_intake_node(
@@ -196,6 +221,26 @@ def create_business_intake_node(
                     option_id=answer["option_id"],
                     source_id=answer["source_id"],
                 )
+                if answer["source_id"] != "chat_assistant":
+                    field_id = BUSINESS_QUESTIONS[question_id][
+                        "target_field"
+                    ]
+                    field = profile[field_id]
+                    for mappings in PROFILE_CONDITIONS.values():
+                        for mapped_field, expected, condition_id in mappings:
+                            if mapped_field != field_id:
+                                continue
+                            condition_answer = (
+                                "unknown" if field["status"] == "user_unknown"
+                                else "supported" if field["value"] == expected
+                                else "contradicted"
+                            )
+                            applicability_answers[condition_id] = (
+                                condition_answer
+                            )
+                            submitted_condition_answers[condition_id] = (
+                                condition_answer
+                            )
 
             if question_id not in asked_question_ids:
                 asked_question_ids.append(question_id)
@@ -297,6 +342,7 @@ def create_business_intake_node(
             question["question_id"]
             for question in preparation["questions"]
         ]
+        profile_question_ids = list(question_ids)
         core_selection = preparation["core_selection"]
         candidate_proposal = intake_state.get("candidate_proposal")
         if raw_input_for_analysis.strip() and not additive_clarification:
@@ -375,6 +421,22 @@ def create_business_intake_node(
                 question_id for question_id in question_ids
                 if (
                     question_id in {"product_scope", "primary_goal"}
+                    or (
+                        question_id == "recommendation"
+                        and (
+                            preparation["profile"]["procurement_pattern"][
+                                "status"
+                            ] in {"ambiguous", "conflict"}
+                            or (
+                                preparation["profile"]["recommendation"][
+                                    "status"
+                                ] == "inferred"
+                                and preparation["profile"][
+                                    "procurement_pattern"
+                                ]["status"] == "missing"
+                            )
+                        )
+                    )
                     or preparation["profile"][
                         BUSINESS_QUESTIONS[question_id]["target_field"]
                     ]["status"] in {"conflict", "ambiguous"}
@@ -428,6 +490,63 @@ def create_business_intake_node(
                     condition_answers=applicability_answers,
                     chosen_core_id=chosen_core_id,
                 )
+            if core_selection["status"] == "unsupported":
+                compatible_core_ids = set(compatible_registered_core_ids(
+                    preparation["profile"], applicability_answers,
+                ))
+                possible_core_ids = compatible_core_ids or set(
+                    compatible_registered_core_ids(
+                        preparation["profile"], applicability_answers,
+                        ignore_inferred=True,
+                    )
+                )
+                relevant_fields = {
+                    field_id
+                    for rule in CORE_SELECTION_RULES
+                    if rule["core_id"] in possible_core_ids
+                    for field_id in rule["compatible_profile_values"]
+                } | {"primary_goal"}
+                open_question_ids = [
+                    question_id
+                    for question_id in profile_question_ids
+                    if (
+                        (field_id := BUSINESS_QUESTIONS[question_id][
+                            "target_field"
+                        ]) in relevant_fields
+                        and preparation["profile"][field_id]["status"]
+                        in {"missing", "ambiguous", "conflict"}
+                    )
+                ] if possible_core_ids else []
+                if possible_core_ids:
+                    # An empty LLM shortlist is not evidence that a text
+                    # inference was confirmed. Ask about a relevant inferred
+                    # field even when some registered cores remain feasible.
+                    inferred_questions = [
+                        question_id
+                        for question_id, question in BUSINESS_QUESTIONS.items()
+                        if (
+                            (field_id := question["target_field"])
+                            == question_id
+                            and field_id in relevant_fields
+                            and preparation["profile"][field_id]["status"]
+                            == "inferred"
+                            and question_id not in asked_question_ids
+                        )
+                    ]
+                    if inferred_questions:
+                        open_question_ids.append(inferred_questions[0])
+                if open_question_ids:
+                    question_ids = list(dict.fromkeys([
+                        *question_ids, *open_question_ids,
+                    ]))
+                    core_selection = {
+                        **core_selection,
+                        "status": "needs_clarification",
+                        "reason": (
+                            "Für eine zuverlässige Modellauswahl fehlen "
+                            "noch Angaben zur Bestellsituation."
+                        ),
+                    }
         if (
             core_selection["status"] == "selected"
             and preparation["profile"]["primary_goal"]["status"]
@@ -459,7 +578,7 @@ def create_business_intake_node(
                 != raw_input
             ):
                 if not candidate_active:
-                    applicability_answers = {}
+                    applicability_answers = dict(submitted_condition_answers)
                 text_findings = {}
                 text_evidence = []
                 if raw_input.strip():
@@ -560,6 +679,22 @@ def create_business_intake_node(
             if candidate_active or applicability_plan is not None
             else None
         )
+        if (
+            core_question_plan is not None
+            and _profile_question_covers_core_condition(
+                question_ids,
+                core_question_plan["core_id"],
+                core_question_plan["condition_id"],
+            )
+        ):
+            # The direct form answer is mapped to condition answers when
+            # submitted, so the core question would ask the same thing twice.
+            core_question_plan = None
+        if question_ids:
+            # First resolve open business-profile questions. Otherwise an
+            # LLM-dependent candidate shortlist can add a different
+            # model-specific question to the same initial form on each run.
+            core_question_plan = None
         if core_question_plan is not None:
             question_ids.append(core_question_plan["question_id"])
             if core_question_plan["kind"] == "candidate_condition":
