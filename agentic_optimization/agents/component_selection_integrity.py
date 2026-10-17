@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -61,7 +62,7 @@ def _input_fields(
 ) -> list[dict[str, str]]:
     core = CORE_REGISTRY[proposal["core_id"]]["definition"]
     fields = [
-        {"source": source, "name": field["name"]}
+        {"source": source, "name": field["name"], "label": field["label"]}
         for source, group in (
             ("forecast", core["required_forecast_fields"]),
             ("product_fact", core["required_product_facts"]),
@@ -72,7 +73,7 @@ def _input_fields(
     for item in proposal["objective_components"]:
         definition = OBJECTIVE_COMPONENTS[item["component_id"]]
         fields.extend(
-            {"source": source, "name": field["name"]}
+            {"source": source, "name": field["name"], "label": field["label"]}
             for source, group in (
                 ("product_fact", definition["required_product_facts"]),
                 ("global_fact", definition["required_global_facts"]),
@@ -82,7 +83,7 @@ def _input_fields(
     for item in proposal["constraints"]:
         definition = CONSTRAINT_COMPONENTS[item["component_id"]]
         fields.extend(
-            {"source": source, "name": field["name"]}
+            {"source": source, "name": field["name"], "label": field["label"]}
             for source, group in (
                 ("product_fact", definition["required_product_facts"]),
                 ("global_fact", definition["required_global_facts"]),
@@ -92,6 +93,51 @@ def _input_fields(
         )
     return list({(item["source"], item["name"]): item
                  for item in fields}.values())
+
+
+_MISSING_VALUE_ENDINGS = (
+    " fehlen", " fehlt", " sind nicht angegeben",
+    " ist nicht angegeben", " sind noch nicht angegeben",
+    " ist noch nicht angegeben", " sind noch nicht eingetragen",
+    " ist noch nicht eingetragen",
+)
+_FIELD_CONNECTORS = {"und", "die", "der", "das", "den", "für"}
+
+
+def _only_registered_missing_fields(
+    requirement: dict[str, Any],
+    field_names: list[str],
+    field_labels: dict[str, str],
+) -> bool:
+    """Entfernt nur eindeutig benannte fehlende Eingaben, nie freie Vorgaben."""
+
+    for key in ("description", "reason"):
+        value = requirement.get(key)
+        if not isinstance(value, str):
+            return False
+        text = re.sub(r"[^\w]+", " ", value.casefold()).strip()
+        ending = next(
+            (suffix for suffix in _MISSING_VALUE_ENDINGS
+             if text.endswith(suffix)),
+            None,
+        )
+        if ending is None:
+            return False
+        fields_text = text[:-len(ending)].strip()
+        for name in field_names:
+            label = re.sub(
+                r"[^\w]+", " ", field_labels[name].casefold()
+            ).strip()
+            pattern = rf"\b{re.escape(label)}\b"
+            if not re.search(pattern, fields_text):
+                return False
+            fields_text = re.sub(pattern, " ", fields_text, count=1)
+        if any(
+            word not in _FIELD_CONNECTORS
+            for word in fields_text.split()
+        ):
+            return False
+    return True
 
 
 def _review_candidates(proposal: ComponentSelectionProposal) -> list[dict]:
@@ -117,7 +163,7 @@ def _apply_audit(
     answer: dict[str, Any],
     *,
     allowed_constraint_indices: set[int],
-    allowed_field_names: set[str],
+    field_labels: dict[str, str],
     objective_goal: str | None,
 ) -> ComponentSelectionProposal:
     if set(answer) != {
@@ -151,12 +197,22 @@ def _apply_audit(
             or not isinstance(item["field_names"], list)
             or not item["field_names"]
             or not all(
-                isinstance(name, str) and name in allowed_field_names
+                isinstance(name, str) and name in field_labels
                 for name in item["field_names"]
             )
+            or len(set(item["field_names"])) != len(item["field_names"])
             or item["index"] in input_only
         ):
             raise ValueError("Ungültige Eingabewert-Klassifikation.")
+        if not _only_registered_missing_fields(
+            proposal["unresolved_requirements"][item["index"]],
+            item["field_names"],
+            field_labels,
+        ):
+            raise ValueError(
+                "Die offene Anforderung ist kein eindeutig belegter "
+                "fehlender Eingabewert."
+            )
         input_only.add(item["index"])
 
     updated = build_component_selection_proposal(
@@ -212,7 +268,7 @@ def create_component_selection_integrity_agent(
             "evidence": evidence,
         }
         allowed_indices = {item["index"] for item in candidates}
-        allowed_names = {item["name"] for item in fields}
+        field_labels = {item["name"]: item["label"] for item in fields}
         messages = [
             SystemMessage(content=SYSTEM_PROMPT),
             HumanMessage(content=json.dumps(task, ensure_ascii=False)),
@@ -222,7 +278,7 @@ def create_component_selection_integrity_agent(
             return _apply_audit(
                 proposal, answer,
                 allowed_constraint_indices=allowed_indices,
-                allowed_field_names=allowed_names,
+                field_labels=field_labels,
                 objective_goal=objective_goal,
             )
         except (TypeError, ValueError) as error:

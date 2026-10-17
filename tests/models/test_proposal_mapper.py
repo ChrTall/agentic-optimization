@@ -152,6 +152,33 @@ def test_profit_goal_overrides_wrong_llm_objective_sense() -> None:
     assert specification["objective"]["sense"] == "maximize"
 
 
+def test_rejects_newsvendor_proposal_without_purchase_cost() -> None:
+    proposal = create_proposal()
+    proposal["objective_components"] = [
+        component for component in proposal["objective_components"]
+        if component["component_id"] != "purchase_cost"
+    ]
+
+    assert any(
+        "purchase_cost" in error
+        for error in validate_component_selection_proposal(proposal)
+    )
+    with pytest.raises(ValueError, match="purchase_cost"):
+        build_specification_from_proposal(
+            proposal, create_products(), {},
+        )
+
+
+def test_rejects_unregistered_newsvendor_objective_direction() -> None:
+    proposal = create_proposal()
+    proposal["objective_sense"] = "minimize"
+
+    assert any(
+        "Zielrichtung" in error
+        for error in validate_component_selection_proposal(proposal)
+    )
+
+
 def test_adds_required_core_components_deterministically(
 ) -> None:
     decision = {

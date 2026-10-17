@@ -34,10 +34,10 @@ def _proposal():
             "sources": ["raw_input"],
         }],
         "unresolved_requirements": [{
-            "description": "Nachfragespezifikation fehlt.",
+            "description": "Erwartete Nachfrage und Nachfragequantile fehlen.",
             "resolution": "clarification",
             "candidate_component_ids": ["minimum_cycle_service_level"],
-            "reason": "Erwartungswert und Quantile fehlen.",
+            "reason": "Erwartete Nachfrage und Nachfragequantile fehlen.",
             "sources": ["raw_input"],
         }],
     }
@@ -100,12 +100,13 @@ def test_preserves_explicit_minimum_bound_without_numeric_value():
     assert result["selection_status"] == "complete"
 
 
-@pytest.mark.parametrize("description", [
-    "Erwartete Nachfrage fehlt in der Prognose.",
-    "Nachfragequantile sind noch nicht angegeben.",
+@pytest.mark.parametrize("description, field_name", [
+    ("Erwartete Nachfrage fehlt.", "expected_value"),
+    ("Nachfragequantile sind noch nicht angegeben.", "quantiles"),
 ])
 def test_moves_misclassified_unsupported_forecast_input_to_form(
     description: str,
+    field_name: str,
 ):
     proposal = _proposal()
     proposal["constraints"] = []
@@ -113,7 +114,7 @@ def test_moves_misclassified_unsupported_forecast_input_to_form(
         "description": description,
         "resolution": "unsupported",
         "candidate_component_ids": [],
-        "reason": "Ein Prognosewert fehlt.",
+        "reason": description,
         "sources": ["raw_input"],
     }]
     proposal["selection_status"] = "unsupported"
@@ -122,7 +123,7 @@ def test_moves_misclassified_unsupported_forecast_input_to_form(
         "rejected_constraints": [],
         "input_only_requirements": [{
             "index": 0,
-            "field_names": ["expected_value", "quantiles"],
+            "field_names": [field_name],
         }],
     }))
 
@@ -175,10 +176,10 @@ def test_removes_only_registered_input_and_keeps_business_requirement():
     proposal["constraints"] = []
     proposal["unresolved_requirements"] = [
         {
-            "description": "Prognosewerte sind noch nicht eingetragen.",
+            "description": "Erwartete Nachfrage und Nachfragequantile fehlen.",
             "resolution": "unsupported",
             "candidate_component_ids": [],
-            "reason": "Erwartungswert und Quantile fehlen.",
+            "reason": "Erwartete Nachfrage und Nachfragequantile fehlen.",
             "sources": ["raw_input"],
         },
         {
@@ -231,6 +232,50 @@ def test_unknown_input_field_cannot_remove_requirement():
         "input_only_requirements": [{
             "index": 0,
             "field_names": ["delivery_weekday"],
+        }],
+    }))
+
+    result = create_component_selection_integrity_agent(llm)(
+        proposal=proposal,
+        evidence=[{
+            "source_id": "raw_input",
+            "content": "Lieferung nur dienstags.",
+        }],
+        objective_goal="minimize_cost",
+    )
+
+    assert result == proposal
+
+
+@pytest.mark.parametrize("description, reason", [
+    ("Lieferung nur dienstags.", "Kein passender Baustein vorhanden."),
+    (
+        "Lieferung nur dienstags; erwartete Nachfrage fehlt.",
+        "Lieferung nur dienstags; erwartete Nachfrage fehlt.",
+    ),
+    ("Erwartete Nachfrage fehlt.", "Lieferung nur dienstags."),
+    ("Prognosewerte fehlen.", "Erwartete Nachfrage fehlt."),
+])
+def test_registered_input_name_cannot_remove_business_requirement(
+    description: str,
+    reason: str,
+) -> None:
+    proposal = _proposal()
+    proposal["constraints"] = []
+    proposal["unresolved_requirements"] = [{
+        "description": description,
+        "resolution": "unsupported",
+        "candidate_component_ids": [],
+        "reason": reason,
+        "sources": ["raw_input"],
+    }]
+    proposal["selection_status"] = "unsupported"
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps({
+        "rejected_constraints": [],
+        "input_only_requirements": [{
+            "index": 0,
+            "field_names": ["expected_value"],
         }],
     }))
 

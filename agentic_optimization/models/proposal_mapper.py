@@ -412,11 +412,26 @@ def validate_component_selection_proposal(
             if isinstance(component, dict)
         }
 
-        required_component_ids = CORE_REGISTRY[
-            core_id
-        ]["definition"][
-            "required_objective_component_ids"
-        ]
+        core_definition = CORE_REGISTRY[core_id]["definition"]
+        required_component_ids = list(
+            core_definition["required_objective_component_ids"]
+        )
+        goal_components = core_definition.get(
+            "required_objective_components_by_goal", {}
+        )
+        if goal_components:
+            matching_goals = [
+                goal for goal in goal_components
+                if OBJECTIVE_SENSE_BY_GOAL.get(goal)
+                == proposal.get("objective_sense")
+            ]
+            if not matching_goals:
+                errors.append(
+                    f"Das Grundmodell '{core_id}' unterstützt die "
+                    "angegebene Zielrichtung nicht."
+                )
+            for goal in matching_goals:
+                required_component_ids.extend(goal_components[goal])
 
         for required_component_id in (
             required_component_ids

@@ -835,12 +835,12 @@ def test_missing_newsvendor_forecast_is_input_after_all_audits(
             "description": description,
             "resolution": "unsupported",
             "candidate_component_ids": [],
-            "reason": "Ein Forecast-Wert fehlt.",
+            "reason": description,
             "sources": ["raw_input"],
         }
         for description in (
             "Erwartete Nachfrage ist nicht angegeben.",
-            "Nachfragequantile fehlen noch.",
+            "Nachfragequantile fehlen.",
         )
     ]
     selection = {

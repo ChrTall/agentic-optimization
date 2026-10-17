@@ -206,7 +206,7 @@ def test_registered_missing_input_is_removed_by_integrity_audit() -> None:
         "description": "Die Bestellkosten pro Bestellung sind nicht angegeben.",
         "resolution": "clarification",
         "candidate_component_ids": ["annual_ordering_cost"],
-        "reason": "Der numerische Eingabewert fehlt.",
+        "reason": "Bestellkosten pro Bestellung sind nicht angegeben.",
         "sources": ["raw_input"],
     }])
     integrity_llm = Mock()
