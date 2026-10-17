@@ -132,6 +132,26 @@ def test_profit_goal_adds_required_cost_component_without_value() -> None:
     ] == ["core_definition"]
 
 
+def test_profit_goal_overrides_wrong_llm_objective_sense() -> None:
+    proposal = build_component_selection_proposal(
+        core_id="single_period_newsvendor",
+        objective_goal="maximize_profit",
+        decision={
+            "objective_sense": "minimize",
+            "objective_components": [],
+            "constraints": [],
+            "unresolved_requirements": [],
+        },
+    )
+
+    assert proposal["objective_sense"] == "maximize"
+    assert validate_component_selection_proposal(proposal) == []
+    specification = build_specification_from_proposal(
+        proposal, create_products(), {},
+    )
+    assert specification["objective"]["sense"] == "maximize"
+
+
 def test_adds_required_core_components_deterministically(
 ) -> None:
     decision = {

@@ -24,6 +24,12 @@ from agentic_optimization.models.core_registry import (
 )
 
 
+OBJECTIVE_SENSE_BY_GOAL = {
+    "maximize_profit": "maximize",
+    "minimize_cost": "minimize",
+}
+
+
 def _has_text(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
@@ -76,6 +82,10 @@ def build_component_selection_proposal(
     )
 
     registered_core = CORE_REGISTRY.get(core_id)
+    core_definition = (
+        registered_core["definition"]
+        if registered_core is not None else {}
+    )
 
     if (
         isinstance(objective_components, list)
@@ -87,7 +97,6 @@ def build_component_selection_proposal(
             if isinstance(component, dict)
         }
 
-        core_definition = registered_core["definition"]
         required_component_ids = [
             *core_definition["required_objective_component_ids"],
             *core_definition.get(
@@ -110,21 +119,23 @@ def build_component_selection_proposal(
                 }
             )
 
+    objective_sense = core_definition.get("required_objective_sense")
+    if objective_sense is None:
+        goal_components = core_definition.get(
+            "required_objective_components_by_goal", {}
+        )
+        objective_sense = (
+            OBJECTIVE_SENSE_BY_GOAL.get(objective_goal)
+            if objective_goal in goal_components
+            else decision.get("objective_sense")
+        )
+
     proposal = {
         "core_id": core_id,
         "selection_status": _derive_selection_status(
             unresolved_requirements
         ),
-        "objective_sense": (
-            registered_core["definition"].get(
-                "required_objective_sense"
-            )
-            if registered_core is not None
-            and registered_core["definition"].get(
-                "required_objective_sense"
-            ) is not None
-            else decision.get("objective_sense")
-        ),
+        "objective_sense": objective_sense,
         "objective_components": objective_components,
         "constraints": deepcopy(
             decision.get("constraints")
