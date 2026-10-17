@@ -1,7 +1,6 @@
 """Prüft offene Modellinputs und unbelegte optionale Nebenbedingungen."""
 
 import json
-import logging
 import re
 from collections.abc import Callable
 from typing import Any
@@ -25,8 +24,6 @@ from agentic_optimization.models.specification import (
     ComponentSelectionProposal,
     SelectionEvidence,
 )
-
-LOGGER = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """
 Prüfe einen Bausteinvorschlag auf genau zwei Verwechslungen:
@@ -281,8 +278,11 @@ def create_component_selection_integrity_agent(
                 field_labels=field_labels,
                 objective_goal=objective_goal,
             )
-        except (TypeError, ValueError) as error:
-            LOGGER.warning("Bausteinprüfung ohne Korrektur: %s", error)
-            return proposal
+        except Exception as error:
+            raise ValueError(
+                "Die Bausteinprüfung konnte nicht zuverlässig "
+                "abgeschlossen werden. Bitte versuchen Sie die "
+                "Modellvorbereitung erneut."
+            ) from error
 
     return review

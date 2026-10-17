@@ -404,7 +404,7 @@ def test_two_cost_candidates_need_structural_clarification() -> None:
     assert {item["option_id"] for item in question["options"]} == {
         "yes", "no", "user_unknown"
     }
-    assert "laufend überwacht" in question["prompt"]
+    assert "laufend statt nur zu festen Terminen" in question["prompt"]
     assert "laufend" in (
         question["options"][0]["label"]
     )

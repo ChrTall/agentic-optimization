@@ -36,6 +36,7 @@ class CoreModelCard(TypedDict):
     required_product_facts: list[str]
     required_global_facts: list[str]
     required_objective_components: list[ModelCardComponent]
+    required_objective_components_by_goal: dict[str, list[str]]
     compatible_objective_components: list[ModelCardComponent]
     compatible_constraints: list[ModelCardComponent]
 
@@ -95,6 +96,9 @@ def build_core_model_cards() -> list[CoreModelCard]:
             "required_objective_components": [
                 component for component in objectives
                 if component["component_id"] in required_ids
+            ],
+            "required_objective_components_by_goal": core[
+                "required_objective_components_by_goal"
             ],
             "compatible_objective_components": objectives,
             "compatible_constraints": [

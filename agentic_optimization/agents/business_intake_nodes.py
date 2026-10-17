@@ -19,9 +19,6 @@ from agentic_optimization.agents.core_applicability_agent import (
 from agentic_optimization.agents.core_candidate_agent import (
     create_core_candidate_agent,
 )
-from agentic_optimization.agents.core_followup_agent import (
-    create_core_followup_agent,
-)
 from agentic_optimization.agents.core_applicability_workflow import (
     plan_candidate_applicability,
 )
@@ -139,7 +136,6 @@ def create_business_intake_node(
     profile_agent = create_business_profile_agent(llm)
     applicability_agent = create_core_applicability_agent(llm)
     candidate_agent = create_core_candidate_agent(llm)
-    followup_agent = create_core_followup_agent(llm)
 
     def prepare_business_intake_node(
         state: GraphState,
@@ -356,7 +352,6 @@ def create_business_intake_node(
             "candidate_analyzed_answer_context", ""
         )
         candidate_active = False
-        core_question_prompt = None
         if raw_input_for_analysis.strip():
             try:
                 candidate_proposal = candidate_agent(evidence=[
@@ -697,28 +692,6 @@ def create_business_intake_node(
             core_question_plan = None
         if core_question_plan is not None:
             question_ids.append(core_question_plan["question_id"])
-            if core_question_plan["kind"] == "candidate_condition":
-                if (
-                    core_question_plan["question_id"] in pending_question_ids
-                    and intake_state.get("core_question_plan")
-                    == core_question_plan
-                ):
-                    core_question_prompt = intake_state.get(
-                        "core_question_prompt"
-                    )
-                else:
-                    try:
-                        core_question_prompt = followup_agent(
-                            core_id=core_question_plan["core_id"],
-                            condition_id=core_question_plan["condition_id"],
-                            raw_input=raw_input,
-                        )
-                    except (TypeError, ValueError) as error:
-                        LOGGER.warning(
-                            "Dynamische Rückfrage ungültig; "
-                            "Standardfrage wird verwendet: %s",
-                            error,
-                        )
 
         if core_selection["status"] == "unsupported":
             workflow_status = (
@@ -758,7 +731,6 @@ def create_business_intake_node(
             "candidate_analyzed_answer_context": candidate_answer_context,
             "chosen_core_id": chosen_core_id,
             "core_question_plan": core_question_plan,
-            "core_question_prompt": core_question_prompt,
             "analysis_error": None,
         }
 

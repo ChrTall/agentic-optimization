@@ -166,7 +166,6 @@ def test_preserves_unsupported_business_requirement():
         }],
         objective_goal="minimize_cost",
     )
-
     assert result == proposal
     assert llm.invoke.call_count == 1
 
@@ -235,16 +234,40 @@ def test_unknown_input_field_cannot_remove_requirement():
         }],
     }))
 
-    result = create_component_selection_integrity_agent(llm)(
-        proposal=proposal,
-        evidence=[{
-            "source_id": "raw_input",
-            "content": "Lieferung nur dienstags.",
-        }],
-        objective_goal="minimize_cost",
-    )
+    with pytest.raises(ValueError, match="nicht zuverlässig"):
+        create_component_selection_integrity_agent(llm)(
+            proposal=proposal,
+            evidence=[{
+                "source_id": "raw_input",
+                "content": "Lieferung nur dienstags.",
+            }],
+            objective_goal="minimize_cost",
+        )
 
-    assert result == proposal
+
+@pytest.mark.parametrize("failure", [
+    AIMessage(content='{"rejected_constraints": []}'),
+    RuntimeError("provider unavailable"),
+])
+def test_unverified_explicit_constraint_blocks_preparation(failure) -> None:
+    proposal = _proposal()
+    proposal["unresolved_requirements"] = []
+    proposal["selection_status"] = "complete"
+    llm = Mock()
+    if isinstance(failure, Exception):
+        llm.invoke.side_effect = failure
+    else:
+        llm.invoke.return_value = failure
+
+    with pytest.raises(ValueError, match="nicht zuverlässig"):
+        create_component_selection_integrity_agent(llm)(
+            proposal=proposal,
+            evidence=[{
+                "source_id": "raw_input",
+                "content": "Meldebestand bestimmen.",
+            }],
+            objective_goal="minimize_cost",
+        )
 
 
 @pytest.mark.parametrize("description, reason", [
@@ -279,13 +302,12 @@ def test_registered_input_name_cannot_remove_business_requirement(
         }],
     }))
 
-    result = create_component_selection_integrity_agent(llm)(
-        proposal=proposal,
-        evidence=[{
-            "source_id": "raw_input",
-            "content": "Lieferung nur dienstags.",
-        }],
-        objective_goal="minimize_cost",
-    )
-
-    assert result == proposal
+    with pytest.raises(ValueError, match="nicht zuverlässig"):
+        create_component_selection_integrity_agent(llm)(
+            proposal=proposal,
+            evidence=[{
+                "source_id": "raw_input",
+                "content": "Lieferung nur dienstags.",
+            }],
+            objective_goal="minimize_cost",
+        )

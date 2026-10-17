@@ -92,11 +92,6 @@ def build_business_intake_view_data(
                     plan["core_id"], condition_id
                 )
                 if plan["kind"] == "candidate_condition":
-                    proposed_prompt = intake_state.get(
-                        "core_question_prompt"
-                    )
-                    if proposed_prompt:
-                        question["prompt"] = proposed_prompt
                     question["options"] = [
                         {
                             "option_id": "yes",

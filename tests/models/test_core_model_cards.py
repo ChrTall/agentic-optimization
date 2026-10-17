@@ -41,6 +41,17 @@ def test_eoq_card_exposes_conditions_and_required_objective() -> None:
     ]} == {"annual_ordering_cost", "annual_holding_cost"}
 
 
+def test_newsvendor_card_exposes_profit_goal_components() -> None:
+    card = next(
+        card for card in build_core_model_cards()
+        if card["core_id"] == "single_period_newsvendor"
+    )
+
+    assert card["required_objective_components_by_goal"] == {
+        "maximize_profit": ["sales_revenue", "purchase_cost"],
+    }
+
+
 def test_new_compatible_component_appears_without_editing_cards(
     monkeypatch,
 ) -> None:

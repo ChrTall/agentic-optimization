@@ -202,7 +202,6 @@ class BusinessIntakeState(TypedDict, total=False):
     candidate_analyzed_answer_context: str
     chosen_core_id: str | None
     core_question_plan: CoreQuestionPlan | None
-    core_question_prompt: str | None
 
 
 class ModularInputSubmission(TypedDict):

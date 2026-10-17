@@ -139,21 +139,26 @@ def test_core_choice_describes_situation_without_model_names() -> None:
     assert "vor Beginn des Verkaufszeitraums" in visible
 
 
-def test_candidate_question_uses_llm_wording_and_explanatory_options() -> None:
+def test_candidate_question_ignores_stale_inverted_llm_wording() -> None:
     question = build_business_intake_view_data({
         "profile": create_empty_business_problem_profile(),
-        "pending_question_ids": ["core_condition:single_decision_period"],
+        "pending_question_ids": [
+            "core_condition:no_replenishment_within_period"
+        ],
         "core_question_plan": {
-            "question_id": "core_condition:single_decision_period",
+            "question_id": "core_condition:no_replenishment_within_period",
             "kind": "candidate_condition",
             "core_id": "single_period_newsvendor",
-            "condition_id": "single_decision_period",
+            "condition_id": "no_replenishment_within_period",
             "reason": None,
         },
-        "core_question_prompt": "Wird nur einmal vor Beginn bestellt?",
+        "core_question_prompt": "Kann währenddessen nachbestellt werden?",
     })["questions"][0]
 
-    assert question["prompt"] == "Wird nur einmal vor Beginn bestellt?"
+    assert question["prompt"] == (
+        "Sind Nachbestellungen während des Verkaufszeitraums "
+        "ausgeschlossen?"
+    )
     assert question["options"][0]["label"].startswith("Ja — ")
 
 
