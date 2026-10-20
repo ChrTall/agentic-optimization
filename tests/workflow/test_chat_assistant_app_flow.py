@@ -272,3 +272,27 @@ def test_complete_workflow_through_chat() -> None:
     ]
     assert result["status"] == "optimal"
     assert round(result["decisions"][0]["value"]) == 265
+
+    # A new optimization must not reuse answers or uploads from the old one.
+    app.session_state["business_question_recommendation"] = "order_quantity"
+    app.session_state["business_clarification_primary_goal"] = "minimize_cost"
+    app.session_state["business_intake_documents"] = "previous upload"
+    previous_editor_version = app.session_state[
+        "chat_product_rows_version"
+    ]
+    next(
+        button for button in app.button
+        if button.label == "Neue Optimierung starten"
+    ).click().run()
+
+    assert not app.exception
+    assert app.session_state["step"] == "business_intake"
+    assert app.session_state["raw_problem_description"] == ""
+    assert "raw_input" not in app.session_state["graph_state"]
+    assert app.session_state["business_question_recommendation"] is None
+    assert "business_clarification_primary_goal" not in app.session_state
+    assert app.session_state["business_intake_documents"] in (None, [])
+    assert app.session_state["chat_product_rows_version"] == (
+        previous_editor_version + 1
+    )
+    assert "llm" in app.session_state

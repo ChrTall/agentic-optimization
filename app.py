@@ -216,12 +216,15 @@ def reset_workflow() -> None:
         "graph_state",
         "raw_problem_description",
         "review_sections",
+        "business_intake_documents",
     ]
     keys_to_clear.extend(
         key
         for key in list(st.session_state)
         if key.startswith("modular_")
         or key.startswith(CORE_ASSUMPTION_CONFIRMATION_PREFIX)
+        or key.startswith("business_question_")
+        or key.startswith("business_clarification_")
     )
 
     for key in keys_to_clear:
