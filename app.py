@@ -1,3 +1,5 @@
+import logging
+
 import streamlit as st
 
 from agentic_optimization.agents.business_intake import (
@@ -7,6 +9,11 @@ from agentic_optimization.configuration.llm_config import (
     load_llm_configuration,
 )
 from agentic_optimization.graph import build_graph
+from agentic_optimization.llm.errors import (
+    LLM_SERVICE_ERRORS,
+    describe_llm_error,
+    is_llm_service_error,
+)
 from agentic_optimization.llm.factory import create_chat_model
 from agentic_optimization.models.core_applicability import (
     CORE_ASSUMPTION_CONFIRMATION_PREFIX,
@@ -61,6 +68,8 @@ from agentic_optimization.ui.modular_review_page import (
     render_modular_selection_issues,
 )
 
+LOGGER = logging.getLogger(__name__)
+
 STEP_LABELS = [
     "① Situation",
     "② Rückfragen",
@@ -78,6 +87,21 @@ STEP_INDEX = {
     "review": 3,
     "result": 4,
 }
+
+
+# Fehler, die eine Workflow-Aktion abbrechen und dem Nutzer als Meldung
+# statt als Traceback angezeigt werden.
+WORKFLOW_ERRORS = (ValueError, *LLM_SERVICE_ERRORS)
+
+
+def show_workflow_error(error: BaseException) -> None:
+    """Zeigt einen Workflow- oder Anbieterfehler verständlich an."""
+
+    if is_llm_service_error(error):
+        LOGGER.exception("Aufruf des Sprachmodells fehlgeschlagen.")
+        st.error(describe_llm_error(error))
+    else:
+        st.error(str(error))
 
 
 def get_or_create_llm():
@@ -468,8 +492,8 @@ if st.session_state.step == "business_intake":
                 submission["raw_input"],
                 submission["answers"],
             )
-        except ValueError as error:
-            st.error(str(error))
+        except WORKFLOW_ERRORS as error:
+            show_workflow_error(error)
             st.stop()
 
         st.rerun()
@@ -491,15 +515,15 @@ elif st.session_state.step == "business_clarification":
                 st.session_state.raw_problem_description,
                 answers,
             )
-        except ValueError as error:
-            st.error(str(error))
+        except WORKFLOW_ERRORS as error:
+            show_workflow_error(error)
             st.stop()
 
         st.rerun()
 
     if st.button(
         "Beschreibung bearbeiten",
-        use_container_width=True,
+        width="stretch",
     ):
         st.session_state.step = "business_intake"
         st.rerun()
@@ -528,8 +552,8 @@ elif st.session_state.step == "product_table":
 
     try:
         submit_products(products)
-    except ValueError as error:
-        st.error(str(error))
+    except WORKFLOW_ERRORS as error:
+        show_workflow_error(error)
         st.stop()
 
     st.rerun()
@@ -560,13 +584,13 @@ elif st.session_state.step == "model_unsupported":
         if render_modular_exclusion_confirmation(proposal):
             try:
                 confirm_exclusions()
-            except ValueError as error:
-                st.error(str(error))
+            except WORKFLOW_ERRORS as error:
+                show_workflow_error(error)
                 st.stop()
 
             st.rerun()
 
-    if st.button("Situation bearbeiten", use_container_width=True):
+    if st.button("Situation bearbeiten", width="stretch"):
         st.session_state.step = "business_intake"
         st.rerun()
 
@@ -597,8 +621,8 @@ elif st.session_state.step == "model_input_form":
 
     try:
         submit_model_inputs(submissions)
-    except ValueError as error:
-        st.error(str(error))
+    except WORKFLOW_ERRORS as error:
+        show_workflow_error(error)
         st.stop()
 
     st.rerun()
@@ -645,8 +669,8 @@ elif st.session_state.step == "review":
                     },
                 }
             )
-        except ValueError as error:
-            st.error(str(error))
+        except WORKFLOW_ERRORS as error:
+            show_workflow_error(error)
             st.stop()
 
         st.session_state.graph_state = graph_state
@@ -675,8 +699,8 @@ elif st.session_state.step == "review":
     if start_optimization_clicked:
         try:
             start_optimization()
-        except ValueError as error:
-            st.error(str(error))
+        except WORKFLOW_ERRORS as error:
+            show_workflow_error(error)
             st.stop()
 
         st.rerun()
@@ -709,8 +733,8 @@ elif st.session_state.step == "result":
     if explanation_requested:
         try:
             request_result_explanation()
-        except ValueError as error:
-            st.error(str(error))
+        except WORKFLOW_ERRORS as error:
+            show_workflow_error(error)
             st.stop()
 
         st.rerun()
@@ -719,7 +743,7 @@ elif st.session_state.step == "result":
 
     if st.button(
         "Neue Optimierung starten",
-        use_container_width=True,
+        width="stretch",
     ):
         reset_workflow()
         st.rerun()

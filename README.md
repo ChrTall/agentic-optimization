@@ -110,6 +110,15 @@ The following variables are required:
 * `LLM_MODEL`: The model name for the selected provider.
 * `LLM_API_KEY`: The API key for the selected provider.
 
+Optional variables:
+
+* `LLM_TIMEOUT_SECONDS`: Request timeout in seconds (default: `60`).
+* `LLM_MAX_RETRIES`: Automatic retries on rate limits and transient errors (default: `2`).
+* `LLM_TEMPERATURE`: Sampling temperature, e.g. `0` for more reproducible model selection. Leave it unset for
+  reasoning models that do not accept a temperature.
+
+If the provider rejects a request (invalid key, rate limit, timeout), the app shows a message instead of a traceback.
+
 Example configurations:
 
 ```env

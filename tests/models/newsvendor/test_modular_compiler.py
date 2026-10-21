@@ -90,10 +90,11 @@ def test_compiles_and_solves_single_product_model() -> None:
         "product_1",
     ).value()
 
-    assert order_quantity == pytest.approx(100.0)
+    # Kritisches Verhältnis (12 - 5) / 12 ≈ 0,583 → interpoliertes Quantil.
+    assert order_quantity == pytest.approx(108.5)
     assert pulp.value(
         context.model.objective
-    ) == pytest.approx(592.0)
+    ) == pytest.approx(591.68)
 
 
 def test_applies_minimum_order_quantity_builder() -> None:
@@ -172,8 +173,8 @@ def test_compiles_same_model_for_multiple_products() -> None:
         "product_2",
     ).value()
 
-    assert first_order_quantity == pytest.approx(100.0)
-    assert second_order_quantity == pytest.approx(100.0)
+    assert first_order_quantity == pytest.approx(108.5)
+    assert second_order_quantity == pytest.approx(108.5)
 
 
 def test_additional_component_changes_objective() -> None:
@@ -198,7 +199,8 @@ def test_additional_component_changes_objective() -> None:
         "product_1",
     ).value()
 
-    assert order_quantity == pytest.approx(140.0)
+    # Kritisches Verhältnis (12 - 5) / (12 - 4) = 0,875.
+    assert order_quantity == pytest.approx(137.5)
 
 
 def test_global_budget_couples_multiple_products() -> None:
@@ -288,7 +290,8 @@ def test_shortage_cost_changes_order_quantity() -> None:
         "product_1",
     ).value()
 
-    assert order_quantity == pytest.approx(140.0)
+    # Kritisches Verhältnis (12 + 5 - 5) / (12 + 5) ≈ 0,706.
+    assert order_quantity == pytest.approx(120.5)
 
 
 def test_global_storage_capacity_couples_products() -> None:
@@ -348,32 +351,42 @@ def test_executes_model_with_common_result_contract() -> None:
 
     assert result["status"] == "optimal"
     assert result["solution_method"] == "linear_programming"
-    assert result["objective_value"] == pytest.approx(592.0)
+    assert result["objective_value"] == pytest.approx(591.68)
     assert result["decisions"] == [
         {
             "quantity_id": "order_quantity",
             "product_id": "product_1",
-            "value": pytest.approx(100.0),
+            "value": pytest.approx(108.5),
         }
     ]
     assert result["metrics"] == [
         {
+            "metric_id": "forecast_expected_demand",
+            "product_id": "product_1",
+            "value": pytest.approx(100.0),
+        },
+        {
+            "metric_id": "model_expected_demand",
+            "product_id": "product_1",
+            "value": pytest.approx(103.125),
+        },
+        {
             "metric_id": "sold_quantity",
             "product_id": "product_1",
             "aggregation": "expected_value",
-            "value": pytest.approx(91.0),
+            "value": pytest.approx(94.515),
         },
         {
             "metric_id": "leftover_quantity",
             "product_id": "product_1",
             "aggregation": "expected_value",
-            "value": pytest.approx(9.0),
+            "value": pytest.approx(13.985),
         },
         {
             "metric_id": "shortage_quantity",
             "product_id": "product_1",
             "aggregation": "expected_value",
-            "value": pytest.approx(12.0),
+            "value": pytest.approx(8.61),
         },
     ]
     assert result["errors"] == []
@@ -431,10 +444,11 @@ def test_disposal_cost_changes_optimal_order_quantity() -> None:
         "product_1",
     ).value()
 
-    assert order_quantity == pytest.approx(70.0)
+    # Kritisches Verhältnis (12 - 5) / (12 - 5 + 5 + 20) ≈ 0,219.
+    assert order_quantity == pytest.approx(78.625)
     assert pulp.value(
         context.model.objective
-    ) == pytest.approx(490.0)
+    ) == pytest.approx(494.935)
 
 
 def test_applies_order_multiple_builder() -> None:

@@ -21,6 +21,10 @@ from agentic_optimization.agents.chat_assistant_agent import (
     ChatMessage,
     create_chat_assistant_agent,
 )
+from agentic_optimization.llm.errors import (
+    describe_llm_error,
+    is_llm_service_error,
+)
 from agentic_optimization.models.specification import (
     ProductSpecification,
 )
@@ -304,13 +308,17 @@ def _process_user_message(
             history=_messages()[:-1],
             user_message=user_message,
         )
-    except Exception:  # noqa: BLE001 – Provider-Fehler sind vielfältig
+    except Exception as error:  # noqa: BLE001 – Provider-Fehler sind vielfältig
         LOGGER.exception("Chat-Assistent ist fehlgeschlagen.")
         _add_message(
             "assistant",
-            "Entschuldigung, da ist gerade etwas schiefgelaufen. "
-            "Bitte versuchen Sie es noch einmal oder nutzen Sie "
-            "das Formular.",
+            describe_llm_error(error)
+            if is_llm_service_error(error)
+            else (
+                "Entschuldigung, da ist gerade etwas schiefgelaufen. "
+                "Bitte versuchen Sie es noch einmal oder nutzen Sie "
+                "das Formular."
+            ),
         )
         return
 
@@ -358,8 +366,12 @@ def _process_user_message(
         LOGGER.exception("Chat-Aktion ist fehlgeschlagen.")
         _add_message(
             "assistant",
-            "Beim Übernehmen ist leider ein Fehler aufgetreten: "
-            f"{error}",
+            describe_llm_error(error)
+            if is_llm_service_error(error)
+            else (
+                "Beim Übernehmen ist leider ein Fehler aufgetreten: "
+                f"{error}"
+            ),
         )
 
 

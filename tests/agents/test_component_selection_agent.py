@@ -1052,6 +1052,7 @@ def test_builds_q_r_selection_request() -> None:
         "order_multiple",
         "minimum_reorder_point",
         "maximum_reorder_point",
+        "maximum_inventory_position",
         "minimum_cycle_service_level",
     }
     assert result == response

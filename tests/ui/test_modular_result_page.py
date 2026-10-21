@@ -151,7 +151,7 @@ def test_renders_multi_product_results_as_tables(
                 "Bestellmenge": "250,00",
             },
         ],
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
     streamlit.dataframe.assert_any_call(
@@ -169,7 +169,7 @@ def test_renders_multi_product_results_as_tables(
                 ),
             },
         ],
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
@@ -298,6 +298,6 @@ def test_requests_result_explanation_on_button_click(
     assert requested is True
     streamlit.button.assert_called_once_with(
         "Optimierungsergebnis erklären",
-        use_container_width=True,
+        width="stretch",
         key="explain_modular_optimization_result",
     )

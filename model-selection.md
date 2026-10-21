@@ -48,10 +48,12 @@ Modell keinen Einkaufspreis pro Einheit verwendet. Die Kapazitätsgrenze
 nicht der erwartete physische Höchstbestand.
 
 Bestellmenge, Meldebestand und ausgegebener Sicherheitsbestand werden als
-ganze Produkteinheiten empfohlen. Dabei wird \(Q\) auf die nächste Einheit
-gerundet; \(R\) und der Sicherheitsbestand werden vorsichtshalber
-aufgerundet. Statistische Eingaben und erwartete Kosten dürfen weiterhin
-Dezimalwerte enthalten.
+ganze Produkteinheiten empfohlen. Der Solver durchsucht dazu alle zulässigen
+ganzzahligen Bestellmengen \(Q\) und prüft für jede die benachbarten
+ganzzahligen Meldebestände \(R\) um das stetige Optimum. Empfohlen wird die
+Kombination mit den geringsten erwarteten Kosten; es wird also nicht pauschal
+auf- oder abgerundet. Statistische Eingaben und erwartete Kosten dürfen
+weiterhin Dezimalwerte enthalten.
 
 ## Nicht unterstützte Nebenbedingungen
 
@@ -123,9 +125,19 @@ Bei Rückfragen bestätigen, dass **einmal vor der Saison bestellt** wird und
 
 Vor der Berechnung prüfen, ob neben Verkaufserlös und Einkaufskosten auch der
 **Restwerterlös** sowie die **Höchstbestellmenge von 250** berücksichtigt werden.
-Die drei Quantile vereinfachen die ursprüngliche Nachfrageverteilung. Deshalb
-ist der erwartete Gewinn nicht direkt mit einem Ergebnis aus der vollständigen
-Verteilung vergleichbar.
+Aus den drei Quantilen bildet die Anwendung eine stückweise lineare
+Nachfrageverteilung mit 100 gleich wahrscheinlichen Szenarien (Mittelwert etwa
+268,75). Ohne Höchstbestellmenge läge die optimale Bestellmenge bei etwa 323
+Bäumen (kritisches Verhältnis \((25 - 10) / (25 - 3) \approx 0{,}68\)); mit
+der Grenze von 250 ist sie bindend:
+
+- **Empfohlene Bestellmenge:** 250 Bäume
+- **Erwarteter Gewinn:** 3.195,46 €
+
+Die angegebene erwartete Nachfrage (276) wird mit dem Mittelwert der
+Quantilsverteilung abgeglichen und im Ergebnis neben ihm angezeigt. Weichen
+beide um mehr als 25 % voneinander ab, weist die Validierung auf
+widersprüchliche Angaben hin.
 
 ## Alternativdemo: EOQ für E-Bikes bei Bike-World
 
@@ -176,29 +188,81 @@ Bei Rückfragen die **regelmäßige Nachbestellung** und die **laufende
 Bestandsprüfung** bestätigen. Die konstante Lieferzeit auf der Prüfseite
 ausdrücklich bestätigen.
 
-### Werte für das Formular
+### Formular 2: Problembeschreibung
+
+Folgenden Text vollständig in das Freitextfeld kopieren:
+
+> Ein Campusladen überwacht den Bestand eines T-Shirt-Modells laufend und
+> möchte seine jährlichen Bestell-, Lagerhaltungs- und Fehlmengenkosten
+> minimieren. Sobald die Bestandsposition den Meldebestand erreicht, wird eine
+> feste Menge nachbestellt. Die Lieferzeit beträgt drei Tage. Für diese drei
+> Tage erwarten wir eine Nachfrage von 60 T-Shirts; die Nachfrageprognose
+> bezieht sich also auf einen Zeitraum von drei Tagen. Für denselben Zeitraum
+> liegen folgende Nachfragequantile vor: 0,1 mit 51,12; 0,5 mit 60; 0,9 mit
+> 68,88 T-Shirts. Jede Bestellung kostet 250 Euro, die
+> Lagerhaltung 50 Euro je T-Shirt und Jahr und eine Fehlmenge 10 Euro je
+> T-Shirt. Der Lieferant akzeptiert Bestellmengen von mindestens 250 und
+> höchstens 300 T-Shirts. Der Meldebestand soll zwischen 60 und 80 T-Shirts
+> liegen. Im Lager darf die konservativ gerechnete Bestandsposition aus
+> Bestellmenge und Meldebestand zusammen höchstens 400 T-Shirts betragen.
+
+Zusammen mit den oben beschriebenen Q–R-Auswahlen in Formular 1 sollte die
+Anwendung die **Q–R Policy** erkennen und zu **Angaben zur Berechnung**
+wechseln. Die Pflichtfelder sollten aus dem Text mit den folgenden
+Werten vorbefüllt werden. Auch die fünf Rahmenbedingungen sollten
+vorausgewählt und mit ihren Zahlenwerten befüllt sein. Vor der Berechnung
+müssen alle erkannten Angaben noch geprüft und bestätigt werden.
+
+### Angaben zur Berechnung
+
+Die Quelle gibt eine tägliche Nachfrage mit Mittelwert 20 und
+Standardabweichung 4 sowie eine Lieferzeit von drei Tagen an. Bei unabhängigen
+Tagesnachfragen folgt daraus
+\(\mu_L = 3 \cdot 20 = 60\) und
+\(\sigma_L = \sqrt{3} \cdot 4 \approx 6{,}928\). Für die WebUI werden die
+Dollarbeträge der Quelle ohne Wechselkursumrechnung als einheitliche
+Euro-Demowerte behandelt.
+
+Die Anwendung erwartet die Nachfrage als Prognose (Erwartungswert, Quantile,
+Prognosezeitraum). Die Quantile beziehen sich auf denselben Zeitraum wie der
+Erwartungswert, hier also auf die drei Tage der Lieferzeit. Daraus leitet die
+Anwendung den Jahresbedarf \(D = 60 \cdot 365 / 3 = 7300\) und
+\(\sigma_L \approx 6{,}929\) selbst ab.
 
 | Feld | Eingabe |
 | --- | ---: |
-| Erwartete Nachfrage | 60 T-Shirts |
+| Erwartete Nachfrage | 60 |
 | Nachfragequantile | `0.1: 51.12; 0.5: 60; 0.9: 68.88` |
 | Prognosezeitraum | 3 Tage |
 | Lieferzeit | 3 Tage |
-| Bestellkosten pro Bestellung | 250 € |
-| Lagerhaltungskosten pro T-Shirt und Jahr | 50 € |
-| Fehlmengenkosten pro fehlender Einheit | 10 € |
+| Fixe Bestellkosten | 250 |
+| Jährliche Lagerhaltungskosten | 50 |
+| Fehlmengenkosten | 10 |
+| Betriebliche Rahmenbedingungen berücksichtigen? | Ja |
+| Mindestbestellmenge Q | 250 |
+| Höchstbestellmenge Q | 300 |
+| Mindestmeldebestand R | 60 |
+| Höchstmeldebestand R | 80 |
+| Maximale Bestandsposition Q + R | 400 |
 
 Erwartet wird das Grundmodell **Kontinuierliche Bestandsüberprüfung (Q,R)**,
 das sowohl eine Bestellmenge als auch einen Meldebestand empfiehlt.
 
 ### Erwartetes Ergebnis
 
-| Ergebnisgröße | Wert |
-| --- | ---: |
-| Jahresbedarf (aus 60 Stück in 3 Tagen hochgerechnet) | 7.300 |
-| Erwartete Nachfrage während der Lieferzeit | 60 |
-| Standardabweichung der Lieferzeitnachfrage | ca. 6,93 |
-| Empfohlene Bestellmenge Q | 274 |
-| Meldebestand R | 66 |
-| Sicherheitsbestand | 6 |
-| Jährliche relevante Gesamtkosten | 14.007,86 € |
+Die Cornell-Musterrechnung liefert vor der Ganzzahlrundung ungefähr
+\(Q = 274{,}012\) und \(R = 66{,}142\) T-Shirts. Mit allen fünf
+nichtbindenden Demo-Nebenbedingungen liefert die WebUI:
+
+- **Empfohlene Bestellmenge Q:** 274 Einheiten
+- **Meldebestand R:** 66 Einheiten
+- **Sicherheitsbestand:** 6 Einheiten
+- **Erwartete jährliche Kosten:** 14.007,86 €
+- **Solverstatus:** Optimal
+
+Der Solver verwendet wie die Cornell-Musterrechnung
+\(F(R) = 1 - hQ/(pD)\). Dieselbe Näherung wird auch im
+[LINDO-Kapitel zum Q–R-Modell](https://www.lindo.com/downloads/LINGO_text/Chapter17.pdf)
+angegeben. Weil die ganzzahlige Suche die Kosten von \(R = 66\) und
+\(R = 67\) direkt vergleicht, liegt das Ergebnis etwas unter dem einer
+pauschalen Aufrundung (\(R = 67\): 14.011,42 €).

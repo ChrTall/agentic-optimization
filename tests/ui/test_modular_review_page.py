@@ -324,7 +324,7 @@ def test_requires_confirmation_before_excluding_requirements(
     assert result is False
     streamlit.button.assert_called_once_with(
         "Ohne diese Anforderungen fortfahren",
-        use_container_width=True,
+        width="stretch",
         disabled=True,
         key=(
             "continue_without_unsupported_requirements"

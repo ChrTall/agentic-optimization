@@ -228,12 +228,12 @@ def test_newsvendor_pipeline_with_disposal_cost() -> None:
 
     assert result["status"] == "optimal"
     assert result["solution_method"] == "linear_programming"
-    assert result["objective_value"] == pytest.approx(490.0)
+    assert result["objective_value"] == pytest.approx(494.935)
     assert result["decisions"] == [
         {
             "quantity_id": "order_quantity",
             "product_id": "product_1",
-            "value": pytest.approx(70.0),
+            "value": pytest.approx(78.625),
         }
     ]
     assert result["errors"] == []

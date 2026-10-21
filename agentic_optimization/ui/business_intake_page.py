@@ -145,7 +145,7 @@ def render_business_intake_page(
         submitted = st.form_submit_button(
             "Angaben auswerten",
             type="primary",
-            use_container_width=True,
+            width="stretch",
         )
 
     if not submitted:

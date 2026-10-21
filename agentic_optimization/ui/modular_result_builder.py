@@ -54,6 +54,10 @@ METRIC_LABELS = {
         "Erwartete Fehlmenge pro Bestellzyklus"
     ),
     "annual_shortage_quantity": "Jährliche Fehlmenge",
+    "forecast_expected_demand": "Angegebene erwartete Nachfrage",
+    "model_expected_demand": (
+        "Im Modell verwendete erwartete Nachfrage (aus den Quantilen)"
+    ),
 }
 
 

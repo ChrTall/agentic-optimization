@@ -258,6 +258,6 @@ def test_submits_constraint_value_with_one_button_click(
     streamlit.button.assert_called_once_with(
         "Angaben prüfen",
         type="primary",
-        use_container_width=True,
+        width="stretch",
         key="submit_modular_model_inputs",
     )

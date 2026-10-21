@@ -1005,4 +1005,40 @@ CONSTRAINT_COMPONENTS: dict[
             }
         ],
     },
+    "maximum_inventory_position": {
+        "component_id": "maximum_inventory_position",
+        "name": "Maximale Bestandsposition (Lagerkapazität)",
+        "scope": "per_product",
+        "compatible_core_ids": [
+            "continuous_review_q_r",
+        ],
+        "required_model_quantities": [
+            "order_quantity",
+            "reorder_point",
+        ],
+        "required_product_facts": [],
+        "required_global_facts": [],
+        "requires_explicit_request": True,
+        "selection_guidance": (
+            "Auswählen, wenn eine Lager- oder Bestandsobergrenze für das "
+            "Produkt genannt wird. Sie wird konservativ als "
+            "Bestellmenge Q plus Meldebestand R höchstens gleich der "
+            "Kapazität abgebildet."
+        ),
+        "parameters": [
+            {
+                "name": "capacity",
+                "label": "Maximale Bestandsposition Q + R",
+                "type": "number",
+                "required": True,
+                "help": (
+                    "Obergrenze für Bestellmenge plus Meldebestand. "
+                    "Konservative Abbildung der Lagerkapazität."
+                ),
+                "min_value": 1.0,
+                "step": 1.0,
+                "unit": "Einheiten",
+            }
+        ],
+    },
 }

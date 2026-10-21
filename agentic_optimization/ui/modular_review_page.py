@@ -293,7 +293,7 @@ def render_modular_exclusion_confirmation(
 
     continue_without_requirements = st.button(
         "Ohne diese Anforderungen fortfahren",
-        use_container_width=True,
+        width="stretch",
         disabled=not confirmed,
         key="continue_without_unsupported_requirements",
     )
@@ -398,7 +398,7 @@ def render_modular_review_page(
                     products,
                     field_labels,
                 ),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
@@ -488,7 +488,7 @@ def render_modular_review_page(
                         review["constraints"],
                         constraint_parameter_labels,
                     ),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                 )
             else:
@@ -610,7 +610,7 @@ def render_modular_review_page(
     return st.button(
         "Optimierung starten",
         type="primary",
-        use_container_width=True,
+        width="stretch",
         disabled=not (confirmed and assumptions_confirmed),
         key="start_modular_optimization",
     )

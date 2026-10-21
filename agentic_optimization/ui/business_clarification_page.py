@@ -84,7 +84,7 @@ def render_business_clarification_page(
         submitted = st.form_submit_button(
             "Weiter",
             type="primary",
-            use_container_width=True,
+            width="stretch",
         )
 
     if not submitted:

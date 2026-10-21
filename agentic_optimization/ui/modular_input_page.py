@@ -173,7 +173,7 @@ def _render_product_input_table(
         ],
         disabled=["product_id"],
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
         num_rows="fixed",
         height=min(
             38 * len(table_rows) + 40,
@@ -385,7 +385,7 @@ def render_modular_input_page(
         submitted = st.button(
             "Angaben prüfen",
             type="primary",
-            use_container_width=True,
+            width="stretch",
             key="submit_modular_model_inputs",
         )
 

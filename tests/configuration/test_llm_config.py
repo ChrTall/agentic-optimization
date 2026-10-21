@@ -96,3 +96,42 @@ def test_load_llm_configuration_raises_for_empty_api_key(monkeypatch):
 
     with pytest.raises(ValueError, match="LLM_API_KEY"):
         load_llm_configuration(load_env_file=False)
+
+
+def test_load_llm_configuration_uses_request_defaults(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4.1-mini")
+    monkeypatch.setenv("LLM_API_KEY", "test-api-key")
+    for name in ("LLM_TIMEOUT_SECONDS", "LLM_MAX_RETRIES", "LLM_TEMPERATURE"):
+        monkeypatch.delenv(name, raising=False)
+
+    config = load_llm_configuration(load_env_file=False)
+
+    assert config.timeout_seconds == 60.0
+    assert config.max_retries == 2
+    assert config.temperature is None
+
+
+def test_load_llm_configuration_reads_request_options(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4.1-mini")
+    monkeypatch.setenv("LLM_API_KEY", "test-api-key")
+    monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "30")
+    monkeypatch.setenv("LLM_MAX_RETRIES", "4")
+    monkeypatch.setenv("LLM_TEMPERATURE", "0")
+
+    config = load_llm_configuration(load_env_file=False)
+
+    assert config.timeout_seconds == 30.0
+    assert config.max_retries == 4
+    assert config.temperature == 0.0
+
+
+def test_load_llm_configuration_rejects_invalid_timeout(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4.1-mini")
+    monkeypatch.setenv("LLM_API_KEY", "test-api-key")
+    monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "abc")
+
+    with pytest.raises(ValueError, match="LLM_TIMEOUT_SECONDS"):
+        load_llm_configuration(load_env_file=False)

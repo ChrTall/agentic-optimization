@@ -138,15 +138,44 @@ CORE_DEFINITION: ModelCoreDefinition = {
 }
 
 
+MAX_EXPECTED_DEMAND_DEVIATION = 0.25
+"""Zulässige relative Abweichung zwischen Erwartungswert und Quantilen."""
+
+
 def validate_single_period_newsvendor_forecast(
     forecast: DemandForecast,
 ) -> list[str]:
-    """Prüft den Forecast für ein Newsvendor-Modell."""
+    """Prüft den Forecast für ein Newsvendor-Modell.
+
+    Optimiert wird mit der aus den Quantilen gebildeten Verteilung. Der
+    angegebene Erwartungswert dient als Plausibilitätsprüfung: Weicht der
+    Mittelwert der Quantilsverteilung stark davon ab, passen die Angaben
+    nicht zusammen (z. B. Quantile für einen anderen Zeitraum).
+    """
 
     try:
-        prepare_demand_forecast(forecast)
+        prepared_forecast = prepare_demand_forecast(forecast)
     except ValueError as error:
         return [str(error)]
+
+    expected_value = prepared_forecast["expected_value"]
+    model_expected_value = prepared_forecast[
+        "approximated_expected_value"
+    ]
+    reference = max(expected_value, model_expected_value, 1.0)
+
+    if (
+        abs(model_expected_value - expected_value) / reference
+        > MAX_EXPECTED_DEMAND_DEVIATION
+    ):
+        return [
+            "Die erwartete Nachfrage "
+            f"({expected_value:g}) passt nicht zu den "
+            "Nachfragequantilen, deren Verteilung einen Mittelwert "
+            f"von etwa {model_expected_value:.1f} ergibt. Bitte prüfen "
+            "Sie, ob sich beide Angaben auf denselben "
+            "Prognosezeitraum beziehen."
+        ]
 
     return []
 
@@ -436,6 +465,39 @@ def execute_single_period_newsvendor(
         execute_linear_model_specification,
     )
 
-    return execute_linear_model_specification(
+    result = execute_linear_model_specification(
         specification
     )
+
+    if result["status"] != "optimal":
+        return result
+
+    # Transparenz: Die Optimierung nutzt die Quantilsverteilung, nicht
+    # direkt den eingegebenen Erwartungswert. Beide Werte werden angezeigt.
+    forecast_metrics = []
+
+    for product in specification["products"]:
+        prepared_forecast = prepare_demand_forecast(
+            product["forecast"]
+        )
+        forecast_metrics.extend(
+            [
+                {
+                    "metric_id": "forecast_expected_demand",
+                    "product_id": product["product_id"],
+                    "value": prepared_forecast["expected_value"],
+                },
+                {
+                    "metric_id": "model_expected_demand",
+                    "product_id": product["product_id"],
+                    "value": prepared_forecast[
+                        "approximated_expected_value"
+                    ],
+                },
+            ]
+        )
+
+    return {
+        **result,
+        "metrics": [*forecast_metrics, *result["metrics"]],
+    }

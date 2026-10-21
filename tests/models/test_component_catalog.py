@@ -166,6 +166,7 @@ def test_builds_continuous_review_q_r_catalog() -> None:
         "order_multiple",
         "minimum_reorder_point",
         "maximum_reorder_point",
+        "maximum_inventory_position",
         "minimum_cycle_service_level",
     }
     assert catalog["core"][

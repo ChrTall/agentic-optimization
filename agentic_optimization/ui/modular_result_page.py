@@ -118,7 +118,7 @@ def render_modular_result_page(
                 _build_result_overview_rows(
                     result_data["decisions"]
                 ),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
         else:
@@ -185,7 +185,7 @@ def render_modular_result_page(
 
         st.dataframe(
             metric_rows,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -207,7 +207,7 @@ def render_modular_result_page(
             )
             explanation_requested = st.button(
                 "Optimierungsergebnis erklären",
-                use_container_width=True,
+                width="stretch",
                 key="explain_modular_optimization_result",
             )
 

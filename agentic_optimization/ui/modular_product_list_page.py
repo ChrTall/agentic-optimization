@@ -148,7 +148,7 @@ def render_dynamic_product_table_page(
             *field_names,
         ],
         hide_index=False,
-        use_container_width=True,
+        width="stretch",
         num_rows="dynamic",
         key=(
             "dynamic_modular_product_table"
@@ -160,7 +160,7 @@ def render_dynamic_product_table_page(
     submitted = st.button(
         "Angaben prüfen",
         type="primary",
-        use_container_width=True,
+        width="stretch",
         key="submit_dynamic_modular_product_table",
     )
 
