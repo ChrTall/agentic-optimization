@@ -159,95 +159,46 @@ Berechnung die Modellannahmen auf der Prüfseite einzeln bestätigen.
 - **Jährliche Lagerhaltungskosten:** 1.500 €
 - **Jährliche relevante Gesamtkosten:** 3.000 €
 
-## Alternativtext für die Q–R-Politik: T-Shirts im Campusladen
+## Alternativdemo: Q,R für T-Shirts
 
-Dieses kleinere Beispiel stammt aus einer Cornell-ORIE-3120-Übung zur
-Q–R-Politik. Eine
-[archivierte Kopie der Übung mit Musterlösung](https://www.studocu.com/en-us/document/cornell-university/industrial-data-and-systems-analysis/orie-3120-rec-4-answers-material/12623299)
-nennt genau die Kosten- und Nachfragegrößen, die unser Modell benötigt.
-Cornell stellt außerdem
-[offizielle Kursunterlagen zur Q–R-Bestandssteuerung](https://people.orie.cornell.edu/pfrazier/orie3120/demos/QR.pdf)
-bereit.
+### In den Chatbot eingeben
 
-Gegenüber dem bisherigen HP-Druckerfall hat dieses Beispiel drei Vorteile:
+> Wir verkaufen ein T-Shirt-Modell dauerhaft und bestellen regelmäßig nach.
+> Der Lagerbestand wird laufend überwacht. Die Lieferzeit beträgt konstant
+> drei Tage. Die Nachfrage ist unsicher: Für diese drei Tage erwarten wir
+> 60 verkaufte T-Shirts; die Nachfragequantile sind Q10 = 51,12, Q50 = 60
+> und Q90 = 68,88. Wir möchten die Bestellmenge und den Meldebestand
+> bestimmen und die jährlichen Bestell-, Lagerhaltungs- und Fehlmengenkosten
+> minimieren. Jede Bestellung kostet 250 €, die Lagerhaltung 50 € je T-Shirt
+> und Jahr und jede fehlende Einheit 10 €.
 
-- Es verwendet genau die sechs in `REQUIRED_FIELDS` definierten Eingaben.
-- Es benötigt weder Einkaufspreis noch Pipelinekosten oder ein vorgegebenes
-  Servicelevel.
-- Bestellmenge und Meldebestand liegen im zwei- bis dreistelligen Bereich und
-  lassen sich in der WebUI gut lesen.
+Bei Rückfragen die **regelmäßige Nachbestellung** und die **laufende
+Bestandsprüfung** bestätigen. Die konstante Lieferzeit auf der Prüfseite
+ausdrücklich bestätigen.
 
-### Formular 2: Problembeschreibung
-
-Folgenden Text vollständig in das Freitextfeld kopieren:
-
-> Ein Campusladen überwacht den Bestand eines T-Shirt-Modells laufend und
-> möchte seine jährlichen Bestell-, Lagerhaltungs- und Fehlmengenkosten
-> minimieren. Sobald die Bestandsposition den Meldebestand erreicht, wird eine
-> feste Menge nachbestellt. Pro Tag werden im Mittel 20 T-Shirts verkauft; die
-> Tagesnachfrage ist unabhängig und normalverteilt mit einer
-> Standardabweichung von 4 T-Shirts. Bei 365 Verkaufstagen beträgt die
-> jährliche Nachfrage 7.300 T-Shirts. Die Lieferzeit beträgt drei Tage. Es liegen folgende Nachfragequantile vor: 0.1 mit 51,12; 0.5 mit 60; 0.9 mit 68,88. Jede Bestellung kostet 250 Euro, die
-> Lagerhaltung 50 Euro je T-Shirt und Jahr und eine Fehlmenge 10 Euro je
-> T-Shirt. Der Lieferant akzeptiert Bestellmengen von mindestens 250 und
-> höchstens 300 T-Shirts. Der Meldebestand soll zwischen 60 und 80 T-Shirts
-> liegen. Im Lager darf die konservativ gerechnete Bestandsposition aus
-> Bestellmenge und Meldebestand zusammen höchstens 400 T-Shirts betragen.
-
-Zusammen mit den oben beschriebenen Q–R-Auswahlen in Formular 1 sollte die
-Anwendung die **Q–R Policy** erkennen und zu **Angaben zur Berechnung**
-wechseln. Die sechs Pflichtfelder sollten aus dem Text mit den folgenden
-Werten vorbefüllt werden. Auch die fünf Rahmenbedingungen sollten
-vorausgewählt und mit ihren Zahlenwerten befüllt sein. Vor der Berechnung
-müssen alle erkannten Angaben noch geprüft und bestätigt werden.
-
-### Angaben zur Berechnung
-
-Die Quelle gibt eine tägliche Nachfrage mit Mittelwert 20 und
-Standardabweichung 4 sowie eine Lieferzeit von drei Tagen an. Bei unabhängigen
-Tagesnachfragen folgt daraus
-\(\mu_L = 3 \cdot 20 = 60\) und
-\(\sigma_L = \sqrt{3} \cdot 4 \approx 6{,}928\). Für die WebUI werden die
-Dollarbeträge der Quelle ohne Wechselkursumrechnung als einheitliche
-Euro-Demowerte behandelt.
+### Werte für das Formular
 
 | Feld | Eingabe |
 | --- | ---: |
-| Jährliche Nachfrage | 7300 |
-| Fixe Bestellkosten | 250 |
-| Jährliche Lagerhaltungskosten | 50 |
-| Fehlmengenkosten | 10 |
-| Mittlere Nachfrage während der Lieferzeit | 60 |
-| Standardabweichung der Lieferzeitnachfrage | 6.928 |
-| Betriebliche Rahmenbedingungen berücksichtigen? | Ja |
-| Mindestbestellmenge Q | 250 |
-| Höchstbestellmenge Q | 300 |
-| Mindestmeldebestand R | 60 |
-| Höchstmeldebestand R | 80 |
-| Maximale Bestandsposition Q + R | 400 |
+| Erwartete Nachfrage | 60 T-Shirts |
+| Nachfragequantile | `0.1: 51.12; 0.5: 60; 0.9: 68.88` |
+| Prognosezeitraum | 3 Tage |
+| Lieferzeit | 3 Tage |
+| Bestellkosten pro Bestellung | 250 € |
+| Lagerhaltungskosten pro T-Shirt und Jahr | 50 € |
+| Fehlmengenkosten pro fehlender Einheit | 10 € |
 
-Die Grenzen für \(Q\), \(R\) und \(Q+R\) sind plausible
-**Demo-Erweiterungen**, aber nicht Teil der Cornell-Quelle. Sie bilden alle von
-der WebUI unterstützten Q–R-Nebenbedingungen ab und sind für die unten
-genannten Ergebnisse nicht bindend.
+Erwartet wird das Grundmodell **Kontinuierliche Bestandsüberprüfung (Q,R)**,
+das sowohl eine Bestellmenge als auch einen Meldebestand empfiehlt.
 
 ### Erwartetes Ergebnis
 
-Die Cornell-Musterrechnung liefert vor der operativen Ganzzahlrundung ungefähr
-\(Q = 274{,}012\) und \(R = 66{,}142\) T-Shirts. Nach der in diesem Repository
-beschriebenen Rundungsregel und allen fünf nichtbindenden
-Demo-Nebenbedingungen liefert die WebUI:
-
-- **Empfohlene Bestellmenge Q:** 274 Einheiten
-- **Meldebestand R:** 67 Einheiten
-- **Sicherheitsbestand:** 7 Einheiten
-- **Erwartete jährliche Kosten:** 14.011,35 €
-- **Solverstatus:** Optimal
-- **Iterationen:** 5
-
-Der Solver verwendet wie die Cornell-Musterrechnung
-\(F(R) = 1 - hQ/(pD)\). Dieselbe Näherung wird auch im
-[LINDO-Kapitel zum Q–R-Modell](https://www.lindo.com/downloads/LINGO_text/Chapter17.pdf)
-angegeben. Die Fixpunktiteration rechnet intern mit ungerundeten Werten und
-rundet erst die operative Empfehlung. Dadurch stimmt das WebUI-Ergebnis bis
-auf diese dokumentierte Ganzzahlrundung mit der Referenz überein.
+| Ergebnisgröße | Wert |
+| --- | ---: |
+| Jahresbedarf (aus 60 Stück in 3 Tagen hochgerechnet) | 7.300 |
+| Erwartete Nachfrage während der Lieferzeit | 60 |
+| Standardabweichung der Lieferzeitnachfrage | ca. 6,93 |
+| Empfohlene Bestellmenge Q | 274 |
+| Meldebestand R | 66 |
+| Sicherheitsbestand | 6 |
+| Jährliche relevante Gesamtkosten | 14.007,86 € |
