@@ -28,6 +28,7 @@ from agentic_optimization.state import (
     EVENT_MODULAR_RESULT_EXPLANATION_REQUESTED,
     EVENT_MODULAR_REVIEW_EXPLANATION_REQUESTED,
     WORKFLOW_BUSINESS_CORE_SELECTED,
+    WORKFLOW_BUSINESS_PROFILE_ANALYSIS_FAILED,
     WORKFLOW_MODEL_INPUTS_INVALID,
     WORKFLOW_MODEL_PREPARATION_FAILED,
     WORKFLOW_MODEL_UNSUPPORTED,
@@ -68,6 +69,9 @@ from agentic_optimization.ui.modular_review_page import (
     render_modular_selection_issues,
 )
 
+from agentic_optimization.models.preparation_recovery import failed_preparation_state
+from agentic_optimization.ui.preparation_error_page import render_preparation_error_page
+
 LOGGER = logging.getLogger(__name__)
 
 STEP_LABELS = [
@@ -82,6 +86,7 @@ STEP_INDEX = {
     "business_intake": 0,
     "business_clarification": 1,
     "model_unsupported": 1,
+    "preparation_failed": 2,
     "product_table": 2,
     "model_input_form": 2,
     "review": 3,
@@ -121,6 +126,9 @@ def route_ui_from_graph_state(graph_state: dict) -> str:
     """Übersetzt den Workflowstatus in die nächste UI-Seite."""
 
     status = get_workflow_status(graph_state)
+
+    if status == WORKFLOW_MODEL_PREPARATION_FAILED:
+        return "preparation_failed"
 
     if status == WORKFLOW_PRODUCT_TABLE_READY:
         return "product_table"
@@ -163,6 +171,12 @@ def advance_after_business_intake(
     st.session_state.graph_state = graph_state
     status = get_workflow_status(graph_state)
 
+    if status == WORKFLOW_BUSINESS_PROFILE_ANALYSIS_FAILED:
+        st.session_state.graph_state = failed_preparation_state(
+            graph_state, RuntimeError("Business analysis failed"), "business_analysis")
+        st.session_state.step = "preparation_failed"
+        return
+
     if status == WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT:
         st.session_state.step = "business_clarification"
         return
@@ -189,7 +203,11 @@ def advance_after_business_intake(
             "event": next_event,
         },
     }
-    prepared_state = workflow.invoke(next_state)
+    try:
+        prepared_state = workflow.invoke(next_state)
+    except Exception as error:
+        prepared_state = failed_preparation_state(next_state, error,
+            "product_schema" if next_event == EVENT_MODULAR_PRODUCT_SCHEMA_REQUESTED else "preparation")
     st.session_state.graph_state = prepared_state
     st.session_state.step = route_ui_from_graph_state(
         prepared_state
@@ -296,9 +314,7 @@ def invoke_event(
         if graph_state is not None
         else st.session_state.graph_state or {}
     )
-    workflow = build_graph(get_or_create_llm())
-    result_state = workflow.invoke(
-        {
+    invocation_state = {
             **graph_state,
             **updates,
             "control": {
@@ -306,7 +322,14 @@ def invoke_event(
                 "event": event,
             },
         }
-    )
+    try:
+        workflow = build_graph(get_or_create_llm())
+        result_state = workflow.invoke(invocation_state)
+    except Exception as error:
+        if event not in {EVENT_MODULAR_MODEL_PREPARATION_REQUESTED, EVENT_MODULAR_PRODUCT_SCHEMA_REQUESTED}:
+            raise
+        result_state = failed_preparation_state(invocation_state, error,
+            "product_schema" if event == EVENT_MODULAR_PRODUCT_SCHEMA_REQUESTED else "preparation")
     st.session_state.graph_state = result_state
     st.session_state.step = route_ui_from_graph_state(result_state)
     return result_state
@@ -330,9 +353,7 @@ def run_business_intake(
         }
         retained.update({answer["question_id"]: answer for answer in answers})
         answers = list(retained.values())
-    workflow = build_graph(get_or_create_llm())
-    result_state = workflow.invoke(
-        {
+    invocation_state = {
             **graph_state,
             "control": {
                 **graph_state.get("control", {}),
@@ -344,9 +365,27 @@ def run_business_intake(
                 "pending_answers": answers,
             },
         }
-    )
     st.session_state.raw_problem_description = raw_input
+    try:
+        workflow = build_graph(get_or_create_llm())
+        result_state = workflow.invoke(invocation_state)
+    except Exception as error:
+        st.session_state.graph_state = failed_preparation_state(invocation_state, error, "business_analysis")
+        st.session_state.step = "preparation_failed"
+        return
     advance_after_business_intake(workflow, result_state)
+
+
+def retry_preparation() -> None:
+    graph = st.session_state.graph_state or {}
+    model = graph.get("modular_model", {})
+    stage = (model.get("preparation_error_details") or {}).get("stage")
+    if stage == "business_analysis":
+        run_business_intake(graph.get("raw_input", st.session_state.raw_problem_description), [])
+    else:
+        event = (EVENT_MODULAR_PRODUCT_SCHEMA_REQUESTED if stage == "product_schema"
+                 or not model.get("products") else EVENT_MODULAR_MODEL_PREPARATION_REQUESTED)
+        invoke_event(event)
 
 
 def submit_products(products: list) -> None:
@@ -453,6 +492,7 @@ render_chat_panel(
         request_result_explanation=request_result_explanation,
         edit_description=edit_description,
         restart=reset_workflow,
+        retry_preparation=retry_preparation,
     )
 )
 
@@ -499,6 +539,22 @@ if st.session_state.step == "business_intake":
             show_workflow_error(error)
             st.stop()
 
+        st.rerun()
+
+
+elif st.session_state.step == "preparation_failed":
+    model = (st.session_state.graph_state or {}).get("modular_model", {})
+    action = render_preparation_error_page(model.get("preparation_error_details") or {
+        "message": model.get("preparation_error")})
+    if action == "retry":
+        with st.spinner("Vorbereitung wird erneut versucht …"):
+            retry_preparation()
+        st.rerun()
+    elif action == "edit":
+        edit_description()
+        st.rerun()
+    elif action == "restart":
+        reset_workflow()
         st.rerun()
 
 

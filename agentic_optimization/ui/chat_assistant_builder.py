@@ -921,6 +921,21 @@ def _build_step_context(
             "allowed_actions": ["none", "restart"],
         }
 
+    if step == "preparation_failed":
+        details = modular_state.get("preparation_error_details") or {}
+        return {
+            "step_description": (
+                "Die Vorbereitung wurde durch einen technischen Fehler unterbrochen. "
+                "Bisherige Angaben bleiben erhalten. Frage keine Modellwerte ab und "
+                "behaupte nicht, dass kein passendes Modell verfügbar sei. Der Nutzer "
+                "kann erneut versuchen, die Beschreibung bearbeiten oder komplett neu starten. "
+                "Nutze nur die bekannte Fehlerbeschreibung; spekuliere nicht über Ursachen."
+            ),
+            "failure": details,
+            "allowed_outputs": [],
+            "allowed_actions": ["none", "retry_preparation", "edit_description", "restart"],
+        }
+
     if step == "model_unsupported":
         proposal = modular_state.get("proposal") or {}
         selection_status = proposal.get("selection_status")
@@ -1096,6 +1111,14 @@ def build_step_intro(
             "die Berechnung. Ich frage sie nacheinander ab."
         )
 
+    if step == "preparation_failed":
+        details = modular_state.get("preparation_error_details") or {}
+        return ("Die Vorbereitung wurde technisch unterbrochen. "
+                + details.get("message", "")
+                + " Ihre bisherigen Angaben bleiben erhalten. Nutzen Sie ‚Vorbereitung erneut versuchen‘, "
+                  "bearbeiten Sie Ihre Beschreibung oder starten Sie komplett neu. "
+                  "Beim kompletten Neustart werden die bisherigen Angaben und der Chat zurückgesetzt.")
+
     if step == "model_unsupported":
         proposal = modular_state.get("proposal") or {}
         lines = [
@@ -1168,6 +1191,11 @@ def build_follow_up_messages(
     offene Angabe geändert hat. Liefert zusätzlich den Schlüssel
     der aktuellen Frage zurück.
     """
+
+    if step == "preparation_failed":
+        details = ((graph_state or {}).get("modular_model", {}).get("preparation_error_details") or {})
+        key = "preparation_failed:" + details.get("reference", "unknown")
+        return ([build_step_intro(step, graph_state)] if key != previous_question_key else []), key
 
     next_question = build_next_question(
         step,

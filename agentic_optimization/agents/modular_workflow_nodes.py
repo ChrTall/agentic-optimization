@@ -6,6 +6,7 @@ import logging
 from collections.abc import Callable
 
 from langchain_core.language_models import BaseChatModel
+from agentic_optimization.models.preparation_recovery import failed_preparation_state
 
 from agentic_optimization.agents.modular_model_agent import (
     ModularModelDraft,
@@ -101,31 +102,14 @@ def create_modular_product_schema_node(
                     [],
                 ),
             )
-        except (TypeError, ValueError) as error:
+        except Exception as error:
             LOGGER.exception(
                 "Die vorläufige Bausteinauswahl ist "
                 "fehlgeschlagen: %s",
                 error,
             )
 
-            return with_control(
-                {
-                    **state,
-                    "modular_model": {
-                        **modular_state,
-                        "preparation_error": (
-                            "Die benötigten Tabellenspalten "
-                            "konnten nicht zuverlässig bestimmt "
-                            "werden. Bitte starten Sie die "
-                            "Analyse erneut."
-                        ),
-                    },
-                },
-                event=None,
-                workflow_status=(
-                    WORKFLOW_MODEL_PREPARATION_FAILED
-                ),
-            )
+            return failed_preparation_state(state, error, "product_schema")
 
         return with_control(
             {
@@ -134,6 +118,8 @@ def create_modular_product_schema_node(
                     **modular_state,
                     "preliminary_proposal": proposal,
                     "preparation_error": None,
+                    "preparation_error_details": None,
+                    "preparation_checkpoint": None,
                 },
             },
             event=None,
@@ -403,49 +389,15 @@ def create_modular_model_preparation_node(
                         "preliminary_proposal"
                     )
                 ),
+                checkpoint=modular_state.get("preparation_checkpoint"),
             )
-        except (TypeError, ValueError) as error:
+        except Exception as error:
             LOGGER.exception(
                 "Die modulare Modellvorbereitung ist "
                 "fehlgeschlagen: %s",
                 error,
             )
-            preparation_error = (
-                "Die automatische Modellzusammenstellung "
-                "konnte nicht zuverlässig abgeschlossen "
-                "werden. Bitte starten Sie die Analyse "
-                "erneut."
-            )
-
-            updated_modular_state = {
-                **modular_state,
-                "preparation_error": preparation_error,
-                "review_confirmed": False,
-                "optimization_result": None,
-            }
-
-            for field_name in (
-                "proposal",
-                "specification",
-                "validation",
-            ):
-                updated_modular_state.pop(
-                    field_name,
-                    None,
-                )
-
-            return with_control(
-                {
-                    **state,
-                    "modular_model": (
-                        updated_modular_state
-                    ),
-                },
-                event=None,
-                workflow_status=(
-                    WORKFLOW_MODEL_PREPARATION_FAILED
-                ),
-            )
+            return failed_preparation_state(state, error)
 
         proposal = draft["proposal"]
         extracted_products = draft["products"]
@@ -475,6 +427,8 @@ def create_modular_model_preparation_node(
                 "review_confirmed": False,
                 "optimization_result": None,
                 "preparation_error": None,
+                "preparation_error_details": None,
+                "preparation_checkpoint": None,
             }
 
             updated_modular_state.pop(
@@ -525,6 +479,8 @@ def create_modular_model_preparation_node(
                 "review_explanation": "",
                 "review_explanation_source": "",
                 "preparation_error": None,
+                "preparation_error_details": None,
+                "preparation_checkpoint": None,
             },
         }
 

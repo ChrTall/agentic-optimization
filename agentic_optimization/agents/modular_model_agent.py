@@ -3,6 +3,10 @@ Agentische Vorbereitung modularer Optimierungsmodelle.
 """
 from collections.abc import Callable
 from typing import Any, NotRequired, TypedDict
+from copy import deepcopy
+import hashlib
+import json
+from agentic_optimization.models.preparation_recovery import ModelPreparationFailure
 
 from langchain_core.language_models import BaseChatModel
 
@@ -185,18 +189,38 @@ def create_modular_model_agent(
         preliminary_proposal: (
             ComponentSelectionProposal | None
         ) = None,
+        checkpoint: dict | None = None,
     ) -> ModularModelDraft:
+        fingerprint = hashlib.sha256(json.dumps({
+            "core_id": core_id, "requirements": requirements, "products": products,
+            "global_facts": global_facts, "evidence": evidence,
+            "coverage_audit": enable_coverage_audit,
+        }, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+        completed = deepcopy((checkpoint or {}).get("completed", {})) if (
+            (checkpoint or {}).get("fingerprint") == fingerprint) else {}
+        recovery = {"fingerprint": fingerprint, "completed": completed}
+
+        def run_stage(stage, operation):
+            if stage in completed:
+                return deepcopy(completed[stage])
+            try:
+                value = operation()
+            except Exception as error:
+                raise ModelPreparationFailure(error, stage, recovery) from error
+            completed[stage] = deepcopy(value)
+            return value
+
         extracted_products, extracted_global_facts = (
-            fact_extraction_agent(
+            run_stage("facts", lambda: fact_extraction_agent(
                 core_id=core_id,
                 requirements=requirements,
                 products=products,
                 global_facts=global_facts,
                 evidence=evidence,
-            )
+            ))
         )
 
-        proposal = component_selection_agent(
+        proposal = run_stage("selection", lambda: component_selection_agent(
             core_id=core_id,
             requirements=requirements,
             products=extracted_products,
@@ -205,16 +229,16 @@ def create_modular_model_agent(
             # Die vorläufige Auswahl dient nur den Eingabefeldern.
             # Nach der Faktenextraktion muss die endgültige Auswahl
             # fehlende Zielfunktionsbausteine ergänzen dürfen.
-        )
-        proposal = integrity_agent(
+        ))
+        proposal = run_stage("integrity", lambda: integrity_agent(
             proposal=proposal,
             evidence=evidence,
             objective_goal=requirements.get("objective"),
-        )
+        ))
 
         if enable_coverage_audit:
             before_coverage = proposal
-            proposal = component_coverage_agent(
+            proposal = run_stage("coverage", lambda: component_coverage_agent(
                 core_id=core_id,
                 requirements=requirements,
                 products=extracted_products,
@@ -225,16 +249,16 @@ def create_modular_model_agent(
                     evidence=evidence,
                     objective_goal=requirements.get("objective"),
                 ),
-            )
+            ))
             if (
                 proposal["unresolved_requirements"]
                 != before_coverage["unresolved_requirements"]
             ):
-                proposal = integrity_agent(
+                proposal = run_stage("final_integrity", lambda: integrity_agent(
                     proposal=proposal,
                     evidence=evidence,
                     objective_goal=requirements.get("objective"),
-                )
+                ))
 
         if proposal["selection_status"] != "complete":
             return {
@@ -243,15 +267,15 @@ def create_modular_model_agent(
                 "global_facts": extracted_global_facts,
             }
 
-        specification = build_specification_from_proposal(
+        specification = run_stage("specification", lambda: build_specification_from_proposal(
             proposal,
             extracted_products,
             extracted_global_facts,
-        )
+        ))
 
-        validation = validate_model_specification(
+        validation = run_stage("validation", lambda: validate_model_specification(
             specification
-        )
+        ))
 
         return {
             "proposal": proposal,

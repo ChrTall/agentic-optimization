@@ -374,10 +374,9 @@ def test_handles_failed_model_preparation(
         WORKFLOW_MODEL_PREPARATION_FAILED
     )
     assert modular_state["preparation_error"] == (
-        "Die automatische Modellzusammenstellung "
-        "konnte nicht zuverlässig abgeschlossen "
-        "werden. Bitte starten Sie die Analyse erneut."
+        "Die automatische Antwort konnte nicht zuverlässig verarbeitet werden."
     )
+    assert modular_state["preparation_error_details"]["kind"] == "invalid_response"
     assert "proposal" not in modular_state
     assert "specification" not in modular_state
     assert "validation" not in modular_state

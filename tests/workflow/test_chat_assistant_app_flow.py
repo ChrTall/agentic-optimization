@@ -215,10 +215,8 @@ def test_form_retry_replays_answer_after_profile_failure() -> None:
     ][0]["option_id"] == "minimize_cost"
 
     llm.fail_profile = False
-    next(
-        button for button in app.button
-        if button.label == "Angaben auswerten"
-    ).click().run()
+    assert app.session_state["step"] == "preparation_failed"
+    app.button("retry_preparation").click().run()
     assert not app.exception
     profile = app.session_state["graph_state"]["business_intake"]["profile"]
     assert profile["primary_goal"]["value"] == "minimize_cost"

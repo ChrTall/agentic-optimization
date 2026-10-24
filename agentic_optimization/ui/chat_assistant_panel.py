@@ -93,6 +93,7 @@ class ChatWorkflowHandlers:
     request_result_explanation: Callable[[], None]
     edit_description: Callable[[], None]
     restart: Callable[[], None]
+    retry_preparation: Callable[[], None] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +379,11 @@ def _process_user_message(
 
         if action == "edit_description":
             handlers.edit_description()
+            return
+
+        if step == "preparation_failed" and action == "retry_preparation":
+            if handlers.retry_preparation is not None:
+                handlers.retry_preparation()
             return
 
         notes: list[str] = []

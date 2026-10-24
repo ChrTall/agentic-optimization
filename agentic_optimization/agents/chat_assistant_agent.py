@@ -28,6 +28,7 @@ ChatAction = Literal[
     "explain_result",
     "edit_description",
     "restart",
+    "retry_preparation",
 ]
 
 ALL_CHAT_ACTIONS: tuple[ChatAction, ...] = (
@@ -38,6 +39,7 @@ ALL_CHAT_ACTIONS: tuple[ChatAction, ...] = (
     "explain_result",
     "edit_description",
     "restart",
+    "retry_preparation",
 )
 
 MAX_HISTORY_MESSAGES = 14

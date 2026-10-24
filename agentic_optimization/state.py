@@ -230,6 +230,8 @@ class ModularModelState(TypedDict, total=False):
     optimization_result: OptimizationExecutionResult | None
     pending_input_submissions: list[ModularInputSubmission]
     preparation_error: str | None
+    preparation_error_details: dict[str, str] | None
+    preparation_checkpoint: dict[str, Any] | None
     excluded_requirements: list[ExcludedRequirement]
     review_explanation: str
     review_explanation_source: str

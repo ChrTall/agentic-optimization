@@ -898,6 +898,8 @@ def initialize_modular_core_node(
         "review_confirmed": False,
         "optimization_result": None,
         "preparation_error": None,
+        "preparation_error_details": None,
+        "preparation_checkpoint": None,
     }
 
     for field_name in (
