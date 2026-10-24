@@ -975,6 +975,7 @@ def execute_continuous_review_q_r(
     decisions: list[DecisionValue] = []
     metrics: list[MetricValue] = []
     representations: list[str] = []
+    warnings: list[str] = []
     total_annual_cost = 0.0
 
     for product in specification["products"]:
@@ -1089,6 +1090,18 @@ def execute_continuous_review_q_r(
 
         total_annual_cost += result.annual_relevant_cost
 
+        if result.safety_stock < 0:
+            warnings.append(
+                f"Für Produkt '{product_id}' liegt der Meldebestand "
+                f"R = {result.reorder_point:g} unter der erwarteten "
+                "Nachfrage während der Lieferzeit "
+                f"({prepared_forecast['lead_time_demand_mean']:.1f}). "
+                "Der Sicherheitsbestand ist damit negativ: Fehlmengen "
+                "sind im Verhältnis zu den Lagerkosten so günstig, dass "
+                "das Modell bewusst häufige Fehlmengen in Kauf nimmt. "
+                "Bitte prüfen Sie die Fehlmengenkosten."
+            )
+
         decisions.extend(
             [
                 {
@@ -1187,4 +1200,5 @@ def execute_continuous_review_q_r(
             representations
         ),
         "errors": [],
+        "warnings": warnings,
     }

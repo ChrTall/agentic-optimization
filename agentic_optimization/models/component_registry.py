@@ -343,11 +343,10 @@ def build_order_multiple(
         constraint["parameters"]["multiple"]
     )
 
-    package_count = pulp.LpVariable(
-        (
-            f"order_package_count_"
-            f"{product_id}_{constraint_index}"
-        ),
+    # Produkt-IDs sind frei wählbare Namen (z. B. "Kühlschrank"); im
+    # Variablennamen für den Solver wird daher nur der Index verwendet.
+    package_count = context.model.add_variable(
+        f"order_package_count_{constraint_index}",
         lowBound=0,
         cat=pulp.LpInteger,
     )

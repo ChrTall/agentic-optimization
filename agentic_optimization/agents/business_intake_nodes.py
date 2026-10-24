@@ -62,6 +62,9 @@ from agentic_optimization.agents.business_profile_adapter import (
 
 LOGGER = logging.getLogger(__name__)
 
+DEFAULT_SINGLE_PRODUCT_ID = "Produkt"
+"""Produkt-ID, wenn aus der Beschreibung kein Produktname hervorgeht."""
+
 
 def _answer_evidence(
     profile: BusinessProblemProfile,
@@ -130,8 +133,14 @@ def _profile_question_covers_core_condition(
 
 def create_business_intake_node(
     llm: BaseChatModel,
+    *,
+    product_name_agent: Callable[[str], str | None] | None = None,
 ) -> Callable[[GraphState], GraphState]:
-    """Erzeugt den Knoten für den adaptiven Geschäftseinstieg."""
+    """Erzeugt den Knoten für den adaptiven Geschäftseinstieg.
+
+    ``product_name_agent`` ermittelt optional den Produktnamen aus der
+    Beschreibung, sobald ein Grundmodell feststeht.
+    """
 
     profile_agent = create_business_profile_agent(llm)
     applicability_agent = create_core_applicability_agent(llm)
@@ -710,6 +719,22 @@ def create_business_intake_node(
                 WORKFLOW_BUSINESS_CORE_SELECTED
             )
 
+        product_name = intake_state.get("product_name")
+        product_name_input = intake_state.get(
+            "product_name_analyzed_raw_input"
+        )
+
+        if (
+            product_name_agent is not None
+            and workflow_status == WORKFLOW_BUSINESS_CORE_SELECTED
+            and product_name_input != raw_input
+            and raw_input.strip()
+        ):
+            # Der Produktname dient bei einem einzelnen Produkt als
+            # Produkt-ID, damit die Oberfläche nicht "product_1" zeigt.
+            product_name = product_name_agent(raw_input)
+            product_name_input = raw_input
+
         updated_intake_state = {
             **intake_state,
             "profile": preparation["profile"],
@@ -732,6 +757,8 @@ def create_business_intake_node(
             "chosen_core_id": chosen_core_id,
             "core_question_plan": core_question_plan,
             "analysis_error": None,
+            "product_name": product_name,
+            "product_name_analyzed_raw_input": product_name_input,
         }
 
         return with_control(
@@ -814,7 +841,10 @@ def initialize_modular_core_node(
     ):
         products = [
             {
-                "product_id": "product_1",
+                "product_id": (
+                    intake_state.get("product_name")
+                    or DEFAULT_SINGLE_PRODUCT_ID
+                ),
                 "forecast": {},
                 "facts": {},
             }

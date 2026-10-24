@@ -28,6 +28,10 @@ PROPOSAL = {
     "unresolved_requirements": [],
 }
 
+RECALL_QUOTES = {
+    "ordering_cost": "Jede Bestellung kostet 120 €",
+}
+
 VALUES = {
     "expected_value": 3500,
     "horizon_days": 365,
@@ -134,6 +138,29 @@ class FakeLLM:
                     }
                 )
             )
+
+        if system.startswith("Du erhältst alle bisherigen Aussagen"):
+            payload = json.loads(human)
+            answers = []
+            for item in payload["open_items"]:
+                name = (item.get("field") or {}).get("name")
+                quote = RECALL_QUOTES.get(name)
+                if quote and quote in payload["statements"]:
+                    answers.append({
+                        "id": item["id"],
+                        "value": VALUES[name],
+                        "quote": quote,
+                    })
+            return AIMessage(content=json.dumps({"answers": answers}))
+
+        if system.startswith("Korrigiere ausschließlich"):
+            return AIMessage(content=json.dumps({"repairs": []}))
+
+        if system.startswith("Nenne das Produkt"):
+            return AIMessage(content=json.dumps({
+                "name": "Gartenschlauch",
+                "excerpt": "Artikel",
+            }))
 
         if system.startswith("Prüfe ausschließlich"):
             return AIMessage(content=json.dumps({"findings": []}))
@@ -242,6 +269,10 @@ def test_complete_workflow_through_chat() -> None:
     if app.session_state["step"] == "business_clarification":
         _say(app, "Ja, wir bestellen regelmäßig nach.")
     assert app.session_state["step"] == "model_input_form"
+    products = app.session_state["graph_state"]["modular_model"]["products"]
+    assert [product["product_id"] for product in products] == [
+        "Gartenschlauch"
+    ]
 
     _say(app, "3500 Stück im Jahr, 120 € je Bestellung, 12 € Lager.")
     assert app.session_state["step"] == "review"
@@ -296,3 +327,122 @@ def test_complete_workflow_through_chat() -> None:
         previous_editor_version + 1
     )
     assert "llm" in app.session_state
+
+
+def test_values_from_earlier_messages_are_not_asked_again() -> None:
+    app = AppTest.from_file(str(APP_PATH), default_timeout=60)
+    app.session_state["llm"] = FakeLLM()
+    app.run()
+
+    _say(
+        app,
+        "Wir bestellen einen Artikel regelmäßig nach und wollen "
+        "wissen, wie viel wir jeweils bestellen sollen. "
+        "Jede Bestellung kostet 120 €.",
+    )
+    _say(app, "Vor allem sollen die Kosten niedrig bleiben.")
+    if app.session_state["step"] == "business_clarification":
+        _say(app, "Ja, wir bestellen regelmäßig nach.")
+    assert app.session_state["step"] == "model_input_form"
+
+    facts = app.session_state["graph_state"]["modular_model"][
+        "specification"
+    ]["products"][0]["facts"]
+    assert facts["ordering_cost"] == 120
+
+    assistant_messages = [
+        message["content"]
+        for message in app.session_state["chat_messages"]
+        if message["role"] == "assistant"
+    ]
+    assert any(
+        "Das haben Sie mir schon gesagt" in message
+        for message in assistant_messages
+    )
+    assert not any(
+        "Bestellkosten" in message and "?" in message
+        for message in assistant_messages
+    )
+
+
+class UnhelpfulInputLLM(FakeLLM):
+    """Antwortet im Eingabeschritt nie mit einem Wert."""
+
+    def invoke(self, messages):
+        human = messages[-1].content
+        if (
+            messages[0].content.startswith("Du bist ein freundlicher")
+            and "keine Ahnung" in human
+        ):
+            return AIMessage(content=json.dumps({
+                "reply": "Kein Problem. Wie hoch ist der Wert ungefähr?",
+            }))
+        return super().invoke(messages)
+
+
+def test_offers_way_out_once_after_repeated_unanswered_question() -> None:
+    app = AppTest.from_file(str(APP_PATH), default_timeout=60)
+    app.session_state["llm"] = UnhelpfulInputLLM()
+    app.run()
+
+    _say(
+        app,
+        "Wir bestellen einen Artikel regelmäßig nach und wollen "
+        "wissen, wie viel wir jeweils bestellen sollen.",
+    )
+    _say(app, "Vor allem sollen die Kosten niedrig bleiben.")
+    if app.session_state["step"] == "business_clarification":
+        _say(app, "Ja, wir bestellen regelmäßig nach.")
+    assert app.session_state["step"] == "model_input_form"
+
+    for _ in range(3):
+        _say(app, "keine Ahnung")
+
+    way_out_messages = [
+        message["content"]
+        for message in app.session_state["chat_messages"]
+        if "hänge ich fest" in message["content"]
+    ]
+    assert len(way_out_messages) == 1
+
+
+def test_answers_business_question_with_button() -> None:
+    app = AppTest.from_file(str(APP_PATH), default_timeout=60)
+    app.session_state["llm"] = FakeLLM()
+    app.run()
+
+    _say(
+        app,
+        "Wir bestellen einen Artikel regelmäßig nach und wollen "
+        "wissen, wie viel wir jeweils bestellen sollen.",
+    )
+    assert app.session_state["step"] == "business_clarification"
+
+    app.button("chat_quick_reply:business:primary_goal:minimize_cost").click().run()
+    assert not app.exception
+
+    profile = app.session_state["graph_state"]["business_intake"]["profile"]
+    assert profile["primary_goal"]["value"] == "minimize_cost"
+    assert any(
+        message["role"] == "user"
+        and message["content"] == "Gesamtkosten reduzieren"
+        for message in app.session_state["chat_messages"]
+    )
+
+
+def test_example_button_starts_with_example_description() -> None:
+    app = AppTest.from_file(str(APP_PATH), default_timeout=60)
+    app.session_state["llm"] = FakeLLM()
+    app.run()
+
+    app.button("chat_quick_reply:example:0").click().run()
+    assert not app.exception
+
+    assert "Weihnachtsbäume" in app.session_state["raw_problem_description"]
+    user_messages = [
+        message["content"]
+        for message in app.session_state["chat_messages"]
+        if message["role"] == "user"
+    ]
+    assert len(user_messages) == 1
+    assert user_messages[0].startswith("Wir verkaufen Weihnachtsbäume")

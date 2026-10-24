@@ -57,6 +57,7 @@ class OptimizationExecutionResult(TypedDict):
     metrics: list[MetricValue]
     technical_representation: str | None
     errors: list[str]
+    warnings: NotRequired[list[str]]
 
 
 OptimizationExecutor = Callable[

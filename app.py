@@ -117,6 +117,20 @@ def get_or_create_llm():
     return llm
 
 
+def get_workflow():
+    """Baut den Workflow-Graphen höchstens einmal pro Sitzung."""
+
+    llm = get_or_create_llm()
+    workflow = st.session_state.get("workflow")
+
+    if workflow is None or st.session_state.get("workflow_llm") is not llm:
+        workflow = build_graph(llm)
+        st.session_state.workflow = workflow
+        st.session_state.workflow_llm = llm
+
+    return workflow
+
+
 def route_ui_from_graph_state(graph_state: dict) -> str:
     """Übersetzt den Workflowstatus in die nächste UI-Seite."""
 
@@ -295,7 +309,7 @@ def invoke_event(
         if graph_state is not None
         else st.session_state.graph_state or {}
     )
-    workflow = build_graph(get_or_create_llm())
+    workflow = get_workflow()
     result_state = workflow.invoke(
         {
             **graph_state,
@@ -329,7 +343,7 @@ def run_business_intake(
         }
         retained.update({answer["question_id"]: answer for answer in answers})
         answers = list(retained.values())
-    workflow = build_graph(get_or_create_llm())
+    workflow = get_workflow()
     result_state = workflow.invoke(
         {
             **graph_state,
@@ -405,7 +419,7 @@ def start_optimization() -> None:
 
 def request_result_explanation() -> None:
     graph_state = st.session_state.graph_state or {}
-    workflow = build_graph(get_or_create_llm())
+    workflow = get_workflow()
     st.session_state.graph_state = workflow.invoke(
         {
             **graph_state,
@@ -657,7 +671,7 @@ elif st.session_state.step == "review":
 
     if not isinstance(explanation, str) or not explanation.strip():
         try:
-            workflow = build_graph(get_or_create_llm())
+            workflow = get_workflow()
             graph_state = workflow.invoke(
                 {
                     **graph_state,

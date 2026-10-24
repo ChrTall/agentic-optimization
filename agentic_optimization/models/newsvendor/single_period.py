@@ -398,7 +398,7 @@ def build_single_period_newsvendor_core(
         )
         forecasts[product_id] = prepared_forecast
 
-        order_quantity = pulp.LpVariable(
+        order_quantity = model.add_variable(
             f"order_quantity_{product_index}",
             lowBound=0,
         )
@@ -415,15 +415,15 @@ def build_single_period_newsvendor_core(
                 f"{product_index}_{point_index}"
             )
 
-            sold_quantity = pulp.LpVariable(
+            sold_quantity = model.add_variable(
                 f"sold_quantity_{variable_suffix}",
                 lowBound=0,
             )
-            leftover_quantity = pulp.LpVariable(
+            leftover_quantity = model.add_variable(
                 f"leftover_quantity_{variable_suffix}",
                 lowBound=0,
             )
-            shortage_quantity = pulp.LpVariable(
+            shortage_quantity = model.add_variable(
                 f"shortage_quantity_{variable_suffix}",
                 lowBound=0,
             )

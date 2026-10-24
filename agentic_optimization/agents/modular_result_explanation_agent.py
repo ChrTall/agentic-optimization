@@ -6,6 +6,7 @@ import json
 from collections.abc import Callable
 from typing import Any
 
+from agentic_optimization.llm.json_response import parse_json_object
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
     HumanMessage,
@@ -70,34 +71,13 @@ def _parse_explanation_response(
 ) -> str:
     """Prüft die strukturierte Antwort des Sprachmodells."""
 
-    if not isinstance(content, str):
-        raise TypeError(
-            "Die Ergebnis-Erklärung muss als Text vorliegen."
-        )
-
-    clean_content = content.strip()
-    lines = clean_content.splitlines()
-
-    if (
-        len(lines) >= 3
-        and lines[0].strip().lower()
-        in {
-            "```",
-            "```json",
-        }
-        and lines[-1].strip() == "```"
-    ):
-        clean_content = "\n".join(
-            lines[1:-1]
-        ).strip()
-
-    parsed_response = json.loads(clean_content)
-
-    if not isinstance(parsed_response, dict):
-        raise TypeError(
+    parsed_response = parse_json_object(
+        content,
+        not_object_message=(
             "Die Ergebnis-Erklärung muss als JSON-Objekt "
             "zurückgegeben werden."
-        )
+        ),
+    )
 
     if set(parsed_response) != {"explanation"}:
         raise ValueError(

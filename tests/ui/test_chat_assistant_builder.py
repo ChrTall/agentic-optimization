@@ -454,3 +454,123 @@ def test_merges_product_rows_case_insensitive() -> None:
     check = check_product_rows(rows, schema)
     assert check["errors"]
     assert "Birne" in check["errors"][0]
+
+def test_unsupported_case_ends_questions_with_clear_message() -> None:
+    from agentic_optimization.models.problem_profile import (
+        create_empty_business_problem_profile,
+    )
+    from agentic_optimization.ui.chat_assistant_builder import (
+        build_next_question,
+    )
+
+    graph_state = {
+        "business_intake": {
+            "profile": create_empty_business_problem_profile(),
+            "analyzed_raw_input": "Tourenplanung für 25 Filialen",
+            "pending_question_ids": [],
+            "core_selection": {
+                "status": "unsupported",
+                "selected_core_id": None,
+                "candidate_core_ids": [],
+                "reason": "",
+            },
+        }
+    }
+
+    question = build_next_question("business_intake", graph_state)
+
+    assert question["target"] == {"kind": "none"}
+    assert "noch nicht berechnen" in question["text"]
+    assert "Einmalige Bestellung vor einer Saison" in question["text"]
+    assert "genauer beschreiben" not in question["text"]
+
+
+def test_stuck_message_depends_on_question_kind() -> None:
+    from agentic_optimization.ui.chat_assistant_builder import (
+        build_stuck_message,
+    )
+
+    def question(kind: str) -> dict:
+        return {"key": "k", "text": "t", "target": {"kind": kind}, "remaining": 1}
+
+    assert "Formular" in build_stuck_message(question("model_input"))
+    assert "Noch nicht bekannt" in build_stuck_message(
+        question("business_question")
+    )
+    assert "noch nicht berechnen" in build_stuck_message(
+        question("description")
+    )
+    assert build_stuck_message(None) is None
+
+
+def test_quick_replies_follow_the_current_step() -> None:
+    from agentic_optimization.models.problem_profile import (
+        create_empty_business_problem_profile,
+    )
+    from agentic_optimization.ui.chat_assistant_builder import (
+        build_next_question,
+        build_progress_label,
+        build_quick_replies,
+    )
+
+    start_state = {
+        "business_intake": {
+            "profile": create_empty_business_problem_profile(),
+        }
+    }
+    examples = build_quick_replies(
+        "business_intake",
+        start_state,
+        build_next_question("business_intake", start_state),
+    )
+    assert [reply["kind"] for reply in examples] == ["message"] * 3
+
+    question_state = {
+        "business_intake": {
+            "profile": create_empty_business_problem_profile(),
+            "pending_question_ids": ["primary_goal"],
+        }
+    }
+    options = build_quick_replies(
+        "business_clarification",
+        question_state,
+        build_next_question("business_clarification", question_state),
+    )
+    assert {reply["value"]["option_id"] for reply in options} >= {
+        "minimize_cost",
+        "user_unknown",
+    }
+
+    assert build_quick_replies("review", {}, None)[0]["value"] == (
+        "start_optimization"
+    )
+    assert build_quick_replies(
+        "business_intake",
+        {},
+        {"key": "x", "text": "", "target": {"kind": "none"}, "remaining": 0},
+    )[0]["value"] == "restart"
+    assert build_progress_label("review") == (
+        "Schritt 4 von 5 · Angaben prüfen"
+    )
+
+
+def test_known_facts_summary_shows_product_and_values() -> None:
+    from agentic_optimization.ui.chat_assistant_builder import (
+        build_known_facts_summary,
+    )
+
+    lines = build_known_facts_summary({
+        "modular_model": {
+            "core_id": "eoq",
+            "products": [{
+                "product_id": "E-Bike",
+                "forecast": {"expected_value": 1200.0},
+                "facts": {"ordering_cost": 150},
+            }],
+        }
+    })
+    text = "\n".join(lines)
+
+    assert "Produkt „E-Bike“" in text
+    assert "Erwartete Nachfrage: 1200 Einheiten" in text
+    assert "150 €" in text

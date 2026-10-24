@@ -27,6 +27,9 @@ from agentic_optimization.state import (
     get_event,
     get_workflow_status,
 )
+from agentic_optimization.agents.business_profile_agent import (
+    infer_product_name,
+)
 from agentic_optimization.agents.business_intake_nodes import (
     create_business_intake_node,
     initialize_modular_core_node,
@@ -104,7 +107,12 @@ def build_graph(llm: BaseChatModel):
 
     graph.add_node(
         "business_intake",
-        create_business_intake_node(llm),
+        create_business_intake_node(
+            llm,
+            product_name_agent=lambda raw_input: infer_product_name(
+                llm, raw_input=raw_input
+            ),
+        ),
     )
     graph.add_node(
         "initialize_business_modular_core",

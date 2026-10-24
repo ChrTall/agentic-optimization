@@ -100,7 +100,7 @@ Then edit the `.env` file and provide the required values:
 
 ```env
 LLM_PROVIDER=openai
-LLM_MODEL=gpt-4.1-mini
+LLM_MODEL=gpt-5.4-mini
 LLM_API_KEY=
 ```
 
@@ -119,11 +119,12 @@ Optional variables:
 
 If the provider rejects a request (invalid key, rate limit, timeout), the app shows a message instead of a traceback.
 
-Example configurations:
+Example configurations (small models such as `llama-3.1-8b-instant` are cheap but return invalid structured
+answers more often; for demos a model like `gpt-5.4-mini` or `claude-haiku-4-5` is more reliable):
 
 ```env
 LLM_PROVIDER=openai
-LLM_MODEL=gpt-4.1-mini
+LLM_MODEL=gpt-5.4-mini
 LLM_API_KEY=your-openai-api-key
 ```
 
@@ -135,7 +136,7 @@ LLM_API_KEY=your-groq-api-key
 
 ```env
 LLM_PROVIDER=anthropic
-LLM_MODEL=claude-3-5-haiku-latest
+LLM_MODEL=claude-haiku-4-5
 LLM_API_KEY=your-anthropic-api-key
 ```
 
@@ -174,6 +175,14 @@ beides lässt sich jederzeit mischen.
   Bestätigung.
 - **Überprüfung / Ergebnis:** Fragen werden beantwortet; die Berechnung startet nur nach ausdrücklicher Bestätigung.
 
+- **Gedächtnis:** Alles, was Sie im Chat schreiben, wird in der Sitzung gespeichert. Bevor der Assistent eine Frage
+  stellt, prüft er Ihre bisherigen Aussagen und übernimmt bereits genannte Werte – mit wörtlichem Zitat als Beleg.
+  Unter „🧠 Das weiß ich schon“ sehen Sie jederzeit, was bekannt ist.
+- **Antwort-Buttons und Beispiele:** Rückfragen lassen sich per Klick beantworten; zum Start gibt es drei Beispiele.
+- **Ehrliche Grenzen:** Passt eine Situation zu keinem verfügbaren Rechenmodell, sagt der Assistent das klar, statt
+  weiter nachzufragen. Bleibt eine Frage zweimal unbeantwortet, bietet er Auswege an.
+- **Produktname:** Bei einem einzelnen Produkt wird dessen Name aus der Beschreibung übernommen (z. B. „Weihnachtsbaum“).
+
 Alle Werte aus dem Chat laufen durch dieselbe Validierung und dieselben Workflow-Events wie die Formulare.
 Relevante Dateien:
 
@@ -181,3 +190,19 @@ Relevante Dateien:
 - `agentic_optimization/ui/chat_assistant_builder.py` – Fragenreihenfolge, Kontext je Schritt, Zuordnung der
   Chat-Werte (UI-unabhängig)
 - `agentic_optimization/ui/chat_assistant_panel.py` – Streamlit-Darstellung in der Seitenleiste
+
+## 4. Auswertung der Modellauswahl
+
+`evals/model_selection_cases.json` enthält Problembeschreibungen mit den jeweils akzeptierten Ergebnissen
+(Grundmodell, `needs_clarification` oder `unsupported`). Das Skript schickt jeden Fall mehrfach durch denselben
+Geschäftseinstieg wie die App und gibt Trefferquote und Stabilität aus. **Es ruft das konfigurierte Sprachmodell auf
+und verursacht API-Kosten.**
+
+```bash
+uv run python -m agentic_optimization.evaluation.model_selection              # alle Fälle, je 3 Durchläufe
+uv run python -m agentic_optimization.evaluation.model_selection --repeats 5 --output report.json
+uv run python -m agentic_optimization.evaluation.model_selection --case qr_tshirts
+```
+
+Neue Fälle einfach in der JSON-Datei ergänzen. Mit `LLM_TEMPERATURE=0` (sofern das Modell es unterstützt) werden
+die Ergebnisse reproduzierbarer.

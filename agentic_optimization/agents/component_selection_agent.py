@@ -13,6 +13,7 @@ from langchain_core.messages import (
     SystemMessage,
 )
 
+from agentic_optimization.llm.json_response import parse_json_object
 from agentic_optimization.models.component_catalog import (
     build_component_catalog,
 )
@@ -218,32 +219,12 @@ class LockedObjectiveSelectionError(ValueError):
 def _parse_json_response(content: object) -> dict[str, Any]:
     """Dekodiert eine mögliche JSON-Code-Fence-Antwort."""
 
-    if not isinstance(content, str):
-        raise TypeError(
-            "Die LLM-Antwort muss Text enthalten."
-        )
-
-    clean_content = content.strip()
-    lines = clean_content.splitlines()
-
-    if (
-        len(lines) >= 3
-        and lines[0].strip().lower() in {
-            "```",
-            "```json",
-        }
-        and lines[-1].strip() == "```"
-    ):
-        clean_content = "\n".join(
-            lines[1:-1]
-        ).strip()
-
-    parsed_response = json.loads(clean_content)
-
-    if not isinstance(parsed_response, dict):
-        raise TypeError(
+    parsed_response = parse_json_object(
+        content,
+        not_object_message=(
             "Die LLM-Antwort muss ein JSON-Objekt enthalten."
-        )
+        ),
+    )
 
     return parsed_response
 

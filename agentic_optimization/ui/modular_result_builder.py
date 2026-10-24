@@ -87,6 +87,7 @@ class ModularResultData(TypedDict):
     excluded_requirements: list[ExcludedRequirement]
     technical_representation: str | None
     errors: list[str]
+    warnings: list[str]
 
 
 def build_default_result_explanation(
@@ -256,4 +257,5 @@ def build_modular_result_data(
             "technical_representation"
         ],
         "errors": list(result["errors"]),
+        "warnings": list(result.get("warnings", [])),
     }

@@ -83,7 +83,7 @@ def test_builds_core_for_single_product() -> None:
     assert len(result.leftover_quantities) == DEMAND_SCENARIO_COUNT
     assert len(result.shortage_quantities) == DEMAND_SCENARIO_COUNT
 
-    assert len(result.model.constraints) == 2 * DEMAND_SCENARIO_COUNT
+    assert len(result.model.constraints()) == 2 * DEMAND_SCENARIO_COUNT
 
     order_quantity = result.get_quantity(
         "order_quantity",
@@ -125,7 +125,7 @@ def test_builds_same_core_for_multiple_products() -> None:
     assert len(result.leftover_quantities) == 2 * DEMAND_SCENARIO_COUNT
     assert len(result.shortage_quantities) == 2 * DEMAND_SCENARIO_COUNT
 
-    assert len(result.model.constraints) == 4 * DEMAND_SCENARIO_COUNT
+    assert len(result.model.constraints()) == 4 * DEMAND_SCENARIO_COUNT
 
 
 def test_uses_prepared_forecast_for_each_product() -> None:

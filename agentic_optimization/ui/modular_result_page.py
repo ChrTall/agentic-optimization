@@ -88,6 +88,9 @@ def render_modular_result_page(
     for error in result_data["errors"]:
         st.error(error)
 
+    for warning in result_data["warnings"]:
+        st.warning(warning)
+
     st.markdown(
         f"**Grundmodell:** {result_data['core_name']}"
     )

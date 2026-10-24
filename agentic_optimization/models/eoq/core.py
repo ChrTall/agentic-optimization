@@ -163,97 +163,87 @@ def calculate_eoq_product(
         / holding_cost
     )
 
+    # Empfohlen werden ganze Einheiten: Ohne Bestellvielfaches gilt das
+    # Vielfache 1. Verglichen werden die ganzzahligen Nachbarn der EOQ.
     if order_multiple is None:
-        order_quantity = unconstrained_order_quantity
+        order_multiple = 1
 
-        if minimum_order_quantity is not None:
-            order_quantity = max(
-                order_quantity,
-                minimum_order_quantity,
-            )
-
-        if maximum_order_quantity is not None:
-            order_quantity = min(
-                order_quantity,
-                maximum_order_quantity,
-            )
-    else:
-        if order_multiple <= 0:
-            raise ValueError(
-                "Das Bestellvielfache muss größer als null sein."
-            )
-
-        minimum_factor = max(
-            1,
-            math.ceil(
-                (minimum_order_quantity or 0.0)
-                / order_multiple
-            ),
+    if order_multiple <= 0:
+        raise ValueError(
+            "Das Bestellvielfache muss größer als null sein."
         )
 
-        maximum_factor = (
-            math.floor(
-                maximum_order_quantity / order_multiple
-            )
-            if maximum_order_quantity is not None
-            else None
+    minimum_factor = max(
+        1,
+        math.ceil(
+            (minimum_order_quantity or 0.0)
+            / order_multiple
+        ),
+    )
+
+    maximum_factor = (
+        math.floor(
+            maximum_order_quantity / order_multiple
+        )
+        if maximum_order_quantity is not None
+        else None
+    )
+
+    if (
+        maximum_factor is not None
+        and minimum_factor > maximum_factor
+    ):
+        raise ValueError(
+            "Innerhalb der Bestellmengengrenzen "
+            "existiert kein zulässiges Bestellvielfaches."
         )
 
-        if (
-            maximum_factor is not None
-            and minimum_factor > maximum_factor
-        ):
-            raise ValueError(
-                "Innerhalb der Bestellmengengrenzen "
-                "existiert kein zulässiges Bestellvielfaches."
-            )
+    unconstrained_factor = (
+        unconstrained_order_quantity / order_multiple
+    )
 
-        unconstrained_factor = (
-            unconstrained_order_quantity / order_multiple
-        )
-
-        factor_candidates = {
+    factor_candidates = {
+        minimum_factor,
+        max(
             minimum_factor,
-            max(
-                minimum_factor,
-                math.floor(unconstrained_factor),
-            ),
-            max(
-                minimum_factor,
-                math.ceil(unconstrained_factor),
-            ),
-        }
+            math.floor(unconstrained_factor),
+        ),
+        max(
+            minimum_factor,
+            math.ceil(unconstrained_factor),
+        ),
+    }
 
-        if maximum_factor is not None:
-            factor_candidates = {
-                min(factor, maximum_factor)
-                for factor in factor_candidates
-            }
-            factor_candidates.add(maximum_factor)
-
-        quantity_candidates = {
-            float(factor * order_multiple)
+    if maximum_factor is not None:
+        factor_candidates = {
+            min(factor, maximum_factor)
             for factor in factor_candidates
-            if factor >= minimum_factor
-            and (
-                maximum_factor is None
-                or factor <= maximum_factor
-            )
         }
+        factor_candidates.add(maximum_factor)
 
-        def relevant_cost(quantity: float) -> float:
-            return (
-                annual_demand * ordering_cost / quantity
-                + holding_cost * quantity / 2.0
-            )
-
-        order_quantity = min(
-            quantity_candidates,
-            key=lambda quantity: (
-                relevant_cost(quantity),
-                quantity,
-            ),
+    quantity_candidates = {
+        float(factor * order_multiple)
+        for factor in factor_candidates
+        if factor >= minimum_factor
+        and (
+            maximum_factor is None
+            or factor <= maximum_factor
         )
+    }
+
+    def relevant_cost(quantity: float) -> float:
+        return (
+            annual_demand * ordering_cost / quantity
+            + holding_cost * quantity / 2.0
+        )
+
+    order_quantity = min(
+        quantity_candidates,
+        key=lambda quantity: (
+            relevant_cost(quantity),
+            quantity,
+        ),
+    )
 
     orders_per_year = annual_demand / order_quantity
     average_inventory = order_quantity / 2.0

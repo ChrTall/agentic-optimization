@@ -9,7 +9,7 @@ dieselben Prüfungen wie die Formulareingaben.
 """
 
 from copy import deepcopy
-from typing import Any, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 from agentic_optimization.agents.chat_assistant_agent import (
     ChatInputValue,
@@ -18,6 +18,7 @@ from agentic_optimization.agents.chat_assistant_agent import (
 )
 from agentic_optimization.models.component_registry import (
     CONSTRAINT_COMPONENTS,
+    OBJECTIVE_COMPONENTS,
 )
 from agentic_optimization.models.core_registry import (
     CORE_REGISTRY,
@@ -33,6 +34,7 @@ from agentic_optimization.ui.business_intake_view_builder import (
     build_business_intake_view_data,
 )
 from agentic_optimization.ui.business_problem_form import (
+    BUSINESS_QUESTIONS,
     BusinessQuestion,
 )
 from agentic_optimization.ui.field_renderer import (
@@ -56,7 +58,8 @@ from agentic_optimization.ui.modular_result_builder import (
 
 CHAT_SOURCE_ID = "chat_assistant"
 
-MAX_CONTEXT_TEXT = 4_000
+MAX_CONTEXT_TEXT = 12_000
+MAX_USER_STATEMENTS_CHARS = 16_000
 
 GREETING = (
     "Hallo! Ich begleite Sie Schritt für Schritt zu einer "
@@ -467,6 +470,40 @@ def check_product_rows(
 # ---------------------------------------------------------------------------
 
 
+SUPPORTED_CASES_TEXT = (
+    "Berechnen kann ich derzeit diese drei Arten von "
+    "Bestellentscheidungen für **ein Produkt**:\n"
+    "- **Einmalige Bestellung vor einer Saison** bei unsicherer "
+    "Nachfrage, ohne Nachbestellung (z. B. Weihnachtsbäume, "
+    "Saisonware, Tageszeitungen)\n"
+    "- **Regelmäßige Nachbestellung bei gleichmäßigem, bekanntem "
+    "Bedarf** – wie viel pro Bestellung (z. B. Büromaterial, "
+    "Verbrauchsteile)\n"
+    "- **Regelmäßige Nachbestellung bei schwankender Nachfrage** "
+    "mit laufender Bestandsüberwachung – wie viel und ab welchem "
+    "Bestand nachbestellt wird"
+)
+
+UNSUPPORTED_MESSAGE = (
+    "**Diese Situation kann ich leider noch nicht berechnen.**\n\n"
+    "{reason}"
+    + SUPPORTED_CASES_TEXT
+    + "\n\nWenn Ihre Situation doch zu einem dieser Fälle passt, "
+    "beschreiben Sie sie gern noch einmal mit diesem Schwerpunkt. "
+    "Sonst können Sie über **Neue Optimierung starten** neu "
+    "beginnen."
+)
+
+MISSING_DECISIVE_INFO_MESSAGE = (
+    "**Ohne diese Angabe kann ich kein passendes Rechenmodell "
+    "auswählen** – raten möchte ich hier nicht, weil die Empfehlung "
+    "sonst falsch sein könnte.\n\n"
+    "Sie können die fehlende Information später ergänzen: Schreiben "
+    "Sie mir einfach, sobald Sie sie kennen. "
+    + SUPPORTED_CASES_TEXT
+)
+
+
 class NextQuestion(TypedDict):
     """Die eine Angabe, nach der der Assistent als Nächstes fragt."""
 
@@ -605,6 +642,23 @@ def build_next_question(
             if view["message_type"] != "error":
                 return None
 
+            core_selection = intake_state.get("core_selection") or {}
+
+            if (
+                not intake_state.get("analysis_error")
+                and core_selection.get("status") == "unsupported"
+            ):
+                # Keine weitere Rückfrage: klar sagen, was nicht geht.
+                reason = core_selection.get("reason") or ""
+                return {
+                    "key": "business_intake:unsupported",
+                    "text": UNSUPPORTED_MESSAGE.format(
+                        reason=f"{reason}\n\n" if reason else ""
+                    ),
+                    "target": {"kind": "none"},
+                    "remaining": 0,
+                }
+
             return {
                 "key": f"business_intake:retry:{view['message']}",
                 "text": (
@@ -631,6 +685,21 @@ def build_next_question(
         questions = get_open_business_questions(graph_state)
 
         if not questions:
+            intake_state = graph_state.get("business_intake") or {}
+
+            if (
+                intake_state.get("profile") is not None
+                and build_business_intake_view_data(intake_state)[
+                    "message_type"
+                ] == "warning"
+            ):
+                return {
+                    "key": "business_clarification:missing_decisive_info",
+                    "text": MISSING_DECISIVE_INFO_MESSAGE,
+                    "target": {"kind": "none"},
+                    "remaining": 0,
+                }
+
             return None
 
         question = questions[0]
@@ -985,6 +1054,7 @@ def build_chat_context(
     *,
     raw_description: str = "",
     product_rows: list[dict[str, Any]] | None = None,
+    user_statements: str = "",
 ) -> dict[str, Any]:
     """Kontext für das LLM: Schritt, aktuelle Frage, bekannte Werte."""
 
@@ -1014,7 +1084,204 @@ def build_chat_context(
             else None
         ),
         "known_parameters": _known_parameters(graph_state),
+        "user_statements": user_statements,
     }
+
+
+# ---------------------------------------------------------------------------
+# Festgefahrene Fragen
+# ---------------------------------------------------------------------------
+
+MAX_UNANSWERED_REPEATS = 2
+"""Nach so vielen Antworten ohne Fortschritt bietet der Chat Auswege an."""
+
+
+def build_stuck_message(next_question: NextQuestion | None) -> str | None:
+    """Hilft weiter, wenn eine Frage mehrfach unbeantwortet bleibt."""
+
+    if next_question is None:
+        return None
+
+    kind = next_question["target"].get("kind")
+
+    if kind == "business_question":
+        return (
+            "Wir kommen bei dieser Frage gerade nicht weiter – kein "
+            "Problem. **Tippen Sie einfach auf eine der Antworten unter "
+            "der Frage.** Wenn Sie es nicht wissen, wählen Sie "
+            "„Noch nicht bekannt“. Ich sage Ihnen dann ehrlich, ob ich "
+            "trotzdem rechnen kann."
+        )
+
+    if kind == "model_input":
+        return (
+            "Bei dieser Angabe hänge ich fest. So geht es weiter:\n"
+            "- **Nennen Sie einfach die Zahl**, z. B. „120“ – die "
+            "Einheit steht in der Frage.\n"
+            "- **Sie kennen den Wert nicht?** Schreiben Sie „Wie schätze "
+            "ich das?“ – ich erkläre Ihnen, woher Sie ihn bekommen.\n"
+            "- Sie können den Wert auch direkt **im Formular rechts** "
+            "eintragen."
+        )
+
+    if kind == "description":
+        return (
+            "Ich konnte Ihre Situation bisher keinem Rechenmodell "
+            "zuordnen.\n\n"
+            + SUPPORTED_CASES_TEXT
+            + "\n\nWenn Ihre Situation zu keinem dieser Fälle passt, kann "
+            "ich sie leider noch nicht berechnen. Über **Neue "
+            "Optimierung starten** können Sie neu beginnen."
+        )
+
+    if kind in {"product_names", "product_table", "more_products"}:
+        return (
+            "Bei den Produktdaten hänge ich fest. Am einfachsten tragen "
+            "Sie die Werte **direkt in die Tabelle rechts** ein – ich "
+            "übernehme den Rest."
+        )
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Gedächtnis: bisherige Aussagen des Nutzers
+# ---------------------------------------------------------------------------
+
+
+def collect_user_statements(
+    messages: list[dict[str, Any]],
+    *,
+    limit: int = MAX_USER_STATEMENTS_CHARS,
+) -> str:
+    """Fasst alle bisherigen Nutzernachrichten ungekürzt zusammen.
+
+    Bei sehr langen Gesprächen bleiben die neuesten Aussagen erhalten.
+    """
+
+    statements = "\n\n".join(
+        message["content"].strip()
+        for message in messages
+        if message.get("role") == "user" and message.get("content", "").strip()
+    )
+
+    if len(statements) <= limit:
+        return statements
+
+    return "…" + statements[-(limit - 1):]
+
+
+class RecallItem(TypedDict):
+    """Eine offene Angabe, die aus bisherigen Aussagen kommen kann."""
+
+    id: str
+    key: str
+    kind: Literal["choice", "value"]
+    question: str
+    options: NotRequired[list[dict[str, str]]]
+    field: NotRequired[dict[str, Any]]
+
+
+def build_recall_items(
+    step: str,
+    graph_state: dict[str, Any] | None,
+) -> list[RecallItem]:
+    """Offene Angaben des aktuellen Schritts für den Erinnerungsschritt.
+
+    ``id`` ist die Kennung für das Sprachmodell (bei Modelleingaben
+    positionsabhängig), ``key`` bleibt über Schritte hinweg stabil.
+    """
+
+    graph_state = graph_state or {}
+
+    if step == "business_clarification":
+        return [
+            {
+                "id": question["question_id"],
+                "key": f"business:{question['question_id']}",
+                "kind": "choice",
+                "question": question["prompt"],
+                "options": [
+                    {"option_id": option["option_id"], "label": option["label"]}
+                    for option in question["options"]
+                    if option["option_id"] != "user_unknown"
+                ],
+            }
+            for question in get_open_business_questions(graph_state)
+        ]
+
+    if step == "model_input_form":
+        specification = (graph_state.get("modular_model") or {}).get(
+            "specification"
+        )
+
+        if specification is None:
+            return []
+
+        missing_inputs = flatten_missing_inputs(
+            build_modular_input_layout(specification)
+        )
+
+        return [
+            {
+                "id": _input_id(index),
+                "key": "model_input:" + describe_missing_input(missing_input),
+                "kind": "value",
+                "question": describe_missing_input(missing_input),
+                "field": _describe_field_for_llm(missing_input["field"]),
+            }
+            for index, missing_input in enumerate(missing_inputs)
+        ]
+
+    return []
+
+
+def _format_recalled_value(item: RecallItem, value: Any) -> str:
+    if item["kind"] == "choice":
+        for option in item.get("options", []):
+            if option["option_id"] == value:
+                return option["label"]
+
+    if isinstance(value, list):
+        return "; ".join(
+            f"{entry.get('level')}: {entry.get('value')}"
+            if isinstance(entry, dict)
+            else str(entry)
+            for entry in value
+        )
+
+    unit = (item.get("field") or {}).get("unit")
+    return f"{value} {unit}" if unit else str(value)
+
+
+def format_recall_note(
+    items: list[RecallItem],
+    recalled: list[dict[str, Any]],
+) -> str | None:
+    """Teilt dem Nutzer mit, was aus seinen Angaben übernommen wurde."""
+
+    items_by_id = {item["id"]: item for item in items}
+    lines = []
+
+    for answer in recalled:
+        item = items_by_id.get(answer["id"])
+
+        if item is None:
+            continue
+
+        lines.append(
+            f"- **{item['question']}**: "
+            f"{_format_recalled_value(item, answer['value'])} "
+            f"_(„{answer['quote']}“)_"
+        )
+
+    if not lines:
+        return None
+
+    return (
+        "Das haben Sie mir schon gesagt – ich habe es übernommen, "
+        "Sie müssen es nicht noch einmal angeben:\n" + "\n".join(lines)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1176,3 +1443,287 @@ def build_follow_up_messages(
         )
 
     return messages, question_key
+
+
+# ---------------------------------------------------------------------------
+# Nutzerführung: Fortschritt, Antwort-Buttons, bekanntes Wissen
+# ---------------------------------------------------------------------------
+
+STEP_PROGRESS = {
+    "business_intake": (1, "Situation beschreiben"),
+    "business_clarification": (2, "Rückfragen"),
+    "model_unsupported": (2, "Rückfragen"),
+    "product_table": (3, "Zahlen für die Berechnung"),
+    "model_input_form": (3, "Zahlen für die Berechnung"),
+    "review": (4, "Angaben prüfen"),
+    "result": (5, "Ergebnis"),
+}
+TOTAL_STEPS = 5
+
+EXAMPLE_DESCRIPTIONS = (
+    (
+        "🎄 Beispiel: Saisonware",
+        "Wir verkaufen Weihnachtsbäume in einer einzigen Saison und "
+        "bestellen sie einmal vor Saisonbeginn. Während der Saison können "
+        "wir nicht nachbestellen. Die Nachfrage ist unsicher. Ein Baum "
+        "wird für 25 € verkauft und kostet im Einkauf 10 €. Nicht "
+        "verkaufte Bäume können nach der Saison noch für 3 € pro Baum "
+        "verwertet werden. Wir möchten die Bestellmenge finden, mit der "
+        "wir voraussichtlich den höchsten Gewinn erzielen.",
+    ),
+    (
+        "🚲 Beispiel: Gleichmäßiger Bedarf",
+        "Die Bike-World GmbH verkauft ein E-Bike-Modell dauerhaft und "
+        "bestellt es regelmäßig nach. Für die kommenden 365 Tage erwarten "
+        "wir einen Bedarf von 1.200 E-Bikes, ungefähr gleichmäßig über die "
+        "Zeit. Es gibt keine Mengenrabatte und wir planen keine "
+        "Fehlbestände. Jede Bestellung verursacht feste Bestellkosten von "
+        "150 €. Die Lagerhaltung kostet 25 € pro E-Bike und Jahr. Wir "
+        "möchten die Bestellmenge bestimmen, bei der die jährlichen "
+        "Bestell- und Lagerhaltungskosten zusammen am geringsten sind.",
+    ),
+    (
+        "👕 Beispiel: Schwankende Nachfrage",
+        "Wir verkaufen ein T-Shirt-Modell dauerhaft und bestellen "
+        "regelmäßig nach. Der Lagerbestand wird laufend überwacht. Die "
+        "Lieferzeit beträgt konstant drei Tage. Die Nachfrage ist "
+        "unsicher: Für diese drei Tage erwarten wir 60 verkaufte "
+        "T-Shirts; die Nachfragequantile sind Q10 = 51,12, Q50 = 60 und "
+        "Q90 = 68,88. Wir möchten die Bestellmenge und den Meldebestand "
+        "bestimmen und die jährlichen Bestell-, Lagerhaltungs- und "
+        "Fehlmengenkosten minimieren. Jede Bestellung kostet 250 €, die "
+        "Lagerhaltung 50 € je T-Shirt und Jahr und jede fehlende Einheit "
+        "10 €.",
+    ),
+)
+
+
+def build_progress_label(step: str) -> str | None:
+    """Kurze Fortschrittsangabe für den Chat, z. B. „Schritt 2 von 5“."""
+
+    progress = STEP_PROGRESS.get(step)
+
+    if progress is None:
+        return None
+
+    number, label = progress
+    return f"Schritt {number} von {TOTAL_STEPS} · {label}"
+
+
+class QuickReply(TypedDict):
+    """Ein Antwort-Button unter der aktuellen Frage."""
+
+    key: str
+    label: str
+    kind: Literal["message", "answer", "action"]
+    value: Any
+
+
+def build_quick_replies(
+    step: str,
+    graph_state: dict[str, Any] | None,
+    next_question: NextQuestion | None,
+) -> list[QuickReply]:
+    """Antwortvorschläge, damit der Nutzer nicht tippen muss."""
+
+    graph_state = graph_state or {}
+    intake_state = graph_state.get("business_intake") or {}
+    target = (next_question or {}).get("target") or {}
+    question_key = (next_question or {}).get("key", step)
+
+    if target.get("kind") == "none":
+        return [
+            {
+                "key": f"{question_key}:restart",
+                "label": "🔄 Neu beginnen",
+                "kind": "action",
+                "value": "restart",
+            }
+        ]
+
+    if step == "business_intake" and not intake_state.get(
+        "analyzed_raw_input"
+    ):
+        return [
+            {
+                "key": f"example:{index}",
+                "label": label,
+                "kind": "message",
+                "value": text,
+            }
+            for index, (label, text) in enumerate(EXAMPLE_DESCRIPTIONS)
+        ]
+
+    if target.get("kind") == "business_question":
+        question_id = target["question_id"]
+
+        for question in get_open_business_questions(graph_state):
+            if question["question_id"] != question_id:
+                continue
+
+            return [
+                {
+                    "key": f"{question_key}:{option['option_id']}",
+                    "label": option["label"],
+                    "kind": "answer",
+                    "value": {
+                        "question_id": question_id,
+                        "option_id": option["option_id"],
+                    },
+                }
+                for option in question["options"]
+            ]
+
+    if target.get("kind") == "model_input":
+        return [
+            {
+                "key": f"{question_key}:estimate",
+                "label": "🤔 Wie schätze ich das?",
+                "kind": "message",
+                "value": "Ich kenne den Wert nicht genau. Wie kann ich ihn schätzen?",
+            }
+        ]
+
+    if step == "review":
+        return [
+            {
+                "key": "review:start",
+                "label": "✅ Berechnung starten",
+                "kind": "action",
+                "value": "start_optimization",
+            }
+        ]
+
+    if step == "result":
+        return [
+            {
+                "key": "result:explain",
+                "label": "💡 Ergebnis erklären",
+                "kind": "action",
+                "value": "explain_result",
+            },
+            {
+                "key": "result:restart",
+                "label": "🔄 Neue Optimierung",
+                "kind": "action",
+                "value": "restart",
+            },
+        ]
+
+    return []
+
+
+def _field_catalog(core_id: str | None) -> dict[str, dict[str, Any]]:
+    """Bezeichnungen und Einheiten aller Eingabefelder eines Modells."""
+
+    catalog: dict[str, dict[str, Any]] = {}
+    registered = CORE_REGISTRY.get(core_id or "")
+
+    if registered is not None:
+        definition = registered["definition"]
+
+        for field in [
+            *definition["required_forecast_fields"],
+            *definition["required_product_facts"],
+            *definition["required_global_facts"],
+        ]:
+            catalog.setdefault(field["name"], field)
+
+    for component in [
+        *OBJECTIVE_COMPONENTS.values(),
+        *CONSTRAINT_COMPONENTS.values(),
+    ]:
+        for field in [
+            *component["required_product_facts"],
+            *component["required_global_facts"],
+        ]:
+            catalog.setdefault(field["name"], field)
+
+    return catalog
+
+
+def _format_known_value(value: Any, field: dict[str, Any] | None) -> str:
+    if isinstance(value, list):
+        return "; ".join(
+            f"{entry.get('level')}: {entry.get('value')}"
+            if isinstance(entry, dict)
+            else str(entry)
+            for entry in value
+        )
+
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+
+    unit = (field or {}).get("unit")
+    return f"{value} {unit}" if unit else str(value)
+
+
+def build_known_facts_summary(
+    graph_state: dict[str, Any] | None,
+) -> list[str]:
+    """Alles, was die App schon weiß – als lesbare Liste (Markdown)."""
+
+    graph_state = graph_state or {}
+    intake_state = graph_state.get("business_intake") or {}
+    profile = intake_state.get("profile") or {}
+    modular_state = graph_state.get("modular_model") or {}
+    specification = modular_state.get("specification") or {}
+    lines: list[str] = []
+
+    for field_id in PROFILE_FIELD_IDS:
+        field = profile.get(field_id) or {}
+
+        if field.get("status") not in {"inferred", "confirmed"}:
+            continue
+
+        question = BUSINESS_QUESTIONS.get(field_id)
+        label = field.get("value")
+
+        if question is not None:
+            label = next(
+                (
+                    option["label"]
+                    for option in question["options"]
+                    if option["option_id"] == field.get("value")
+                ),
+                label,
+            )
+
+        lines.append(f"- {label}")
+
+    core_id = specification.get("core_id") or modular_state.get("core_id")
+    core_name = _core_name(core_id)
+
+    if core_name:
+        lines.append(f"- **Rechenmodell:** {core_name}")
+
+    catalog = _field_catalog(core_id)
+    products = specification.get("products") or modular_state.get("products") or []
+
+    for product in products[:MAX_CONTEXT_PRODUCTS]:
+        values = {
+            **(product.get("forecast") or {}),
+            **(product.get("facts") or {}),
+        }
+        details = [
+            f"{(catalog.get(name) or {}).get('label', name)}: "
+            f"{_format_known_value(value, catalog.get(name))}"
+            for name, value in values.items()
+            if value not in (None, "", [])
+        ]
+        lines.append(
+            f"- **Produkt „{product['product_id']}“**"
+            + (":\n" + "\n".join(f"  - {detail}" for detail in details)
+               if details else "")
+        )
+
+    for constraint in _constraint_summaries(specification):
+        parameters = ", ".join(
+            _format_known_value(value, None)
+            for value in constraint["parameters"].values()
+        )
+        lines.append(
+            f"- **{constraint['name']}**" + (f": {parameters}" if parameters else "")
+        )
+
+    return lines
