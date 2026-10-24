@@ -2,6 +2,7 @@
 Rendert Registry-definierte Eingabefelder und konvertiert ihre Widgetwerte.
 """
 import math
+from collections.abc import Callable
 
 from typing import Any, TypeAlias
 
@@ -75,6 +76,7 @@ def render_input_field(
     *,
     key_prefix: str,
     disabled: bool = False,
+    on_change: Callable[[], None] | None = None,
 ) -> Any:
     """
     Rendert ein Eingabefeld anhand seiner Registrydefinition.
@@ -122,6 +124,7 @@ def render_input_field(
             "help": help_text,
             "key": widget_key,
             "disabled": disabled,
+            "on_change": on_change,
         }
 
         min_value = field_definition.get("min_value")
@@ -164,6 +167,7 @@ def render_input_field(
             placeholder=placeholder,
             key=widget_key,
             disabled=disabled,
+            on_change=on_change,
         )
 
     if field_type == "forecast_quantiles":
@@ -179,6 +183,7 @@ def render_input_field(
             ),
             key=widget_key,
             disabled=disabled,
+            on_change=on_change,
         )
 
     raise ValueError(

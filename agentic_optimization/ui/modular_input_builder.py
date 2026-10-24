@@ -203,8 +203,9 @@ def can_render_product_input_table(
 
 def build_product_input_table_rows(
     layout: ModularInputLayout,
+    specification: ModelSpecification | None = None,
 ) -> list[dict[str, Any]]:
-    """Erzeugt eine leere editierbare Zeile je Produkt."""
+    """Erzeugt editierbare Zeilen, optional mit vorhandenen Modellwerten."""
 
     if not can_render_product_input_table(layout):
         raise ValueError(
@@ -213,18 +214,22 @@ def build_product_input_table_rows(
         )
 
     first_group = layout["product_groups"][0]
-    field_names = [
-        missing_input["field"]["name"]
-        for missing_input
-        in _get_product_group_inputs(first_group)
-    ]
+    fields = _get_product_group_inputs(first_group)
+    products_by_id = {
+        product["product_id"]: product
+        for product in (specification or {}).get("products", [])
+    }
 
     return [
         {
             "product_id": product_group["product_id"],
             **{
-                field_name: None
-                for field_name in field_names
+                item["field"]["name"]: products_by_id.get(
+                    product_group["product_id"], {}
+                ).get("forecast" if item["source"] == "forecast" else "facts", {}).get(
+                    item["field"]["name"]
+                )
+                for item in fields
             },
         }
         for product_group in layout["product_groups"]
@@ -235,6 +240,7 @@ def build_modular_input_layout(
     specification: ModelSpecification,
     *,
     card_limit: int = 3,
+    include_completed: bool = False,
 ) -> ModularInputLayout:
     """Gruppiert fehlende Eingaben nach UI-Bereich."""
 
@@ -263,7 +269,7 @@ def build_modular_input_layout(
 
     editable_inputs = list(validation_result["missing_inputs"])
 
-    if validation_result["errors"]:
+    if include_completed or validation_result["errors"]:
         registered_core = CORE_REGISTRY.get(
             specification["core_id"]
         )
@@ -370,6 +376,26 @@ def build_modular_input_layout(
                         "component_id": component_id,
                         "constraint_index": index,
                     })
+
+            if include_completed:
+                # Die Validatorliste enthält offene Felder zuerst. Für die
+                # Anzeige gilt hingegen immer die Reihenfolge der Registry,
+                # unabhängig davon, welche Werte bereits eingetragen sind.
+                fields_by_source = {
+                    "forecast": forecast_fields,
+                    "product_fact": fact_fields,
+                    "global_fact": global_fields,
+                }
+
+                def field_position(item: MissingInput) -> int:
+                    if item["source"] == "constraint_parameter":
+                        fields = CONSTRAINT_COMPONENTS[item["component_id"]]["parameters"]
+                    else:
+                        fields = fields_by_source[item["source"]]
+                    return next((index for index, field in enumerate(fields)
+                                 if field["name"] == item["field"]["name"]), len(fields))
+
+                editable_inputs.sort(key=field_position)
 
     for missing_input in editable_inputs:
         source = missing_input["source"]

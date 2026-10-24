@@ -132,7 +132,8 @@ def route_ui_from_graph_state(graph_state: dict) -> str:
         return "model_input_form"
 
     if status == WORKFLOW_READY_FOR_REVIEW:
-        return "review"
+        return ("review" if graph_state.get("modular_model", {}).get(
+            "form_3_review_confirmed", False) else "model_input_form")
 
     if status in {
         WORKFLOW_OPTIMIZATION_COMPLETED,
@@ -355,6 +356,7 @@ def submit_products(products: list) -> None:
         modular_model={
             **graph_state.get("modular_model", {}),
             "products": products,
+            "form_3_review_confirmed": False,
         },
     )
 
@@ -367,6 +369,7 @@ def submit_model_inputs(submissions: list) -> None:
             "modular_model": {
                 **graph_state.get("modular_model", {}),
                 "pending_input_submissions": submissions,
+                "form_3_review_confirmed": True,
             },
         }
     )

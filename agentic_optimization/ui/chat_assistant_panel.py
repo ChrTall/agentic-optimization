@@ -37,16 +37,16 @@ from agentic_optimization.ui.chat_assistant_builder import (
     build_chat_context,
     build_follow_up_messages,
     check_product_rows,
-    flatten_missing_inputs,
     get_open_business_questions,
     get_product_table_schema,
     merge_product_rows,
     resolve_input_submissions,
     resolve_question_answers,
 )
-from agentic_optimization.ui.modular_input_builder import (
-    build_modular_input_layout,
+from agentic_optimization.ui.modular_components import (
+    add_component, component_options, editable_chat_inputs, input_address, update_model_draft,
 )
+from agentic_optimization.models.specification_updates import apply_modular_input_value
 
 LOGGER = logging.getLogger(__name__)
 
@@ -114,6 +114,13 @@ def reset_chat_state() -> None:
         STEP_KEY,
         QUESTION_KEY,
         PRODUCT_ROWS_KEY,
+        "modular_input_drafts",
+        "modular_input_known_values",
+        "modular_table_base",
+        "modular_product_input_table",
+        "modular_additions_confirmed",
+        "modular_component_selection",
+        "modular_component_removal",
     ):
         st.session_state.pop(key, None)
 
@@ -161,6 +168,7 @@ def _announce_current_step() -> None:
             product_rows=product_rows,
             previous_step=st.session_state.get(STEP_KEY),
             previous_question_key=st.session_state.get(QUESTION_KEY),
+            additional_inputs_confirmed=st.session_state.get("modular_additions_confirmed", False),
         )
     except (KeyError, TypeError, ValueError):
         LOGGER.exception("Chat-Folgefrage konnte nicht erzeugt werden.")
@@ -250,20 +258,47 @@ def _apply_model_input_decision(
     if specification is None or not decision["input_values"]:
         return []
 
-    missing_inputs = flatten_missing_inputs(
-        build_modular_input_layout(specification)
-    )
-    submissions, errors = resolve_input_submissions(
-        decision["input_values"],
-        missing_inputs,
-    )
+    targets = editable_chat_inputs(specification)
+    missing_inputs = [target["input"] for target in targets]
+    inputs_by_id = {f"i{index + 1}": target for index, target in enumerate(targets)}
+    submissions = []
+    errors = []
+    seen = set()
+    for value in decision["input_values"]:
+        input_id = value["input_id"]
+        if input_id not in inputs_by_id or input_id in seen:
+            continue
+        seen.add(input_id)
+        parsed, problems = resolve_input_submissions([value], missing_inputs)
+        errors.extend(problems)
+        submissions.extend((item, inputs_by_id[input_id]) for item in parsed)
 
     if submissions:
-        # Der Tabelleneditor speichert Änderungen relativ zu den
-        # Ausgangszeilen. Nach einer Übernahme ändern sich die
-        # Zeilen, daher wird sein Zustand verworfen.
+        options = []
+        available = {o["option_id"]: o for o in component_options(specification)}
+        for submission, target in submissions:
+            if target["option_id"] and target["option_id"] not in options:
+                options.append(target["option_id"])
+        for option_id in options:
+            specification = add_component(specification, option_id)
+        for submission, target in submissions:
+            item = submission["missing_input"]
+            # Mehrere neu aktivierte Constraints erhalten erst jetzt ihre
+            # endgültigen Indizes im gemeinsamen Entwurf.
+            if item["source"] == "constraint_parameter":
+                if target["option_id"]:
+                    option = available[target["option_id"]]
+                    item = {**item, "constraint_index": next(
+                        i for i, c in enumerate(specification["constraints"])
+                        if c["component_id"] == option["component_id"]
+                        and c.get("product_id") == option["product_id"])}
+            specification = apply_modular_input_value(specification, item, submission["value"])
+            st.session_state.setdefault("modular_input_known_values", {}).pop(
+                input_address(specification, item), None)
         st.session_state.pop("modular_product_input_table", None)
-        handlers.submit_model_inputs(submissions)
+        st.session_state["graph_state"] = update_model_draft(graph_state, specification)
+        if options:
+            st.session_state["modular_additions_confirmed"] = False
 
     if errors:
         return [

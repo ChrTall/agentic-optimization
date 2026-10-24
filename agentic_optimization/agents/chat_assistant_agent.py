@@ -105,6 +105,10 @@ So führst du das Gespräch:
    kurzen Satz (z. B. "Danke, 120 € pro Bestellung sind
    notiert."). Stelle dann KEINE weitere Frage – die nächste
    Frage stellt die Anwendung automatisch.
+   Bestätige nur die Übernahme ("eingetragen", "übernommen", "notiert").
+   Bezeichne einen erfassten Wert niemals als korrekt, richtig, plausibel
+   oder fachlich bestätigt. Eine bestandene Eingabeprüfung prüft nur
+   formale Regeln und ersetzt keine fachliche Prüfung durch den Nutzer.
 4. Wenn die Nachricht die aktuelle Frage NICHT beantwortet
    (Rückfrage, Unsicherheit, Smalltalk): hilf weiter und
    stelle current_question am Ende noch einmal in eigenen
@@ -141,8 +145,11 @@ Feldregeln:
   Produktnamen genannt, gib die Produkte mit leeren values an.
 - known_parameters: bereits erfasste Angaben. Nutze sie, um
   Fragen dazu zu beantworten. Übernimm sie nicht erneut.
-  Bereits gesetzte Werte kannst du nicht ändern – verweise
-  dafür auf "Situation bearbeiten" bzw. einen Neustart.
+  In Schritt model_input_form darfst du bereits gesetzte Werte ändern,
+  wenn der Nutzer eine Korrektur nennt. Nutze die erlaubten input_id.
+  Felder mit activates_component nur übernehmen, wenn der Nutzer diese
+  zusätzliche Bedingung ausdrücklich nennt. Bei unklarer Produktzuordnung
+  nachfragen. In anderen Schritten auf "Situation bearbeiten" verweisen.
 
 Gib ausschließlich ein JSON-Objekt in diesem Format zurück:
 

@@ -24,6 +24,7 @@ from agentic_optimization.models.core_registry import (
 )
 from agentic_optimization.models.validator import (
     MissingInput,
+    validate_model_specification,
 )
 from agentic_optimization.state import (
     BusinessQuestionAnswer,
@@ -46,6 +47,7 @@ from agentic_optimization.ui.modular_input_builder import (
     build_dynamic_product_table_schema,
     build_modular_input_layout,
 )
+from agentic_optimization.ui.modular_components import component_options, editable_chat_inputs, input_address
 from agentic_optimization.ui.modular_product_list import (
     parse_dynamic_product_table,
 )
@@ -657,9 +659,7 @@ def build_next_question(
         if specification is None:
             return None
 
-        missing_inputs = flatten_missing_inputs(
-            build_modular_input_layout(specification)
-        )
+        missing_inputs = validate_model_specification(specification)["missing_inputs"]
 
         if not missing_inputs:
             return None
@@ -672,6 +672,10 @@ def build_next_question(
                 item[0],
             ),
         )
+        index = next(i for i, target in enumerate(editable_chat_inputs(specification))
+                     if target["option_id"] is None
+                     and input_address(specification, target["input"])
+                     == input_address(specification, missing_input))
         mention_product = (
             len(specification.get("products", [])) > 1
         )
@@ -866,16 +870,22 @@ def _build_step_context(
         specification = modular_state.get("specification")
         missing_inputs: list[MissingInput] = []
         validation_errors: list[str] = []
+        targets = []
 
         if specification is not None:
             layout = build_modular_input_layout(specification)
-            missing_inputs = flatten_missing_inputs(layout)
+            targets = editable_chat_inputs(specification)
+            missing_inputs = [target["input"] for target in targets]
             validation_errors = layout["validation_errors"]
 
         return {
             "step_description": (
-                "Für die Berechnung fehlen noch Zahlenwerte. "
-                "Übernimm genannte Werte in input_values."
+                "Übernimm oder korrigiere genannte Werte in input_values. "
+                "Felder mit activates_component aktivieren einen zusätzlichen "
+                "kompatiblen Baustein: nur bei ausdrücklichem Nutzerwunsch. "
+                "Bei mehreren Produkten und unklarer Zuordnung nachfragen. "
+                "Die Felder bleiben sichtbar. Der Nutzer prüft die zusätzlichen "
+                "Möglichkeiten und geht anschließend im Formular weiter."
             ),
             "missing_inputs": [
                 {
@@ -884,6 +894,7 @@ def _build_step_context(
                         missing_input
                     ),
                     "product_id": missing_input.get("product_id"),
+                    "activates_component": targets[index]["option_id"],
                     **_describe_field_for_llm(
                         missing_input["field"]
                     ),
@@ -1134,6 +1145,7 @@ def build_follow_up_messages(
     product_rows: list[dict[str, Any]] | None,
     previous_step: str | None,
     previous_question_key: str | None,
+    additional_inputs_confirmed: bool = False,
 ) -> tuple[list[str], str | None]:
     """
     Bestimmt, was der Assistent von sich aus sagen soll.
@@ -1174,5 +1186,33 @@ def build_follow_up_messages(
             next_question["text"]
             + _remaining_hint(next_question["remaining"])
         )
+
+    if step == "model_input_form" and not next_question:
+        specification = (graph_state or {}).get("modular_model", {}).get("specification")
+        errors = validate_model_specification(specification)["errors"] if specification else []
+        if errors:
+            question_key = "model_input:validation:" + "|".join(errors)
+            if question_key != previous_question_key:
+                messages.append("Die Eingabeprüfung meldet noch Unstimmigkeiten. "
+                                "Bitte korrigieren Sie die Angaben im Formular:\n"
+                                + "\n".join(f"- {error}" for error in errors))
+        else:
+            question_key = "model_input:complete:" + str(additional_inputs_confirmed)
+            if question_key == previous_question_key:
+                return messages, question_key
+            options = component_options(specification) if specification else []
+            examples = list(dict.fromkeys(o["label"].split(" – ")[0] for o in options))[:3]
+            additions = (" Möchten Sie weitere Angaben berücksichtigen, beispielsweise "
+                         + ", ".join(examples) + "?" if examples and not additional_inputs_confirmed else "")
+            next_step = (
+                " Prüfen Sie den Bereich ‚Weitere Angaben berücksichtigen‘ und "
+                "bestätigen Sie, dass alle relevanten Angaben berücksichtigt sind."
+                if not additional_inputs_confirmed else " Sie können zur Überprüfung weitergehen."
+            )
+            messages.append(
+                "Die Pflichtfelder sind ausgefüllt." + additions + next_step
+                + " Prüfen Sie die Werte "
+                "anschließend in der Überprüfung."
+            )
 
     return messages, question_key

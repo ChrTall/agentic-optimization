@@ -687,7 +687,7 @@ def apply_modular_model_inputs_node(
         [],
     )
 
-    input_layout = build_modular_input_layout(specification)
+    input_layout = build_modular_input_layout(specification, include_completed=True)
     allowed_inputs = [
         *(
             item

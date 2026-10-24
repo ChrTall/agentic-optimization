@@ -397,7 +397,7 @@ def test_model_input_context_uses_stable_ids() -> None:
         "model_input_form",
         {"modular_model": {"specification": specification}},
     )
-    assert question["remaining"] == len(ids)
+    assert question["remaining"] == len(flatten_missing_inputs(build_modular_input_layout(specification)))
     # Bei nur einem Produkt wird die Produktkennung nicht genannt.
     assert "product_1" not in question["text"]
 

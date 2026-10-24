@@ -78,6 +78,7 @@ def _chat_reply(context: dict) -> dict:
                     "value": VALUES.get(item["name"], 1),
                 }
                 for item in context["missing_inputs"]
+                if not item.get("activates_component")
             ],
         }
 
@@ -244,6 +245,12 @@ def test_complete_workflow_through_chat() -> None:
     assert app.session_state["step"] == "model_input_form"
 
     _say(app, "3500 Stück im Jahr, 120 € je Bestellung, 12 € Lager.")
+    assert app.session_state["step"] == "model_input_form"
+    assert app.number_input("modular_forecast_product_1_expected_value").value == 3500
+    assert app.button("submit_modular_model_inputs").disabled
+    app.checkbox("modular_additions_confirmed").check().run()
+    app.button("submit_modular_model_inputs").click().run()
+    assert not app.exception
     assert app.session_state["step"] == "review"
     assert not any(
         "Aus Ihrer Beschreibung abgeleitet" in item.value

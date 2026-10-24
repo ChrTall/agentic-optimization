@@ -226,6 +226,7 @@ class ModularModelState(TypedDict, total=False):
     specification: ModelSpecification
     validation: SpecificationValidationResult
     review_confirmed: bool
+    form_3_review_confirmed: bool
     optimization_result: OptimizationExecutionResult | None
     pending_input_submissions: list[ModularInputSubmission]
     preparation_error: str | None
