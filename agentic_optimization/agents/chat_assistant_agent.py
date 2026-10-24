@@ -9,7 +9,7 @@ sind und was damit passiert, bestimmt ausschließlich die App.
 import json
 import logging
 from collections.abc import Callable, Sequence
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -63,6 +63,8 @@ class ChatInputValue(TypedDict):
 
 class ChatProductRow(TypedDict):
     product_id: str
+    display_name: NotRequired[str]
+    display_name_evidence: NotRequired[str]
     values: dict[str, Any]
 
 
@@ -143,6 +145,12 @@ Feldregeln:
 - products: Werte je Produkt, Schlüssel sind die name-Felder
   aus product_fields. Nur genannte Werte. Werden nur
   Produktnamen genannt, gib die Produkte mit leeren values an.
+  Verwende vorhandene product_id für bestehende Produkte. Für neue Produkte
+  verwende product_1, product_2 usw. und display_name für den ausdrücklich
+  genannten Produktnamen. Belege ihn mit display_name_evidence als wörtlicher
+  Stelle aus der Nutzernachricht. Bei unklarer Zuordnung nachfragen.
+- Verwende in Antworten immer product_name bzw. display_name statt interner
+  product_id. Erfinde, übersetze oder korrigiere keine Produktnamen.
 - known_parameters: bereits erfasste Angaben. Nutze sie, um
   Fragen dazu zu beantworten. Übernimm sie nicht erneut.
   In Schritt model_input_form darfst du bereits gesetzte Werte ändern,
@@ -312,6 +320,9 @@ def sanitize_chat_decision(
                     ),
                 }
             )
+            for name_key in ("display_name", "display_name_evidence"):
+                if isinstance(item.get(name_key), str):
+                    decision["products"][-1][name_key] = item[name_key]
 
     action = raw_decision.get("action")
 

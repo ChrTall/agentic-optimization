@@ -21,6 +21,7 @@ from agentic_optimization.models.specification import (
     ModelSpecification,
 )
 from agentic_optimization.models.specification_updates import apply_modular_input_value
+from agentic_optimization.models.product_names import clean_product_name, product_name
 from agentic_optimization.models.validator import (
     MissingInput,
 )
@@ -129,6 +130,35 @@ def _sync_widget_input(item, widget_key):
     _sync_form_values([(item, st.session_state.get(widget_key))])
 
 
+def _sync_product_name(product_id, key):
+    graph = st.session_state["graph_state"]
+    specification = deepcopy(graph["modular_model"]["specification"])
+    product = next(p for p in specification["products"] if p["product_id"] == product_id)
+    name = clean_product_name(st.session_state.get(key))
+    if name:
+        product["display_name"] = name
+    else:
+        product.pop("display_name", None)
+    st.session_state["graph_state"] = update_model_draft(graph, specification)
+
+
+def _render_product_names(specification):
+    with st.expander("Produktnamen prüfen oder bearbeiten", expanded=False):
+        st.caption("Die Namen werden in allen weiteren Schritten angezeigt. "
+                   "Bitte prüfen Sie automatisch übernommene Bezeichnungen.")
+        known = st.session_state.setdefault("modular_product_name_known", {})
+        for index, product in enumerate(specification["products"], 1):
+            product_id = product["product_id"]
+            key = f"modular_product_name_{product_id}"
+            value = product.get("display_name")
+            if product_id in known and known[product_id] != value:
+                st.session_state.pop(key, None)
+            known[product_id] = value
+            st.text_input(f"Produktname {index}", value=value or product_name(specification, product_id),
+                          key=key, max_chars=120,
+                          on_change=partial(_sync_product_name, product_id, key))
+
+
 def _sync_product_table(layout):
     """Übernimmt abgeschlossene Zelländerungen aus dem Tabelleneditor."""
     rows = st.session_state.get("modular_table_base", [])
@@ -196,6 +226,7 @@ def _render_product_input_table(
     )
     if specification is not None:
         for group, row in zip(layout["product_groups"], table_rows):
+            row["product_name"] = product_name(specification, group["product_id"])
             for item in [*group["forecast_inputs"], *group["fact_inputs"]]:
                 value = _draft_value(specification, item)
                 if item["field"]["type"] == "forecast_quantiles" and isinstance(value, list):
@@ -218,11 +249,13 @@ def _render_product_input_table(
     ]
 
     column_config = {
-        "product_id": st.column_config.TextColumn(
+        "product_id": None if specification is not None else st.column_config.TextColumn(
             "Produkt",
             disabled=True,
         )
     }
+    if specification is not None:
+        column_config["product_name"] = st.column_config.TextColumn("Produkt", disabled=True)
 
     for missing_input in first_group_inputs:
         field = missing_input["field"]
@@ -262,10 +295,10 @@ def _render_product_input_table(
         table_rows,
         column_config=column_config,
         column_order=[
-            "product_id",
+            "product_name" if specification is not None else "product_id",
             *field_names,
         ],
-        disabled=["product_id"],
+        disabled=["product_id", "product_name"] if specification is not None else ["product_id"],
         hide_index=True,
         width="stretch",
         num_rows="fixed",
@@ -338,6 +371,7 @@ def render_modular_input_page(
     layout = build_modular_input_layout(
         specification, include_completed=True
     )
+    _render_product_names(specification)
 
     for error in layout["validation_errors"]:
         st.error(error)
@@ -400,7 +434,7 @@ def render_modular_input_page(
                 product_id = product_group["product_id"]
 
                 with st.expander(
-                    f"Produkt: {product_id}",
+                    f"Produkt: {product_name(specification, product_id)}",
                     expanded=True,
                 ):
                     if product_group["forecast_inputs"]:
@@ -473,7 +507,7 @@ def render_modular_input_page(
                 ]["name"]
 
                 product_id = constraint_group["product_id"]
-                st.markdown(f"**{component_name}**" + (f" – {product_id}" if product_id else ""))
+                st.markdown(f"**{component_name}**" + (f" – {product_name(specification, product_id)}" if product_id else ""))
 
                 for missing_input in constraint_group[
                     "inputs"
@@ -536,7 +570,10 @@ def _render_additional_components(specification, layout, base_addresses):
             if key not in st.session_state or known.get(option["option_id"]) != active:
                 st.session_state[key] = active
                 known[option["option_id"]] = active
-            selected = st.checkbox(option["label"], key=key, help=option["help"] or None)
+            if option["product_id"] is not None:
+                st.caption(f"Produkt: {product_name(specification, option['product_id'])}")
+            label = (OBJECTIVE_COMPONENTS if option["kind"] == "objective" else CONSTRAINT_COMPONENTS)[option["component_id"]]["name"]
+            selected = st.checkbox(label, key=key, help=option["help"] or None)
             if selected != active:
                 updated = (add_component(specification, option["option_id"]) if selected
                            else remove_component(specification, option))
@@ -566,7 +603,7 @@ def _render_additional_components(specification, layout, base_addresses):
                 seen.add(address)
                 if source == "product_fact":
                     if len(specification["products"]) > 1:
-                        st.caption(f"Produkt: {item['product_id']}")
+                        st.caption(f"Produkt: {product_name(specification, item['product_id'])}")
                     prefix = f"modular_fact_{item['product_id']}"
                 elif source == "global_fact":
                     prefix = "modular_global"

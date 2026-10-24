@@ -9,6 +9,8 @@ doppelt existiert.
 """
 
 import logging
+from copy import deepcopy
+from agentic_optimization.models.product_names import clean_product_name
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -214,6 +216,7 @@ def _apply_business_decision(
 def _apply_product_decision(
     decision: ChatAssistantDecision,
     handlers: ChatWorkflowHandlers,
+    user_message: str = "",
 ) -> list[str]:
     graph_state = st.session_state.get("graph_state") or {}
     schema = get_product_table_schema(graph_state)
@@ -224,7 +227,15 @@ def _apply_product_decision(
     rows = st.session_state.get(PRODUCT_ROWS_KEY, [])
 
     if decision["products"]:
-        rows = merge_product_rows(rows, decision["products"], schema)
+        updates = deepcopy(decision["products"])
+        for update in updates:
+            name = clean_product_name(update.get("display_name"))
+            quote = update.get("display_name_evidence")
+            if not (name and isinstance(quote, str) and quote.strip()
+                    and name.casefold() in quote.casefold()
+                    and quote.casefold() in user_message.casefold()):
+                update.pop("display_name", None)
+        rows = merge_product_rows(rows, updates, schema)
         st.session_state[PRODUCT_ROWS_KEY] = rows
         st.session_state[PRODUCT_ROWS_VERSION_KEY] += 1
 
@@ -374,7 +385,7 @@ def _process_user_message(
         if step in {"business_intake", "business_clarification"}:
             _apply_business_decision(decision, user_message, handlers)
         elif step == "product_table":
-            notes = _apply_product_decision(decision, handlers)
+            notes = _apply_product_decision(decision, handlers, user_message)
         elif step == "model_input_form":
             notes = _apply_model_input_decision(decision, handlers)
         elif step == "model_unsupported" and (

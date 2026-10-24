@@ -246,7 +246,8 @@ def test_renders_constraint_component_name(
     )
 
     assert result is None
-    assert any(call.args[0] == "Mindestbestellmenge – product_1" for call in streamlit.checkbox.call_args_list)
+    assert any(call.args[0] == "Mindestbestellmenge" for call in streamlit.checkbox.call_args_list)
+    streamlit.caption.assert_any_call("Produkt: Produkt 1")
 
 
 def test_submits_constraint_value_with_one_button_click(

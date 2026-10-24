@@ -42,6 +42,7 @@ class ProductSpecification(TypedDict):
     """Möglicherweise noch unvollständige Angaben eines Produkts."""
 
     product_id: str
+    display_name: NotRequired[str]
     forecast: NotRequired[DemandForecast]
     facts: NotRequired[dict[str, Any]]
 

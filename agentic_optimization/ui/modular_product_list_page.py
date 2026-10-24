@@ -4,6 +4,7 @@ Streamlit-Seite zur Erfassung mehrerer Produktkennungen.
 from typing import Any
 
 import streamlit as st
+from agentic_optimization.models.product_names import fallback_product_name
 
 from agentic_optimization.models.specification import (
     ComponentSelectionProposal,
@@ -23,12 +24,12 @@ def _build_dynamic_column_config(
     """Erzeugt die Streamlit-Spaltendefinitionen."""
 
     column_config: dict[str, Any] = {
-        "product_id": st.column_config.TextColumn(
-            "Produkt",
-            required=True,
+        "product_id": None,
+        "display_name": st.column_config.TextColumn(
+            "Produktname",
+            max_chars=120,
             help=(
-                "Eindeutige Artikelnummer oder "
-                "Produktbezeichnung."
+                "Bezeichnung des Produkts. Ohne Namen erscheint Produkt 1, Produkt 2 usw."
             ),
         )
     }
@@ -109,6 +110,7 @@ def render_dynamic_product_table_page(
     ]
     empty_row = {
         "product_id": "",
+        "display_name": "",
         **{
             field_name: None
             for field_name in field_names
@@ -125,6 +127,10 @@ def render_dynamic_product_table_page(
         }
         for row in (prefilled_rows or [])
     ] or [empty_row]
+    for row in initial_rows:
+        if (not row["display_name"] and row["product_id"]
+                and fallback_product_name(row["product_id"]) == row["product_id"]):
+            row["display_name"] = fallback_product_name(row["product_id"])
 
     st.subheader("Angaben zur Berechnung")
     st.write(
@@ -144,12 +150,13 @@ def render_dynamic_product_table_page(
             schema
         ),
         column_order=[
-            "product_id",
+            "display_name",
             *field_names,
         ],
         hide_index=False,
         width="stretch",
         num_rows="dynamic",
+        disabled=["product_id"],
         key=(
             "dynamic_modular_product_table"
             if not editor_version
@@ -183,6 +190,7 @@ def render_dynamic_product_table_page(
     result = parse_dynamic_product_table(
         edited_rows,
         schema,
+        generate_product_ids=True,
     )
 
     if result["errors"]:

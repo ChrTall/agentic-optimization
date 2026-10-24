@@ -224,3 +224,32 @@ def test_invalid_manual_correction_stays_open_and_preserves_raw_input():
     app.text_input("modular_forecast_p0_quantiles").set_value("0.1: 70; 0.5: 100; 0.9: 140").run()
     assert not app.exception
     assert "Pflichtfelder sind ausgefüllt" in app.session_state["chat_messages"][-1]["content"]
+
+
+def test_editable_names_propagate_to_review_and_result_without_changing_constraints():
+    from agentic_optimization.ui.modular_review_builder import build_modular_review_data
+    from agentic_optimization.ui.modular_result_builder import build_modular_result_data
+
+    app = make_app()
+    app.checkbox("modular_component_constraint:maximum_order_quantity:p0").check().run()
+    app.number_input("modular_constraint_maximum_order_quantity_p0_quantity").set_value(120).run()
+    app.text_input("modular_product_name_p0").set_value("Weihnachtsbäume").run()
+    assert not app.exception
+    assert app.checkbox("modular_component_constraint:maximum_order_quantity:p0").value
+    assert app.number_input("modular_constraint_maximum_order_quantity_p0_quantity").value == 120
+    model = app.session_state["graph_state"]["modular_model"]
+    spec = model["specification"]
+    assert spec["products"][0]["product_id"] == "p0"
+    assert spec["constraints"][0]["product_id"] == "p0"
+    review = build_modular_review_data(model["proposal"], spec)
+    assert review["products"][0]["display_name"] == "Weihnachtsbäume"
+    assert review["constraints"][0]["product_name"] == "Weihnachtsbäume"
+    result = build_modular_result_data(spec, {
+        "status": "optimal", "solution_method": "linear_programming", "objective_value": 1234,
+        "decisions": [{"quantity_id": "order_quantity", "product_id": "p0", "value": 100}],
+        "metrics": [], "errors": [], "technical_representation": None,
+    })
+    assert result["objective_value"] == 1234
+    assert result["decisions"][0]["product_id"] == "p0"
+    assert result["decisions"][0]["product_name"] == "Weihnachtsbäume"
+    assert result["objective_label"] == "Erwarteter Gewinn im Planungszeitraum (€)"

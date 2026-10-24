@@ -148,7 +148,7 @@ def test_builds_compact_multi_product_overview() -> None:
 
     assert rows == [
         {
-            "Produkt": "product_1",
+            "Produkt": "Produkt 1",
             "Erwartete Nachfrage": "100",
             "Nachfragequantile": "Q10: 70, Q90: 140",
             "Prognosezeitraum": "30",
@@ -156,7 +156,7 @@ def test_builds_compact_multi_product_overview() -> None:
             "Einkaufskosten": "5",
         },
         {
-            "Produkt": "product_2",
+            "Produkt": "Produkt 2",
             "Erwartete Nachfrage": "200",
             "Nachfragequantile": "Q10: 150, Q90: 260",
             "Prognosezeitraum": "30",
@@ -204,12 +204,12 @@ def test_builds_multi_product_constraint_overview() -> None:
     assert rows == [
         {
             "Nebenbedingung": "Mindestbestellmenge",
-            "Produkt": "product_1",
+            "Produkt": "Produkt 1",
             "Mindestbestellmenge": "50",
         },
         {
             "Nebenbedingung": "Mindestbestellmenge",
-            "Produkt": "product_2",
+            "Produkt": "Produkt 2",
             "Mindestbestellmenge": "80",
         },
     ]

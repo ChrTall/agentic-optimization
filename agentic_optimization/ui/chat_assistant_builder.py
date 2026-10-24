@@ -26,6 +26,7 @@ from agentic_optimization.models.validator import (
     MissingInput,
     validate_model_specification,
 )
+from agentic_optimization.models.product_names import clean_product_name, fallback_product_name, product_name
 from agentic_optimization.state import (
     BusinessQuestionAnswer,
     ModularInputSubmission,
@@ -54,6 +55,7 @@ from agentic_optimization.ui.modular_product_list import (
 from agentic_optimization.ui.modular_result_builder import (
     METRIC_LABELS,
     STATUS_LABELS,
+    objective_presentation,
 )
 
 CHAT_SOURCE_ID = "chat_assistant"
@@ -176,6 +178,7 @@ def flatten_missing_inputs(
 
 def describe_missing_input(
     missing_input: MissingInput,
+    specification: dict | None = None,
 ) -> str:
     """Beschreibt eine offene Eingabe verständlich."""
 
@@ -183,7 +186,8 @@ def describe_missing_input(
     source = missing_input["source"]
 
     if source in {"forecast", "product_fact"}:
-        return f"{label} – Produkt „{missing_input['product_id']}“"
+        name = product_name(specification or {}, missing_input["product_id"])
+        return f"{label} – Produkt „{name}“"
 
     if source == "constraint_parameter":
         component = CONSTRAINT_COMPONENTS.get(
@@ -443,6 +447,8 @@ def merge_product_rows(
                 **{field["name"]: None for field in fields},
             }
             rows.append(row)
+        if clean_product_name(update.get("display_name")):
+            row["display_name"] = clean_product_name(update["display_name"])
 
         for field_name, value in update["values"].items():
             field = fields_by_name.get(field_name)
@@ -557,7 +563,7 @@ def _next_product_table_question(
             "key": f"product_table:{product_id}:{field['name']}",
             "text": _field_question_text(
                 field,
-                product_id,
+                clean_product_name(row.get("display_name")) or fallback_product_name(product_id),
                 mention_product=True,
             ),
             "target": {
@@ -573,7 +579,7 @@ def _next_product_table_question(
         "text": (
             "Alle Angaben zu "
             + ", ".join(
-                f"„{row['product_id']}“" for row in product_rows
+                f"„{clean_product_name(row.get('display_name')) or fallback_product_name(row['product_id'])}“" for row in product_rows
             )
             + " sind da. **Kommen noch weitere Produkte "
             "dazu, oder sind das alle?**"
@@ -687,7 +693,7 @@ def build_next_question(
             ),
             "text": _field_question_text(
                 missing_input["field"],
-                missing_input.get("product_id"),
+                product_name(specification, missing_input.get("product_id")),
                 mention_product=mention_product,
             ),
             "target": {
@@ -727,6 +733,7 @@ def _constraint_summaries(
             )["name"],
             "parameters": constraint.get("parameters", {}),
             "product_id": constraint.get("product_id"),
+            "product_name": product_name(specification, constraint.get("product_id")),
         }
         for constraint in specification.get("constraints", [])
     ]
@@ -761,7 +768,8 @@ def _known_parameters(
             specification.get("core_id")
             or modular_state.get("core_id")
         ),
-        "products": products[:MAX_CONTEXT_PRODUCTS],
+        "products": [{**p, "display_name": product_name({"products": products}, p["product_id"])}
+                     for p in products[:MAX_CONTEXT_PRODUCTS]],
         "product_count": len(products),
         "global_facts": (
             specification.get("global_facts")
@@ -781,6 +789,7 @@ def _result_summary(
 ) -> dict[str, Any]:
     modular_state = graph_state.get("modular_model", {})
     result = modular_state.get("optimization_result") or {}
+    specification = modular_state.get("specification") or {}
 
     return {
         "status": STATUS_LABELS.get(
@@ -788,10 +797,13 @@ def _result_summary(
             result.get("status"),
         ),
         "objective_value": result.get("objective_value"),
-        "decisions": result.get("decisions", []),
+        "objective_label": objective_presentation(specification)[0] if specification.get("objective") else None,
+        "decisions": [{**d, "product_name": product_name(specification, d.get("product_id"))}
+                      for d in result.get("decisions", [])],
         "metrics": [
             {
                 **metric,
+                "product_name": product_name(specification, metric.get("product_id")),
                 "label": METRIC_LABELS.get(
                     metric.get("metric_id", ""),
                     metric.get("metric_id"),
@@ -891,9 +903,10 @@ def _build_step_context(
                 {
                     "input_id": _input_id(index),
                     "description": describe_missing_input(
-                        missing_input
+                        missing_input, specification
                     ),
                     "product_id": missing_input.get("product_id"),
+                    "product_name": product_name(specification or {}, missing_input.get("product_id")),
                     "activates_component": targets[index]["option_id"],
                     **_describe_field_for_llm(
                         missing_input["field"]

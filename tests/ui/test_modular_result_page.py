@@ -45,12 +45,12 @@ def test_builds_multi_product_result_overview() -> None:
 
     assert rows == [
         {
-            "Produkt": "product_1",
+            "Produkt": "Produkt 1",
             "Bestellmenge": "100,00",
             "Meldebestand": "40,00",
         },
         {
-            "Produkt": "product_2",
+            "Produkt": "Produkt 2",
             "Bestellmenge": "250,00",
             "Meldebestand": "85,00",
         },
@@ -143,11 +143,11 @@ def test_renders_multi_product_results_as_tables(
     streamlit.dataframe.assert_any_call(
         [
             {
-                "Produkt": "product_1",
+                "Produkt": "Produkt 1",
                 "Bestellmenge": "100,00",
             },
             {
-                "Produkt": "product_2",
+                "Produkt": "Produkt 2",
                 "Bestellmenge": "250,00",
             },
         ],
@@ -157,13 +157,13 @@ def test_renders_multi_product_results_as_tables(
     streamlit.dataframe.assert_any_call(
         [
             {
-                "Produkt": "product_1",
+                "Produkt": "Produkt 1",
                 "Durchschnittlicher Lagerbestand": (
                     "50,00"
                 ),
             },
             {
-                "Produkt": "product_2",
+                "Produkt": "Produkt 2",
                 "Durchschnittlicher Lagerbestand": (
                     "125,00"
                 ),

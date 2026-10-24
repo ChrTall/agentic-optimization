@@ -82,7 +82,7 @@ def test_renders_and_parses_dynamic_product_table(
     assert call_kwargs["num_rows"] == "dynamic"
     assert call_kwargs["hide_index"] is False
     assert call_kwargs["column_order"] == [
-        "product_id",
+        "display_name",
         "expected_value",
         "quantiles",
         "horizon_days",

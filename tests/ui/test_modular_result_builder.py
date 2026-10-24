@@ -3,7 +3,26 @@ import pytest
 from agentic_optimization.ui.modular_result_builder import (
     build_default_result_explanation,
     build_modular_result_data,
+    objective_presentation,
 )
+
+
+@pytest.mark.parametrize("core,sense,components,expected", [
+    ("eoq", "minimize", ["annual_ordering_cost", "annual_holding_cost"], "Jährliche Bestell- und Lagerhaltungskosten (€)"),
+    ("continuous_review_q_r", "minimize", ["annual_ordering_cost", "annual_holding_cost", "annual_shortage_cost"],
+     "Erwartete jährliche Bestell-, Lagerhaltungs- und Fehlmengenkosten (€)"),
+    ("single_period_newsvendor", "maximize", ["sales_revenue", "purchase_cost", "salvage_revenue"],
+     "Erwarteter Gewinn im Planungszeitraum (€)"),
+    ("single_period_newsvendor", "maximize", ["sales_revenue"], "Erwarteter Verkaufserlös im Planungszeitraum (€)"),
+    ("single_period_newsvendor", "minimize", ["purchase_cost", "disposal_cost"], "Erwartete Kosten im Planungszeitraum (€)"),
+    ("single_period_newsvendor", "minimize", ["sales_revenue", "purchase_cost"], "Modellierter Zielwert"),
+])
+def test_objective_labels_follow_actual_components(core, sense, components, expected):
+    label, help_text = objective_presentation({"core_id": core, "objective": {
+        "sense": sense, "component_ids": components}})
+    assert label == expected
+    assert "Berücksichtigte Bestandteile" in help_text
+    assert "nicht im Modell erfasste" in help_text
 
 
 def test_builds_modular_eoq_result_data() -> None:

@@ -5,6 +5,7 @@ Streamlit-Darstellung für die Prüfung modularer Modelle.
 from typing import Any
 
 import streamlit as st
+from agentic_optimization.models.product_names import fallback_product_name, product_name
 
 from agentic_optimization.models.component_catalog import (
     build_component_catalog,
@@ -61,7 +62,7 @@ def _build_product_overview_rows(
 
     for product in products:
         row = {
-            "Produkt": product["product_id"],
+            "Produkt": product.get("display_name", fallback_product_name(product["product_id"])),
         }
 
         for field_name, value in product[
@@ -101,8 +102,8 @@ def _build_constraint_overview_rows(
         row = {
             "Nebenbedingung": constraint["name"],
             "Produkt": (
-                constraint["product_id"]
-                or "Gesamtmodell"
+                constraint.get("product_name", fallback_product_name(constraint["product_id"]))
+                if constraint["product_id"] else "Gesamtmodell"
             ),
         }
         labels = parameter_labels.get(
@@ -380,7 +381,7 @@ def render_modular_review_page(
             product = products[0]
 
             with st.expander(
-                f"Produkt: {product['product_id']}",
+                f"Produkt: {product['display_name']}",
                 expanded=True,
             ):
                 _render_product_details(
@@ -410,6 +411,7 @@ def render_modular_review_page(
             selected_product_id = st.selectbox(
                 "Produktdetails anzeigen",
                 product_ids,
+                format_func=lambda product_id: product_name(specification, product_id),
                 key="modular_review_product_details",
             )
 
@@ -421,7 +423,7 @@ def render_modular_review_page(
             )
 
             with st.expander(
-                f"Details: {selected_product_id}",
+                f"Details: {product_name(specification, selected_product_id)}",
                 expanded=True,
             ):
                 _render_product_details(
@@ -501,7 +503,7 @@ def render_modular_review_page(
                         if constraint["product_id"]:
                             st.write(
                                 "Produkt: "
-                                f"{constraint['product_id']}"
+                                f"{constraint['product_name']}"
                             )
 
                         for (

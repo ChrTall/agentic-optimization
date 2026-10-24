@@ -112,6 +112,7 @@ def test_builds_review_data() -> None:
             "name": "Mindestbestellmenge",
             "scope": "per_product",
             "product_id": "product_1",
+            "product_name": "Produkt 1",
             "parameters": {
                 "quantity": 50.0,
             },
@@ -439,6 +440,7 @@ def test_copies_product_and_global_review_data() -> None:
     assert review["products"] == [
         {
             "product_id": "product_1",
+            "display_name": "Produkt 1",
             "forecast": {
                 "expected_value": 100.0,
                 "quantiles": [
@@ -512,6 +514,7 @@ def test_review_shows_order_multiple_constraint() -> None:
         "name": "Verpackungseinheit",
         "scope": "per_product",
         "product_id": "product_1",
+        "product_name": "Produkt 1",
         "parameters": {
             "multiple": 60,
         },
@@ -620,6 +623,7 @@ def test_review_shows_cycle_service_level() -> None:
         ),
         "scope": "per_product",
         "product_id": "product_1",
+        "product_name": "Produkt 1",
         "parameters": {
             "service_level_percent": 50.0,
         },

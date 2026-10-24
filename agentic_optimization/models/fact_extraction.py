@@ -4,6 +4,7 @@ Prüft und übernimmt extrahierte Fakten in Produktdaten.
 
 from copy import deepcopy
 from typing import Any
+from agentic_optimization.models.product_names import clean_product_name
 
 from agentic_optimization.models.component_catalog import (
     build_component_catalog,
@@ -84,6 +85,7 @@ def merge_extracted_facts(
     products: list[ProductSpecification],
     global_facts: dict[str, Any],
     extraction: dict[str, Any],
+    evidence_texts: list[str] | None = None,
 ) -> tuple[
     list[ProductSpecification],
     dict[str, Any],
@@ -128,6 +130,42 @@ def merge_extracted_facts(
         product["product_id"]: product
         for product in updated_products
     }
+    # Namensmetadaten sind unabhängig von Zahlen: Das LLM darf deshalb
+    # products=[] und trotzdem belegte Produktnamen zurückgeben.
+    name_candidates = extraction.get("product_names", [])
+    if isinstance(name_candidates, list):
+        candidate_counts = {}
+        for candidate in name_candidates:
+            if isinstance(candidate, dict) and isinstance(candidate.get("product_id"), str):
+                key = candidate["product_id"]
+                candidate_counts[key] = candidate_counts.get(key, 0) + 1
+        extracted_products = deepcopy(extracted_products)
+        for candidate in name_candidates:
+            if not isinstance(candidate, dict):
+                continue
+            key = candidate.get("product_id")
+            if not isinstance(key, str) or key not in products_by_id:
+                continue
+            if candidate_counts.get(key) != 1 or candidate.get("status") != "identified":
+                for item in extracted_products:
+                    if isinstance(item, dict) and item.get("product_id") == key:
+                        item.pop("display_name", None)
+                        item.pop("display_name_evidence", None)
+                continue
+            # Bei widersprüchlichen Angaben im selben LLM-Ergebnis keinen
+            # der Namen nach willkürlicher Reihenfolge übernehmen.
+            existing = [p for p in extracted_products if isinstance(p, dict) and p.get("product_id") == key]
+            if existing:
+                if existing[0].get("display_name") not in (None, candidate.get("display_name")):
+                    existing[0].pop("display_name", None)
+                    existing[0].pop("display_name_evidence", None)
+                    continue
+                existing[0].update({field: candidate.get(field)
+                                    for field in ("display_name", "display_name_evidence")})
+            else:
+                extracted_products.append({"product_id": key,
+                                           "display_name": candidate.get("display_name"),
+                                           "display_name_evidence": candidate.get("display_name_evidence")})
     seen_product_ids: set[str] = set()
 
     for extracted_product in extracted_products:
@@ -162,6 +200,19 @@ def merge_extracted_facts(
                 f"Das extrahierte Produkt '{product_id}' "
                 "ist nicht im Modellentwurf vorhanden."
             )
+
+        name = clean_product_name(extracted_product.get("display_name"))
+        quote = extracted_product.get("display_name_evidence")
+        # Ein belegter Wortlaut ist erforderlich. Bei mehreren Produkten
+        # muss dieselbe Textstelle zusätzlich die feste ID zuordnen.
+        if (not product.get("display_name") and name and isinstance(quote, str)
+                and quote.strip() and name.casefold() in quote.casefold()
+                and any(quote.casefold() in text.casefold() for text in (evidence_texts or []))
+                and (len(products) == 1 or (
+                    product_id.casefold() in quote.casefold()
+                    and not any(other.casefold() in quote.casefold()
+                                for other in products_by_id if other != product_id)))):
+            product["display_name"] = name
 
         forecast = extracted_product.get(
             "forecast",

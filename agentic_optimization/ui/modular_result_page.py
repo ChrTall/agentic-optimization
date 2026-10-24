@@ -3,6 +3,7 @@ Streamlit-Darstellung modularer Optimierungsergebnisse.
 """
 
 import streamlit as st
+from agentic_optimization.models.product_names import fallback_product_name
 
 from agentic_optimization.models.execution import (
     OptimizationExecutionResult,
@@ -35,19 +36,19 @@ def _build_result_overview_rows(
     """Gruppiert Ergebniswerte zu einer Zeile je Produkt."""
 
     rows_by_product: dict[
-        str,
+        str | None,
         dict[str, str],
     ] = {}
 
     for item in values:
         product_label = (
-            item["product_id"]
+            item.get("product_name", fallback_product_name(item["product_id"]))
             if item["product_id"] is not None
             else "Gesamtmodell"
         )
 
         row = rows_by_product.setdefault(
-            product_label,
+            item["product_id"],
             {
                 "Produkt": product_label,
             },
@@ -98,10 +99,11 @@ def render_modular_result_page(
 
     if result_data["objective_value"] is not None:
         st.metric(
-            "Zielfunktionswert",
+            result_data["objective_label"],
             _format_result_value(
                 result_data["objective_value"]
             ),
+            help=result_data["objective_help"],
         )
 
     if result_data["decisions"]:
@@ -124,7 +126,7 @@ def render_modular_result_page(
         else:
             for decision in result_data["decisions"]:
                 product_label = (
-                    f" – {decision['product_id']}"
+                    f" – {decision['product_name']}"
                     if decision["product_id"]
                     else ""
                 )
@@ -172,7 +174,7 @@ def render_modular_result_page(
             metric_rows = [
                 {
                     "Produkt": (
-                        metric["product_id"]
+                        metric["product_name"]
                         or "Gesamtmodell"
                     ),
                     "Kennzahl": metric["label"],

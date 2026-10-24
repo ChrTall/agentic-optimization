@@ -3,6 +3,8 @@ Bereitet modulare Optimierungsergebnisse für die UI auf.
 """
 from copy import deepcopy
 from typing import TypedDict
+from agentic_optimization.models.component_registry import OBJECTIVE_COMPONENTS
+from agentic_optimization.models.product_names import product_name
 
 from agentic_optimization.models.core_registry import (
     CORE_REGISTRY,
@@ -68,6 +70,7 @@ class ModularResultValue(TypedDict):
     label: str
     value: int | float
     product_id: str | None
+    product_name: str
     aggregation: str | None
 
 
@@ -82,6 +85,8 @@ class ModularResultData(TypedDict):
     solution_method: str
     solution_method_label: str
     objective_value: float | None
+    objective_label: str
+    objective_help: str
     decisions: list[ModularResultValue]
     metrics: list[ModularResultValue]
     excluded_requirements: list[ExcludedRequirement]
@@ -111,7 +116,7 @@ def build_default_result_explanation(
     elif len(decisions) == 1:
         decision = decisions[0]
         product_text = (
-            f" für {decision['product_id']}"
+            f" für {decision.get('product_name', decision['product_id'])}"
             if decision["product_id"]
             else ""
         )
@@ -157,6 +162,41 @@ def build_default_result_explanation(
     return explanation
 
 
+def objective_presentation(specification: ModelSpecification) -> tuple[str, str]:
+    """Verlässliche Beschriftung aus Grundmodell, Zielrichtung und Zielbausteinen."""
+    ids = set(specification["objective"]["component_ids"])
+    sense = specification["objective"]["sense"]
+    core = specification["core_id"]
+    label = "Modellierter Zielwert"
+    if core == "eoq" and sense == "minimize" and ids == {"annual_ordering_cost", "annual_holding_cost"}:
+        label = "Jährliche Bestell- und Lagerhaltungskosten (€)"
+    elif core == "continuous_review_q_r" and sense == "minimize":
+        if ids == {"annual_ordering_cost", "annual_holding_cost", "annual_shortage_cost"}:
+            label = "Erwartete jährliche Bestell-, Lagerhaltungs- und Fehlmengenkosten (€)"
+        elif ids == {"annual_ordering_cost", "annual_holding_cost"}:
+            label = "Erwartete jährliche Bestell- und Lagerhaltungskosten (€)"
+    elif core == "single_period_newsvendor":
+        allowed = {"sales_revenue", "salvage_revenue", "purchase_cost", "disposal_cost", "shortage_cost"}
+        if ids and ids <= allowed:
+            if sense == "maximize" and {"sales_revenue", "purchase_cost"} <= ids:
+                label = "Erwarteter Gewinn im Planungszeitraum (€)"
+            elif sense == "maximize" and ids == {"sales_revenue"}:
+                label = "Erwarteter Verkaufserlös im Planungszeitraum (€)"
+            elif sense == "maximize" and ids <= {"sales_revenue", "salvage_revenue"}:
+                label = "Erwartete Erlöse im Planungszeitraum (€)"
+            elif sense == "minimize" and ids <= {"purchase_cost", "disposal_cost", "shortage_cost"}:
+                label = "Erwartete Kosten im Planungszeitraum (€)"
+    components = []
+    for component_id in specification["objective"]["component_ids"]:
+        definition = OBJECTIVE_COMPONENTS.get(component_id)
+        if definition:
+            positive = definition["effect"] == ("benefit" if sense == "maximize" else "cost")
+            components.append(("+ " if positive else "− ") + definition["name"])
+    help_text = "Berücksichtigte Bestandteile: " + "; ".join(components) + "."
+    help_text += " Weitere, nicht im Modell erfasste Kosten und Erlöse sind darin nicht enthalten."
+    return label, help_text
+
+
 def build_modular_result_data(
     specification: ModelSpecification,
     result: OptimizationExecutionResult,
@@ -194,6 +234,7 @@ def build_modular_result_data(
                 ),
                 "value": decision["value"],
                 "product_id": decision.get("product_id"),
+                "product_name": product_name(specification, decision.get("product_id")),
                 "aggregation": None,
             }
         )
@@ -217,12 +258,14 @@ def build_modular_result_data(
                 "label": label or metric_id,
                 "value": metric["value"],
                 "product_id": metric.get("product_id"),
+                "product_name": product_name(specification, metric.get("product_id")),
                 "aggregation": metric.get("aggregation"),
             }
         )
 
     status = result["status"]
     solution_method = result["solution_method"]
+    objective_label, objective_help = objective_presentation(specification)
 
     return {
         "core_id": core_id,
@@ -244,6 +287,8 @@ def build_modular_result_data(
             )
         ),
         "objective_value": result["objective_value"],
+        "objective_label": objective_label,
+        "objective_help": objective_help,
         "decisions": decisions,
         "metrics": metrics,
         "excluded_requirements": deepcopy(

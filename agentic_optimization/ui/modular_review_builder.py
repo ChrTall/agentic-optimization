@@ -4,6 +4,7 @@ Bereitet modulare Modellspezifikationen für die Prüfung auf.
 
 from copy import deepcopy
 from typing import Any, TypedDict
+from agentic_optimization.models.product_names import product_name
 
 from agentic_optimization.models.component_registry import (
     CONSTRAINT_COMPONENTS,
@@ -45,6 +46,7 @@ class ReviewConstraint(TypedDict):
     name: str
     scope: str
     product_id: str | None
+    product_name: str
     parameters: dict[str, Any]
     reason: str
     sources: list[str]
@@ -54,6 +56,7 @@ class ReviewProduct(TypedDict):
     """Produktdaten für die fachliche Überprüfung."""
 
     product_id: str
+    display_name: str
     forecast: dict[str, Any]
     facts: dict[str, Any]
 
@@ -370,6 +373,7 @@ def build_modular_review_data(
                 "product_id": specification_constraint.get(
                     "product_id"
                 ),
+                "product_name": product_name(specification, specification_constraint.get("product_id")),
                 "parameters": deepcopy(
                     specification_constraint["parameters"]
                 ),
@@ -392,6 +396,7 @@ def build_modular_review_data(
         "products": [
             {
                 "product_id": product["product_id"],
+                "display_name": product_name(specification, product["product_id"]),
                 "forecast": deepcopy(
                     product.get("forecast", {})
                 ),

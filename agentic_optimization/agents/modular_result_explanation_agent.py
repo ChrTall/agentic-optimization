@@ -42,6 +42,9 @@ Annahmen, Einsparungen oder Handlungsempfehlungen.
 Interpretiere den Zielfunktionswert nur entsprechend der
 übergebenen objective_summary. Bezeichne ihn nicht pauschal
 als Gewinn, Kosten oder Umsatz.
+Nutze für seine Bezeichnung objective_label aus den Ergebnisdaten.
+Verwende gespeicherte product_name bzw. display_name statt interner product_id.
+Erfinde keine Produktnamen.
 
 Bei mehreren Produkten fasse das Ergebnis zusammen und
 nenne nur besonders relevante Beispiele. Liste nicht alle

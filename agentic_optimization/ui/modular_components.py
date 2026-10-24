@@ -5,6 +5,7 @@ from typing import TypedDict
 
 from agentic_optimization.models.component_catalog import build_component_catalog
 from agentic_optimization.models.core_registry import CORE_REGISTRY
+from agentic_optimization.models.product_names import product_name
 from agentic_optimization.models.specification import ModelSpecification
 from agentic_optimization.models.validator import validate_model_specification
 from agentic_optimization.state import invalidate_optimization_state
@@ -60,7 +61,7 @@ def component_options(
                 "component_id": component["component_id"],
                 "kind": "constraint", "product_id": product_id,
                 "label": component["name"] + (
-                    f" – {product_id}" if product_id is not None else ""),
+                    f" – {product_name(specification, product_id)}" if product_id is not None else ""),
                 "help": " ".join(field.get("help", "")
                                  for field in component["parameters"]),
             })

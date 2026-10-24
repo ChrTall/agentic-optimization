@@ -4,6 +4,7 @@ Erfassung einer Produktliste für die modulare Eingabetabelle.
 
 
 from typing import Any, TypedDict
+from agentic_optimization.models.product_names import clean_product_name
 from agentic_optimization.models.specification import (
     ProductSpecification,
 )
@@ -37,6 +38,7 @@ def parse_dynamic_product_table(
     schema: DynamicProductTableSchema,
     *,
     maximum_products: int = 500,
+    generate_product_ids: bool = False,
 ) -> DynamicProductTableResult:
     """Erzeugt Produktobjekte aus vollständigen Tabellenzeilen."""
 
@@ -81,6 +83,13 @@ def parse_dynamic_product_table(
             if not _is_empty_table_value(raw_product_id)
             else ""
         )
+
+        if not product_id and generate_product_ids:
+            reserved = {str(item.get("product_id", "")).strip().casefold() for item in active_rows}
+            index = row_index
+            while f"product_{index}" in reserved or f"product_{index}" in normalized_product_ids:
+                index += 1
+            product_id = f"product_{index}"
 
         if not product_id:
             errors.append(
@@ -155,6 +164,12 @@ def parse_dynamic_product_table(
                 "facts": facts,
             }
         )
+        if row.get("display_name"):
+            name = clean_product_name(row["display_name"])
+            if name is None:
+                errors.append(f"Zeile {row_index}: Der Produktname darf höchstens 120 Zeichen enthalten.")
+            else:
+                products[-1]["display_name"] = name
 
     if errors:
         return {
