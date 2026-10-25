@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 from agentic_optimization.llm.json_response import parse_json_object
+from agentic_optimization.i18n import language_instruction
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
     HumanMessage,
@@ -22,7 +23,8 @@ Kenntnisse der mathematischen Optimierung.
 Die Modellwahl, Zielfunktion, Nebenbedingungen und Daten
 wurden bereits festgelegt. Du darfst daran nichts verändern.
 
-Erkläre in klarer deutscher Alltagssprache:
+Erkläre in klarer Alltagssprache (Deutsch, sofern unten keine andere
+Sprache verlangt wird):
 
 1. unter welchen belegten Voraussetzungen das ausgewählte
    Grundmodell zur Situation passt,
@@ -176,7 +178,7 @@ def create_modular_review_explanation_agent(
         response = llm.invoke(
             [
                 SystemMessage(
-                    content=SYSTEM_PROMPT
+                    content=SYSTEM_PROMPT + language_instruction()
                 ),
                 HumanMessage(
                     content=json.dumps(

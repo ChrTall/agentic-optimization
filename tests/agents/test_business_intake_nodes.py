@@ -1939,7 +1939,7 @@ def test_initializes_single_product_and_raw_evidence() -> None:
 
     assert modular_state["products"] == [
         {
-            "product_id": "Produkt",
+            "product_id": "Produkt 1",
             "forecast": {},
             "facts": {},
         }

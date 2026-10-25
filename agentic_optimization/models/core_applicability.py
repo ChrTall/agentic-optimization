@@ -2,6 +2,7 @@
 
 from collections.abc import Collection, Mapping, Sequence
 from typing import Literal, TypedDict
+from agentic_optimization.i18n import t
 
 
 Finding = Literal["supported", "contradicted", "conflict"]
@@ -176,7 +177,7 @@ def ground_applicability_findings(
     """Akzeptiert nur Befunde mit nachweisbarem Textbeleg."""
 
     if core_id not in CORE_CONDITIONS:
-        raise ValueError(f"Unbekanntes Grundmodell: {core_id}")
+        raise ValueError(t("Unbekanntes Grundmodell: {core_id}", core_id=core_id))
 
     allowed_conditions = set(CORE_CONDITIONS[core_id])
     grounded: dict[str, Finding] = {}
@@ -191,10 +192,10 @@ def ground_applicability_findings(
             not isinstance(condition_id, str)
             or condition_id not in allowed_conditions
         ):
-            raise ValueError("Unbekannte Modellvoraussetzung.")
+            raise ValueError(t("Unbekannte Modellvoraussetzung."))
 
         if status not in {"supported", "contradicted"}:
-            raise ValueError("Ungültiger Eignungsbefund.")
+            raise ValueError(t("Ungültiger Eignungsbefund."))
 
         if (
             not isinstance(source_id, str)
@@ -204,7 +205,7 @@ def ground_applicability_findings(
             or excerpt not in sources[source_id]
         ):
             raise ValueError(
-                f"Nicht belegter Befund für {condition_id}."
+                t("Nicht belegter Befund für {condition_id}.", condition_id=condition_id)
             )
 
         finding: Finding = (
@@ -227,20 +228,20 @@ def assess_core_applicability(
     """Bewertet belegte, widersprochene und offene Voraussetzungen."""
 
     if core_id not in CORE_CONDITIONS:
-        raise ValueError(f"Unbekanntes Grundmodell: {core_id}")
+        raise ValueError(t("Unbekanntes Grundmodell: {core_id}", core_id=core_id))
 
     conditions = CORE_CONDITIONS[core_id]
     unknown_ids = set(findings) - set(conditions)
     if unknown_ids:
         raise ValueError(
-            f"Unbekannte Voraussetzungen: {sorted(unknown_ids)}"
+            t("Unbekannte Voraussetzungen: {value1}", value1=sorted(unknown_ids))
         )
 
     if any(
         value not in {"supported", "contradicted", "conflict"}
         for value in findings.values()
     ):
-        raise ValueError("Ungültiger Befund zur Modelleignung.")
+        raise ValueError(t("Ungültiger Befund zur Modelleignung."))
 
     contradicted = [
         condition
@@ -283,10 +284,10 @@ def plan_core_applicability(
     """Plant Klärung und Review, ohne einen Kern endgültig auszuwählen."""
 
     if core_id not in CORE_CONDITIONS:
-        raise ValueError(f"Unbekanntes Grundmodell: {core_id}")
+        raise ValueError(t("Unbekanntes Grundmodell: {core_id}", core_id=core_id))
     deferred = set(deferred_conditions)
     if deferred - set(CORE_CONDITIONS[core_id]):
-        raise ValueError("Unbekannte offen gelassene Modellvoraussetzung.")
+        raise ValueError(t("Unbekannte offen gelassene Modellvoraussetzung."))
     effective_findings = {
         condition_id: finding
         for condition_id, finding in findings.items()
@@ -298,8 +299,7 @@ def plan_core_applicability(
     )
     if unknown_confirmations:
         raise ValueError(
-            "Unbekannte bestätigte Modellvoraussetzungen: "
-            f"{sorted(unknown_confirmations)}"
+            t("Unbekannte bestätigte Modellvoraussetzungen: {value1}", value1=sorted(unknown_confirmations))
         )
     pending_confirmation = [
         condition

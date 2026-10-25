@@ -18,6 +18,7 @@ from agentic_optimization.models.types import (
     ConstraintParameterDefinition,
     ModelInputField,
 )
+from agentic_optimization.i18n import t
 
 
 ComponentScope = Literal[
@@ -269,8 +270,7 @@ def build_minimum_order_quantity(
 
     if not product_id:
         raise ValueError(
-            "Die Mindestbestellmenge muss einem "
-            "Produkt zugeordnet sein."
+            t("Die Mindestbestellmenge muss einem Produkt zugeordnet sein.")
         )
 
     quantity = float(
@@ -302,8 +302,7 @@ def build_maximum_order_quantity(
 
     if not product_id:
         raise ValueError(
-            "Die Höchstbestellmenge muss einem "
-            "Produkt zugeordnet sein."
+            t("Die Höchstbestellmenge muss einem Produkt zugeordnet sein.")
         )
 
     quantity = float(
@@ -335,8 +334,7 @@ def build_order_multiple(
 
     if not product_id:
         raise ValueError(
-            "Das Bestellvielfache muss einem "
-            "Produkt zugeordnet sein."
+            t("Das Bestellvielfache muss einem Produkt zugeordnet sein.")
         )
 
     multiple = int(
@@ -374,8 +372,7 @@ def build_minimum_cycle_service_level(
 
     if not product_id:
         raise ValueError(
-            "Das Mindest-Zyklusservicelevel muss einem "
-            "Produkt zugeordnet sein."
+            t("Das Mindest-Zyklusservicelevel muss einem Produkt zugeordnet sein.")
         )
 
     service_level = (
@@ -398,7 +395,7 @@ def build_minimum_cycle_service_level(
 
     if product is None:
         raise ValueError(
-            f"Das Produkt '{product_id}' ist nicht vorhanden."
+            t("Das Produkt '{product_id}' ist nicht vorhanden.", product_id=product_id)
         )
 
     quantiles = product.get(
@@ -417,9 +414,7 @@ def build_minimum_cycle_service_level(
 
     if not eligible_quantiles:
         raise ValueError(
-            "Die Nachfrageprognose enthält kein Quantil "
-            "auf oder oberhalb des geforderten "
-            "Servicelevels."
+            t("Die Nachfrageprognose enthält kein Quantil auf oder oberhalb des geforderten Servicelevels.")
         )
 
     demand_quantile = min(

@@ -385,7 +385,7 @@ def test_model_input_context_uses_stable_ids() -> None:
 
     ids = [item["input_id"] for item in context["missing_inputs"]]
     assert ids == [f"i{index + 1}" for index in range(len(ids))]
-    assert context["allowed_outputs"] == ["input_values"]
+    assert context["allowed_outputs"] == ["input_values", "add_components"]
 
     assert context["current_question"]["target"] == {
         "kind": "model_input",
@@ -518,12 +518,12 @@ def test_quick_replies_follow_the_current_step() -> None:
             "profile": create_empty_business_problem_profile(),
         }
     }
-    examples = build_quick_replies(
+    # Die Beispiel-Buttons wurden entfernt.
+    assert build_quick_replies(
         "business_intake",
         start_state,
         build_next_question("business_intake", start_state),
-    )
-    assert [reply["kind"] for reply in examples] == ["message"] * 3
+    ) == []
 
     question_state = {
         "business_intake": {

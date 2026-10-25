@@ -30,6 +30,9 @@ from agentic_optimization.llm.errors import (
 from agentic_optimization.models.specification import (
     ProductSpecification,
 )
+from agentic_optimization.models.specification_updates import (
+    list_optional_components,
+)
 from agentic_optimization.state import (
     BusinessQuestionAnswer,
     ModularInputSubmission,
@@ -59,6 +62,7 @@ from agentic_optimization.ui.chat_assistant_builder import (
 from agentic_optimization.ui.modular_input_builder import (
     build_modular_input_layout,
 )
+from agentic_optimization.i18n import t
 
 LOGGER = logging.getLogger(__name__)
 
@@ -71,18 +75,37 @@ RECALL_ATTEMPTS_KEY = "chat_recall_attempts"
 REPEAT_KEY = "chat_repeat_state"
 ASKED_BEFORE_KEY = "chat_question_before_message"
 
-SIDEBAR_CSS = """
-<style>
-section[data-testid="stSidebar"] {
-    width: 420px !important;
-    min-width: 420px !important;
+LANGUAGE_KEY = "ui_language"
+LANGUAGE_LABELS = {"de": "Deutsch", "en": "English"}
+CHAT_WIDTH_KEY = "chat_width"
+CHAT_WIDTHS = {
+    "Schmal": "360px",
+    "Mittel": "420px",
+    "Breit": "33vw",
+    "Halbe Breite": "50vw",
 }
-@media (max-width: 900px) {
-    section[data-testid="stSidebar"] {
+DEFAULT_CHAT_WIDTH = "Mittel"
+
+
+def build_sidebar_css(width_option: str | None) -> str:
+    """CSS für die Chatbreite (bis zur halben Fensterbreite)."""
+
+    width = CHAT_WIDTHS.get(width_option or "", CHAT_WIDTHS[DEFAULT_CHAT_WIDTH])
+
+    return f"""
+<style>
+section[data-testid="stSidebar"] {{
+    width: {width} !important;
+    min-width: min({width}, 50vw) !important;
+    max-width: 50vw !important;
+}}
+@media (max-width: 900px) {{
+    section[data-testid="stSidebar"] {{
         width: 100vw !important;
         min-width: 0 !important;
-    }
-}
+        max-width: 100vw !important;
+    }}
+}}
 </style>
 """
 
@@ -102,6 +125,8 @@ class ChatWorkflowHandlers:
         None,
     ]
     confirm_exclusions: Callable[[], None]
+    submit_specification_edits: Callable[[list, list | None], None]
+    continue_to_review: Callable[[], None]
     start_optimization: Callable[[], None]
     request_result_explanation: Callable[[], None]
     edit_description: Callable[[], None]
@@ -119,6 +144,26 @@ def initialize_chat_state() -> None:
     st.session_state.setdefault(QUESTION_KEY, None)
     st.session_state.setdefault(PRODUCT_ROWS_KEY, [])
     st.session_state.setdefault(PRODUCT_ROWS_VERSION_KEY, 0)
+
+
+def _on_language_change() -> None:
+    """Zeigt die automatischen Texte des Assistenten in der neuen Sprache.
+
+    Hat der Nutzer noch nichts geschrieben, beginnt das Gespräch neu
+    (Begrüßung in der neuen Sprache). Sonst bleibt der Verlauf erhalten,
+    und die aktuell offene Frage wird in der neuen Sprache erneut gestellt.
+    """
+
+    from agentic_optimization.i18n import set_language
+
+    set_language(st.session_state.get(LANGUAGE_KEY) or "de")
+    messages = st.session_state.get(MESSAGES_KEY) or []
+
+    if not any(message["role"] == "user" for message in messages):
+        st.session_state[MESSAGES_KEY] = []
+        st.session_state[STEP_KEY] = None
+
+    st.session_state[QUESTION_KEY] = None
 
 
 def reset_chat_state() -> None:
@@ -402,7 +447,7 @@ def _apply_product_decision(
 
     if decision["action"] == "submit_products" and check["errors"]:
         return [
-            "Bevor es weitergeht, fehlt noch:\n"
+            t("Bevor es weitergeht, fehlt noch:\n")
             + "\n".join(f"- {error}" for error in check["errors"][:6])
         ]
 
@@ -418,8 +463,46 @@ def _apply_model_input_decision(
         "specification"
     )
 
-    if specification is None or not decision["input_values"]:
+    if specification is None:
         return []
+
+    notes: list[str] = []
+
+    if decision["add_components"]:
+        optional = {
+            component["component_id"]: component
+            for component in list_optional_components(specification)
+            if not component["locked"]
+        }
+        to_add = [
+            component_id
+            for component_id in decision["add_components"]
+            if component_id in optional
+            and not optional[component_id]["active"]
+        ]
+
+        if to_add:
+            active_ids = [
+                component["component_id"]
+                for component in list_optional_components(specification)
+                if component["active"]
+            ]
+            handlers.submit_specification_edits([], active_ids + to_add)
+            notes.append(
+                t("Ergänzt: ")
+                + ", ".join(t(optional[cid]["name"]) for cid in to_add)
+                + t(". Die dafür nötigen Werte frage ich gleich ab.")
+            )
+            return notes
+
+    if decision["action"] == "continue_to_review" and not decision[
+        "input_values"
+    ]:
+        handlers.continue_to_review()
+        return notes
+
+    if not decision["input_values"]:
+        return notes
 
     missing_inputs = flatten_missing_inputs(
         build_modular_input_layout(specification)
@@ -438,7 +521,7 @@ def _apply_model_input_decision(
 
     if errors:
         return [
-            "Diese Werte konnte ich nicht übernehmen:\n"
+            t("Diese Werte konnte ich nicht übernehmen:\n")
             + "\n".join(f"- {error}" for error in errors)
         ]
 
@@ -458,7 +541,7 @@ def _process_user_message(
     except ValueError as error:
         _add_message(
             "assistant",
-            f"Ich kann gerade nicht antworten: {error}",
+            t("Ich kann gerade nicht antworten: {error}", error=error),
         )
         return
 
@@ -487,14 +570,12 @@ def _process_user_message(
             describe_llm_error(error)
             if is_llm_service_error(error)
             else (
-                "Entschuldigung, da ist gerade etwas schiefgelaufen. "
-                "Bitte versuchen Sie es noch einmal oder nutzen Sie "
-                "das Formular."
+                t("Entschuldigung, da ist gerade etwas schiefgelaufen. Bitte versuchen Sie es noch einmal oder nutzen Sie das Formular.")
             ),
         )
         return
 
-    _add_message("assistant", decision["reply"] or "Alles klar.")
+    _add_message("assistant", decision["reply"] or t("Alles klar."))
     action = decision["action"]
 
     try:
@@ -541,8 +622,7 @@ def _process_user_message(
             describe_llm_error(error)
             if is_llm_service_error(error)
             else (
-                "Beim Übernehmen ist leider ein Fehler aufgetreten: "
-                f"{error}"
+                t("Beim Übernehmen ist leider ein Fehler aufgetreten: {error}", error=error)
             ),
         )
 
@@ -586,11 +666,14 @@ def _handle_quick_reply(
 
         if action == "restart":
             handlers.restart()
+        elif action == "continue_to_review":
+            _add_message("user", t("Weiter zur Überprüfung."))
+            handlers.continue_to_review()
         elif action == "start_optimization":
-            _add_message("user", "Bitte die Berechnung starten.")
+            _add_message("user", t("Bitte die Berechnung starten."))
             handlers.start_optimization()
         elif action == "explain_result":
-            _add_message("user", "Bitte erklären Sie mir das Ergebnis.")
+            _add_message("user", t("Bitte erklären Sie mir das Ergebnis."))
             handlers.request_result_explanation()
             explanation = (
                 (st.session_state.get("graph_state") or {})
@@ -606,7 +689,7 @@ def _handle_quick_reply(
             "assistant",
             describe_llm_error(error)
             if is_llm_service_error(error)
-            else f"Das hat leider nicht geklappt: {error}",
+            else t("Das hat leider nicht geklappt: {error}", error=error),
         )
 
 
@@ -630,16 +713,13 @@ def _render_quick_replies(handlers: ChatWorkflowHandlers) -> bool:
     if not replies:
         return False
 
-    if step == "business_intake":
-        st.caption("Oder probieren Sie ein Beispiel aus:")
-
     for reply in replies:
         if st.button(
             reply["label"],
             key=f"chat_quick_reply:{reply['key']}",
             width="stretch",
         ):
-            with st.spinner("Einen Moment …"):
+            with st.spinner(t("Einen Moment …")):
                 _handle_quick_reply(reply, handlers)
             return True
 
@@ -655,12 +735,12 @@ def _render_known_facts() -> None:
         LOGGER.exception("Bekannte Angaben konnten nicht angezeigt werden.")
         return
 
-    with st.expander(f"🧠 Das weiß ich schon ({len(lines)})"):
+    with st.expander(t("🧠 Das weiß ich schon ({value1})", value1=len(lines))):
         if lines:
             st.markdown("\n".join(lines))
         else:
             st.caption(
-                "Noch nichts – erzählen Sie mir von Ihrer Situation."
+                t("Noch nichts – erzählen Sie mir von Ihrer Situation.")
             )
 
 
@@ -683,16 +763,31 @@ def render_chat_panel(handlers: ChatWorkflowHandlers) -> None:
     _announce_current_step()
 
     with st.sidebar:
-        st.markdown(SIDEBAR_CSS, unsafe_allow_html=True)
-        st.subheader("💬 Ihr Assistent")
+        st.segmented_control(
+            "Sprache / Language",
+            options=list(LANGUAGE_LABELS),
+            format_func=LANGUAGE_LABELS.get,
+            default="de",
+            key=LANGUAGE_KEY,
+            on_change=_on_language_change,
+            label_visibility="collapsed",
+        )
+        width_option = st.segmented_control(
+            t("Chatbreite"),
+            options=list(CHAT_WIDTHS),
+            format_func=t,
+            default=DEFAULT_CHAT_WIDTH,
+            key=CHAT_WIDTH_KEY,
+            label_visibility="collapsed",
+        )
+        st.markdown(build_sidebar_css(width_option), unsafe_allow_html=True)
+        st.subheader(t("💬 Ihr Assistent"))
         progress = build_progress_label(
             st.session_state.get("step", "business_intake")
         )
         st.caption(
             (f"**{progress}** · " if progress else "")
-            + "Schreiben Sie einfach drauflos – ich trage Ihre "
-            "Angaben ins Formular ein und führe Sie durch die "
-            "Schritte."
+            + t("Schreiben Sie einfach drauflos – ich trage Ihre Angaben ins Formular ein und führe Sie durch die Schritte.")
         )
         _render_known_facts()
 
@@ -710,7 +805,7 @@ def render_chat_panel(handlers: ChatWorkflowHandlers) -> None:
                 st.rerun()
 
         user_message = st.chat_input(
-            "Nachricht an den Assistenten …",
+            t("Nachricht an den Assistenten …"),
             key="chat_assistant_input",
         )
 
@@ -727,7 +822,7 @@ def render_chat_panel(handlers: ChatWorkflowHandlers) -> None:
                 st.markdown(user_message)
 
             with st.chat_message("assistant"):
-                with st.spinner("Einen Moment …"):
+                with st.spinner(t("Einen Moment …")):
                     _process_user_message(
                         user_message.strip(),
                         handlers,

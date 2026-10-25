@@ -79,9 +79,12 @@ def test_returns_description_and_selected_answers(
     )
 
     result = render_business_intake_page(
-        create_intake_state()
+        create_intake_state(),
+        raw_input_value="Das Produkt wird regelmäßig nachbestellt.",
     )
 
+    # Die Beschreibung kommt aus dem Chat, nicht aus einem Textfeld.
+    streamlit.text_area.assert_not_called()
     assert result == {
         "raw_input": (
             "Das Produkt wird regelmäßig nachbestellt."
@@ -101,11 +104,10 @@ def test_returns_description_and_selected_answers(
     }
 
 
-def test_offers_documents_without_processing_them(
+def test_has_no_description_field_or_document_upload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     streamlit = MagicMock()
-    streamlit.text_area.return_value = ""
     streamlit.radio.return_value = None
     streamlit.form_submit_button.return_value = False
 
@@ -119,25 +121,8 @@ def test_offers_documents_without_processing_them(
         create_intake_state()
     )
 
-    streamlit.file_uploader.assert_called_once_with(
-        "Dokumente hinzufügen (optional)",
-        type=[
-            "pdf",
-            "xlsx",
-            "xls",
-            "csv",
-        ],
-        accept_multiple_files=True,
-        key="business_intake_documents",
-        help=(
-            "Zum Beispiel Prognosen, Artikellisten oder "
-            "Lieferantenunterlagen."
-        ),
-    )
-    streamlit.caption.assert_called_once_with(
-        "Die automatische Auswertung der Dokumentinhalte "
-        "wird separat angebunden."
-    )
+    streamlit.text_area.assert_not_called()
+    streamlit.file_uploader.assert_not_called()
 
 
 def test_can_hide_questions_when_editing_description(

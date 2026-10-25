@@ -42,6 +42,7 @@ from agentic_optimization.models.validator import (
     SpecificationValidationResult,
     validate_model_specification,
 )
+from agentic_optimization.i18n import t
 
 
 class ModularModelDraft(TypedDict):
@@ -75,7 +76,7 @@ def _build_preliminary_proposal(
 
     if registered_core is None:
         raise ValueError(
-            f"Das Grundmodell '{core_id}' ist nicht registriert."
+            t("Das Grundmodell '{core_id}' ist nicht registriert.", core_id=core_id)
         )
 
     objective = requirements.get("objective")
@@ -102,8 +103,7 @@ def _build_preliminary_proposal(
 
     if not component_ids:
         raise ValueError(
-            "Für die Produkttabelle konnte keine sichere "
-            "Zielfunktionsauswahl abgeleitet werden."
+            t("Für die Produkttabelle konnte keine sichere Zielfunktionsauswahl abgeleitet werden.")
         )
 
     return {
@@ -114,8 +114,7 @@ def _build_preliminary_proposal(
             {
                 "component_id": component_id,
                 "reason": (
-                    "Vom registrierten Grundmodell für die "
-                    "Produkttabelle benötigt."
+                    t("Vom registrierten Grundmodell für die Produkttabelle benötigt.")
                 ),
                 "sources": ["core_definition"],
             }
@@ -299,8 +298,7 @@ def execute_modular_model_draft(
 
     if not confirmed:
         raise ValueError(
-            "Der Modellentwurf muss vor der Ausführung "
-            "bestätigt werden."
+            t("Der Modellentwurf muss vor der Ausführung bestätigt werden.")
         )
 
     validation = validate_model_specification(
@@ -311,13 +309,12 @@ def execute_modular_model_draft(
         messages = list(validation["errors"])
 
         messages.extend(
-            "Fehlende Eingabe: "
-            f"{missing_input['field']['name']}"
+            t("Fehlende Eingabe: {name}", name=missing_input['field']['name'])
             for missing_input in validation["missing_inputs"]
         )
 
         raise ValueError(
-            "Der Modellentwurf ist nicht vollständig: "
+            t("Der Modellentwurf ist nicht vollständig: ")
             + "; ".join(messages)
         )
 

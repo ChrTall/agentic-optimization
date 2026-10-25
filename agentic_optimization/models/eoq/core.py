@@ -17,6 +17,7 @@ from agentic_optimization.models.specification import (
 from agentic_optimization.models.types import (
     ModelCoreDefinition,
 )
+from agentic_optimization.i18n import t
 
 
 CORE_DEFINITION: ModelCoreDefinition = {
@@ -170,7 +171,7 @@ def calculate_eoq_product(
 
     if order_multiple <= 0:
         raise ValueError(
-            "Das Bestellvielfache muss größer als null sein."
+            t("Das Bestellvielfache muss größer als null sein.")
         )
 
     minimum_factor = max(
@@ -194,8 +195,7 @@ def calculate_eoq_product(
         and minimum_factor > maximum_factor
     ):
         raise ValueError(
-            "Innerhalb der Bestellmengengrenzen "
-            "existiert kein zulässiges Bestellvielfaches."
+            t("Innerhalb der Bestellmengengrenzen existiert kein zulässiges Bestellvielfaches.")
         )
 
     unconstrained_factor = (
@@ -285,8 +285,7 @@ def validate_eoq_forecast(
 
     if not math.isfinite(annual_demand) or annual_demand <= 0:
         return [
-            "Der hochgerechnete Jahresbedarf muss "
-            "eine positive endliche Zahl sein."
+            t("Der hochgerechnete Jahresbedarf muss eine positive endliche Zahl sein.")
         ]
 
     return []
@@ -302,8 +301,7 @@ def validate_eoq_semantics(
 
     if objective["sense"] != "minimize":
         errors.append(
-            "Das klassische EOQ-Modell muss die "
-            "jährlichen relevanten Kosten minimieren."
+            t("Das klassische EOQ-Modell muss die jährlichen relevanten Kosten minimieren.")
         )
 
     for constraint in specification["constraints"]:
@@ -316,8 +314,7 @@ def validate_eoq_semantics(
             <= 0
         ):
             errors.append(
-                "Die Höchstbestellmenge muss für das "
-                "EOQ-Modell größer als null sein."
+                t("Die Höchstbestellmenge muss für das EOQ-Modell größer als null sein.")
             )
 
     for product in specification["products"]:
@@ -345,9 +342,7 @@ def validate_eoq_semantics(
 
             if minimum_factor * order_multiple > maximum:
                 errors.append(
-                    f"Für das EOQ-Produkt '{product_id}' "
-                    "existiert innerhalb der Bestellmengengrenzen "
-                    "kein positives zulässiges Bestellvielfaches."
+                    t("Für das EOQ-Produkt '{product_id}' existiert innerhalb der Bestellmengengrenzen kein positives zulässiges Bestellvielfaches.", product_id=product_id)
                 )
 
     return errors
@@ -420,13 +415,12 @@ def execute_eoq(
         messages = list(validation["errors"])
 
         messages.extend(
-            "Fehlende Eingabe: "
-            f"{missing_input['field']['name']}"
+            t("Fehlende Eingabe: {name}", name=missing_input['field']['name'])
             for missing_input in validation["missing_inputs"]
         )
 
         raise ValueError(
-            "Die EOQ-Spezifikation ist nicht vollständig: "
+            t("Die EOQ-Spezifikation ist nicht vollständig: ")
             + "; ".join(messages)
         )
 
@@ -457,12 +451,12 @@ def execute_eoq(
         )
 
         minimum_text = (
-            "nicht gesetzt"
+            t("nicht gesetzt")
             if minimum is None
             else str(minimum)
         )
         maximum_text = (
-            "nicht gesetzt"
+            t("nicht gesetzt")
             if maximum is None
             else str(maximum)
         )
@@ -517,26 +511,22 @@ def execute_eoq(
         representations.append(
             "\n".join(
                 [
-                    f"Produkt: {product_id}",
+                    t("Produkt: {product_id}", product_id=product_id),
                     "Q* = sqrt(2 * D * S / H)",
                     f"D = {annual_demand}",
                     f"S = {ordering_cost}",
                     f"H = {holding_cost}",
                     (
-                        "Unbeschränkte EOQ = "
-                        f"{result.unconstrained_order_quantity}"
+                        t("Unbeschränkte EOQ = {unconstrained_order_quantity}", unconstrained_order_quantity=result.unconstrained_order_quantity)
                     ),
                     (
-                        "Mindestbestellmenge = "
-                        f"{minimum_text}"
+                        t("Mindestbestellmenge = {minimum_text}", minimum_text=minimum_text)
                     ),
                     (
-                        "Höchstbestellmenge = "
-                        f"{maximum_text}"
+                        t("Höchstbestellmenge = {maximum_text}", maximum_text=maximum_text)
                     ),
                     (
-                        "Empfohlene Bestellmenge = "
-                        f"{result.order_quantity}"
+                        t("Empfohlene Bestellmenge = {order_quantity}", order_quantity=result.order_quantity)
                     ),
                 ]
             )

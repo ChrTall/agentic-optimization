@@ -10,6 +10,7 @@ from agentic_optimization.models.core_registry import CORE_REGISTRY
 from agentic_optimization.models.core_selection_catalog import CORE_SELECTION_RULES
 from agentic_optimization.models.core_selector import CoreSelectionDecision
 from agentic_optimization.models.problem_profile import BusinessProblemProfile
+from agentic_optimization.i18n import t
 
 
 class CoreCandidate(TypedDict):
@@ -177,8 +178,7 @@ def select_from_core_candidates(
             "selected_core_id": None,
             "candidate_core_ids": [],
             "reason": (
-                "Kein vorgeschlagenes Grundmodell ist mit den "
-                "bestätigten Angaben vereinbar. " + proposal["reason"]
+                t("Kein vorgeschlagenes Grundmodell ist mit den bestätigten Angaben vereinbar. ") + proposal["reason"]
             ),
         }
     if chosen_core_id in candidates:
@@ -189,15 +189,14 @@ def select_from_core_candidates(
             "selected_core_id": None,
             "candidate_core_ids": candidates,
             "reason": (
-                "Mehrere Grundmodelle sind plausibel. Bitte klären "
-                "Sie, welche Entscheidung Sie benötigen."
+                t("Mehrere Grundmodelle sind plausibel. Bitte klären Sie, welche Entscheidung Sie benötigen.")
             ),
         }
     return {
         "status": "selected",
         "selected_core_id": candidates[0],
         "candidate_core_ids": candidates,
-        "reason": "Vorläufiger, belegter Modellkandidat; Annahmen folgen.",
+        "reason": t("Vorläufiger, belegter Modellkandidat; Annahmen folgen."),
     }
 
 

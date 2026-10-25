@@ -7,6 +7,7 @@ from collections.abc import Callable
 from copy import deepcopy
 from typing import Any, cast
 
+from agentic_optimization.i18n import language_instruction
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -271,7 +272,7 @@ def create_component_coverage_agent(
 
         response = llm.invoke(
             [
-                SystemMessage(content=SYSTEM_PROMPT),
+                SystemMessage(content=SYSTEM_PROMPT + language_instruction()),
                 HumanMessage(
                     content=json.dumps(
                         payload,

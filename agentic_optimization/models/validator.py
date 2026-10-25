@@ -20,6 +20,7 @@ from agentic_optimization.models.types import (
     ConstraintParameterDefinition,
     ModelInputField,
 )
+from agentic_optimization.i18n import t
 
 
 MissingInputSource = Literal[
@@ -60,7 +61,7 @@ def _validate_specification_structure(
 
     if not isinstance(specification, dict):
         return [
-            "Die Modellspezifikation muss als Objekt vorliegen."
+            t("Die Modellspezifikation muss als Objekt vorliegen.")
         ]
 
     errors: list[str] = []
@@ -75,22 +76,20 @@ def _validate_specification_structure(
         )
     ):
         errors.append(
-            "Die ID des Grundmodells muss eine "
-            "nicht leere Zeichenkette sein."
+            t("Die ID des Grundmodells muss eine nicht leere Zeichenkette sein.")
         )
 
     products = specification.get("products", [])
 
     if not isinstance(products, list):
         errors.append(
-            "Die Produkte müssen als Liste vorliegen."
+            t("Die Produkte müssen als Liste vorliegen.")
         )
     else:
         for index, product in enumerate(products):
             if not isinstance(product, dict):
                 errors.append(
-                    f"Das Produkt an Position {index} "
-                    "muss als Objekt vorliegen."
+                    t("Das Produkt an Position {index} muss als Objekt vorliegen.", index=index)
                 )
                 continue
 
@@ -102,7 +101,7 @@ def _validate_specification_structure(
                     isinstance(product_id, str)
                     and product_id.strip()
                 )
-                else f"an Position {index}"
+                else t("an Position {index}", index=index)
             )
 
             if (
@@ -110,25 +109,21 @@ def _validate_specification_structure(
                 and not isinstance(product_id, str)
             ):
                 errors.append(
-                    f"Die Produkt-ID an Position {index} "
-                    "muss eine Zeichenkette sein."
+                    t("Die Produkt-ID an Position {index} muss eine Zeichenkette sein.", index=index)
                 )
 
             forecast = product.get("forecast", {})
 
             if not isinstance(forecast, dict):
                 errors.append(
-                    f"Die Nachfrageprognose für Produkt "
-                    f"{product_reference} muss als Objekt vorliegen."
+                    t("Die Nachfrageprognose für Produkt {product_reference} muss als Objekt vorliegen.", product_reference=product_reference)
                 )
 
             facts = product.get("facts", {})
 
             if not isinstance(facts, dict):
                 errors.append(
-                    f"Die Produktangaben des Produkts "
-                    f"{product_reference} müssen als Objekt "
-                    "vorliegen."
+                    t("Die Produktangaben des Produkts {product_reference} müssen als Objekt vorliegen.", product_reference=product_reference)
                 )
 
     global_facts = specification.get(
@@ -138,14 +133,14 @@ def _validate_specification_structure(
 
     if not isinstance(global_facts, dict):
         errors.append(
-            "Die globalen Angaben müssen als Objekt vorliegen."
+            t("Die globalen Angaben müssen als Objekt vorliegen.")
         )
 
     objective = specification.get("objective", {})
 
     if not isinstance(objective, dict):
         errors.append(
-            "Die Zielfunktion muss als Objekt vorliegen."
+            t("Die Zielfunktion muss als Objekt vorliegen.")
         )
     else:
         objective_sense = objective.get("sense")
@@ -155,7 +150,7 @@ def _validate_specification_structure(
             and not isinstance(objective_sense, str)
         ):
             errors.append(
-                "Die Zielrichtung muss als Zeichenkette vorliegen."
+                t("Die Zielrichtung muss als Zeichenkette vorliegen.")
             )
 
         component_ids = objective.get(
@@ -165,8 +160,7 @@ def _validate_specification_structure(
 
         if not isinstance(component_ids, list):
             errors.append(
-                "Die Zielfunktionsbausteine müssen "
-                "als Liste vorliegen."
+                t("Die Zielfunktionsbausteine müssen als Liste vorliegen.")
             )
         else:
             for index, component_id in enumerate(
@@ -177,9 +171,7 @@ def _validate_specification_structure(
                     or not component_id.strip()
                 ):
                     errors.append(
-                        f"Die ID des Zielfunktionsbausteins "
-                        f"an Position {index} muss eine "
-                        "nicht leere Zeichenkette sein."
+                        t("Die ID des Zielfunktionsbausteins an Position {index} muss eine nicht leere Zeichenkette sein.", index=index)
                     )
 
     constraints = specification.get(
@@ -189,14 +181,13 @@ def _validate_specification_structure(
 
     if not isinstance(constraints, list):
         errors.append(
-            "Die Constraints müssen als Liste vorliegen."
+            t("Die Constraints müssen als Liste vorliegen.")
         )
     else:
         for index, constraint in enumerate(constraints):
             if not isinstance(constraint, dict):
                 errors.append(
-                    f"Der Constraint an Position {index} "
-                    "muss als Objekt vorliegen."
+                    t("Der Constraint an Position {index} muss als Objekt vorliegen.", index=index)
                 )
                 continue
 
@@ -210,9 +201,7 @@ def _validate_specification_structure(
                 )
             ):
                 errors.append(
-                    f"Die ID des Constraints an Position "
-                    f"{index} muss eine nicht leere "
-                    "Zeichenkette sein."
+                    t("Die ID des Constraints an Position {index} muss eine nicht leere Zeichenkette sein.", index=index)
                 )
 
             parameters = constraint.get(
@@ -222,9 +211,7 @@ def _validate_specification_structure(
 
             if not isinstance(parameters, dict):
                 errors.append(
-                    f"Die Parameter des Constraints an "
-                    f"Position {index} müssen als Objekt "
-                    "vorliegen."
+                    t("Die Parameter des Constraints an Position {index} müssen als Objekt vorliegen.", index=index)
                 )
 
             product_id = constraint.get("product_id")
@@ -234,9 +221,7 @@ def _validate_specification_structure(
                 and not isinstance(product_id, str)
             ):
                 errors.append(
-                    f"Die Produkt-ID des Constraints an "
-                    f"Position {index} muss eine "
-                    "Zeichenkette sein."
+                    t("Die Produkt-ID des Constraints an Position {index} muss eine Zeichenkette sein.", index=index)
                 )
 
     return errors
@@ -290,7 +275,7 @@ def _validate_field_value(
 
     errors: list[str] = []
     field_type = field["type"]
-    label = field["label"]
+    label = t(field["label"])
 
     is_number = (
         isinstance(value, (int, float))
@@ -302,52 +287,45 @@ def _validate_field_value(
     if field_type == "number":
         if not is_number:
             return [
-                (f"Das Feld '{label}' {location} "
-                "muss eine Zahl sein.")
+                (t("Das Feld '{label}' {location} muss eine Zahl sein.", label=label, location=location))
             ]
 
         if finite_number is None:
             return [
-                (f"Das Feld '{label}' {location} "
-                "muss eine endliche Zahl sein.")
+                (t("Das Feld '{label}' {location} muss eine endliche Zahl sein.", label=label, location=location))
             ]
 
     elif field_type == "integer":
         if not isinstance(value, int) or isinstance(value, bool):
             return [
-                (f"Das Feld '{label}' {location} "
-                "muss eine ganze Zahl sein.")
+                (t("Das Feld '{label}' {location} muss eine ganze Zahl sein.", label=label, location=location))
             ]
 
     elif field_type == "forecast_quantiles":
         if not isinstance(value, list):
             return [
-                (f"Das Feld '{label}' {location} "
-                "muss eine Liste von Quantilen sein.")
+                (t("Das Feld '{label}' {location} muss eine Liste von Quantilen sein.", label=label, location=location))
             ]
 
         return errors
 
     else:
         return [
-            (f"Der Feldtyp '{field_type}' für das Feld "
-            f"'{label}' wird nicht unterstützt.")
+            (t("Der Feldtyp '{field_type}' für das Feld '{label}' wird nicht unterstützt.", field_type=field_type, label=label))
         ]
 
     minimum = field.get("min_value")
 
     if minimum is not None and value < minimum:
         errors.append(
-            f"Das Feld '{label}' {location} "
-            f"muss mindestens {minimum} betragen."
+            t("Das Feld '{label}' {location} muss mindestens {minimum} betragen.", label=label, location=location, minimum=minimum)
         )
 
     maximum = field.get("max_value")
 
     if maximum is not None and value > maximum:
         errors.append(
-            f"Das Feld '{label}' {location} "
-            f"darf höchstens {maximum} betragen."
+            t("Das Feld '{label}' {location} darf höchstens {maximum} betragen.", label=label, location=location, maximum=maximum)
         )
 
     return errors
@@ -410,7 +388,7 @@ def validate_model_specification(
 
     if registered_core is None:
         errors.append(
-            f"Das Grundmodell '{core_id}' wird nicht unterstützt."
+            t("Das Grundmodell '{core_id}' wird nicht unterstützt.", core_id=core_id)
         )
 
         return {
@@ -425,8 +403,7 @@ def validate_model_specification(
 
     if len(products) < core_definition["minimum_products"]:
         errors.append(
-            f"Das Grundmodell '{core_id}' benötigt "
-            "mindestens ein Produkt."
+            t("Das Grundmodell '{core_id}' benötigt mindestens ein Produkt.", core_id=core_id)
         )
 
     product_ids = [
@@ -437,7 +414,7 @@ def validate_model_specification(
 
     if len(product_ids) != len(set(product_ids)):
         errors.append(
-            "Jede Produkt-ID darf nur einmal vorkommen."
+            t("Jede Produkt-ID darf nur einmal vorkommen.")
         )
 
     for product in products:
@@ -445,7 +422,7 @@ def validate_model_specification(
 
         if not product_id:
             errors.append(
-                "Für jedes Produkt muss eine Produkt-ID angegeben werden."
+                t("Für jedes Produkt muss eine Produkt-ID angegeben werden.")
             )
             continue
 
@@ -470,7 +447,7 @@ def validate_model_specification(
                 _validate_field_value(
                     field,
                     forecast[field_name],
-                    f"für Produkt '{product_id}'",
+                    t("für Produkt '{product_id}'", product_id=product_id),
                 )
             )
 
@@ -488,8 +465,7 @@ def validate_model_specification(
             ](forecast)
 
             errors.extend(
-                f"Die Nachfrageprognose für Produkt "
-                f"'{product_id}' ist ungültig: {error}"
+                t("Die Nachfrageprognose für Produkt '{product_id}' ist ungültig: {error}", product_id=product_id, error=error)
                 for error in forecast_errors
             )
 
@@ -514,7 +490,7 @@ def validate_model_specification(
                 _validate_field_value(
                     field,
                     facts[field_name],
-                    f"für Produkt '{product_id}'",
+                    t("für Produkt '{product_id}'", product_id=product_id),
                 )
             )
 
@@ -541,7 +517,7 @@ def validate_model_specification(
             _validate_field_value(
                 field,
                 global_facts[field_name],
-                "in den globalen Angaben",
+                t("in den globalen Angaben"),
             )
         )
 
@@ -557,18 +533,17 @@ def validate_model_specification(
     for component_id, count in component_counts.items():
         if count > 1:
             errors.append(
-                f"Der Zielfunktionsbaustein '{component_id}' "
-                "darf nur einmal ausgewählt werden."
+                t("Der Zielfunktionsbaustein '{component_id}' darf nur einmal ausgewählt werden.", component_id=component_id)
             )
 
     if objective.get("sense") not in {"maximize", "minimize"}:
         errors.append(
-            "Die Zielrichtung muss 'maximize' oder 'minimize' sein."
+            t("Die Zielrichtung muss 'maximize' oder 'minimize' sein.")
         )
 
     if not component_ids:
         errors.append(
-            "Es wurde kein Zielfunktionsbaustein ausgewählt."
+            t("Es wurde kein Zielfunktionsbaustein ausgewählt.")
         )
 
     selected_component_ids = set(component_ids)
@@ -578,9 +553,7 @@ def validate_model_specification(
     ]:
         if required_component_id not in selected_component_ids:
             errors.append(
-                f"Das Grundmodell '{core_id}' benötigt "
-                "den Zielfunktionsbaustein "
-                f"'{required_component_id}'."
+                t("Das Grundmodell '{core_id}' benötigt den Zielfunktionsbaustein '{required_component_id}'.", core_id=core_id, required_component_id=required_component_id)
             )
 
     for component_id in component_ids:
@@ -588,15 +561,13 @@ def validate_model_specification(
 
         if definition is None:
             errors.append(
-                f"Der Zielfunktionsbaustein '{component_id}' "
-                "ist nicht registriert."
+                t("Der Zielfunktionsbaustein '{component_id}' ist nicht registriert.", component_id=component_id)
             )
             continue
 
         if core_id not in definition["compatible_core_ids"]:
             errors.append(
-                f"Der Zielfunktionsbaustein '{component_id}' "
-                f"ist nicht mit '{core_id}' kompatibel."
+                t("Der Zielfunktionsbaustein '{component_id}' ist nicht mit '{core_id}' kompatibel.", component_id=component_id, core_id=core_id)
             )
 
         missing_quantities = (
@@ -606,8 +577,7 @@ def validate_model_specification(
 
         for quantity_id in sorted(missing_quantities):
             errors.append(
-                f"Der Zielfunktionsbaustein '{component_id}' "
-                f"benötigt die Modellgröße '{quantity_id}'."
+                t("Der Zielfunktionsbaustein '{component_id}' benötigt die Modellgröße '{quantity_id}'.", component_id=component_id, quantity_id=quantity_id)
             )
 
         for product in products:
@@ -636,7 +606,7 @@ def validate_model_specification(
                     _validate_field_value(
                         field,
                         facts[field_name],
-                        f"für Produkt '{product_id}'",
+                        t("für Produkt '{product_id}'", product_id=product_id),
                     )
                 )
 
@@ -659,7 +629,7 @@ def validate_model_specification(
                 _validate_field_value(
                     field,
                     global_facts[field_name],
-                    "in den globalen Angaben",
+                    t("in den globalen Angaben"),
                 )
             )
 
@@ -677,15 +647,13 @@ def validate_model_specification(
 
         if definition is None:
             errors.append(
-                f"Der Constraint-Baustein '{component_id}' "
-                "ist nicht registriert."
+                t("Der Constraint-Baustein '{component_id}' ist nicht registriert.", component_id=component_id)
             )
             continue
 
         if core_id not in definition["compatible_core_ids"]:
             errors.append(
-                f"Der Constraint-Baustein '{component_id}' "
-                f"ist nicht mit '{core_id}' kompatibel."
+                t("Der Constraint-Baustein '{component_id}' ist nicht mit '{core_id}' kompatibel.", component_id=component_id, core_id=core_id)
             )
 
         missing_quantities = (
@@ -695,8 +663,7 @@ def validate_model_specification(
 
         for quantity_id in sorted(missing_quantities):
             errors.append(
-                f"Der Constraint-Baustein '{component_id}' "
-                f"benötigt die Modellgröße '{quantity_id}'."
+                t("Der Constraint-Baustein '{component_id}' benötigt die Modellgröße '{quantity_id}'.", component_id=component_id, quantity_id=quantity_id)
             )
 
         product_id = constraint.get("product_id")
@@ -712,8 +679,7 @@ def validate_model_specification(
 
         if constraint_key in seen_constraint_keys:
             errors.append(
-                f"Der Constraint '{component_id}' wurde "
-                "für denselben Geltungsbereich mehrfach angegeben."
+                t("Der Constraint '{component_id}' wurde für denselben Geltungsbereich mehrfach angegeben.", component_id=component_id)
             )
         else:
             seen_constraint_keys.add(constraint_key)
@@ -721,18 +687,15 @@ def validate_model_specification(
         if definition["scope"] == "per_product":
             if not product_id:
                 errors.append(
-                    f"Der Constraint '{component_id}' muss "
-                    "einem Produkt zugeordnet sein."
+                    t("Der Constraint '{component_id}' muss einem Produkt zugeordnet sein.", component_id=component_id)
                 )
             elif product_id not in valid_product_ids:
                 errors.append(
-                    f"Der Constraint '{component_id}' verweist "
-                    f"auf das unbekannte Produkt '{product_id}'."
+                    t("Der Constraint '{component_id}' verweist auf das unbekannte Produkt '{product_id}'.", component_id=component_id, product_id=product_id)
                 )
         elif product_id is not None:
             errors.append(
-                f"Der globale Constraint '{component_id}' "
-                "darf keinem einzelnen Produkt zugeordnet sein."
+                t("Der globale Constraint '{component_id}' darf keinem einzelnen Produkt zugeordnet sein.", component_id=component_id)
             )
 
         if (
@@ -772,7 +735,7 @@ def validate_model_specification(
                     _validate_field_value(
                         field,
                         facts[field_name],
-                        f"für Produkt '{relevant_product_id}'",
+                        t("für Produkt '{relevant_product_id}'", relevant_product_id=relevant_product_id),
                     )
                 )
 
@@ -799,7 +762,7 @@ def validate_model_specification(
                 _validate_field_value(
                     field,
                     global_facts[field_name],
-                    "in den globalen Angaben",
+                    t("in den globalen Angaben"),
                 )
             )
 
@@ -823,7 +786,7 @@ def validate_model_specification(
                 _validate_field_value(
                     field,
                     parameters[field_name],
-                    f"im Constraint '{component_id}'",
+                    t("im Constraint '{component_id}'", component_id=component_id),
                 )
             )
 
@@ -873,9 +836,7 @@ def validate_model_specification(
             and minimum > maximum
         ):
             errors.append(
-                f"Für das Produkt '{product_id}' darf die "
-                "Mindestbestellmenge die Höchstbestellmenge "
-                "nicht überschreiten."
+                t("Für das Produkt '{product_id}' darf die Mindestbestellmenge die Höchstbestellmenge nicht überschreiten.", product_id=product_id)
             )
 
         if (
@@ -891,9 +852,7 @@ def validate_model_specification(
 
             if smallest_allowed_multiple > maximum:
                 errors.append(
-                    f"Für das Produkt '{product_id}' existiert "
-                    "zwischen Mindest- und Höchstbestellmenge "
-                    "kein zulässiges Bestellvielfaches."
+                    t("Für das Produkt '{product_id}' existiert zwischen Mindest- und Höchstbestellmenge kein zulässiges Bestellvielfaches.", product_id=product_id)
                 )
 
     missing_inputs = _deduplicate_missing_inputs(

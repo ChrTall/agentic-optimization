@@ -8,6 +8,7 @@ from typing import Literal, NotRequired, TypedDict
 from agentic_optimization.models.specification import (
     ModelSpecification,
 )
+from agentic_optimization.i18n import t
 
 
 ExecutionStatus = Literal[
@@ -80,8 +81,7 @@ def execute_model_specification(
 
     if registered_core is None:
         raise ValueError(
-            f"Für das Grundmodell '{core_id}' "
-            "ist kein Executor registriert."
+            t("Für das Grundmodell '{core_id}' ist kein Executor registriert.", core_id=core_id)
         )
 
     return registered_core["executor"](specification)

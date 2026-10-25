@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 from agentic_optimization.llm.json_response import parse_json_object
+from agentic_optimization.i18n import language_instruction
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
     HumanMessage,
@@ -22,7 +23,8 @@ Kenntnisse der mathematischen Optimierung.
 Die Berechnung ist abgeschlossen. Du darfst weder das Modell
 noch das Ergebnis verändern.
 
-Erkläre in klarer deutscher Alltagssprache:
+Erkläre in klarer Alltagssprache (Deutsch, sofern unten keine andere
+Sprache verlangt wird):
 
 1. welche Entscheidung empfohlen wird,
 2. was die wichtigsten Kennzahlen betrieblich bedeuten,
@@ -40,9 +42,9 @@ Verwende ausschließlich die übergebenen Modell- und
 Ergebnisdaten. Ergänze keine neuen Werte, Ursachen,
 Annahmen, Einsparungen oder Handlungsempfehlungen.
 
-Interpretiere den Zielfunktionswert nur entsprechend der
-übergebenen objective_summary. Bezeichne ihn nicht pauschal
-als Gewinn, Kosten oder Umsatz.
+Bezeichne objective_value ausschließlich mit objective_label
+(z. B. "Erwarteter Gewinn") und verwende nie das Wort
+"Zielfunktionswert".
 
 Bei mehreren Produkten fasse das Ergebnis zusammen und
 nenne nur besonders relevante Beispiele. Liste nicht alle
@@ -160,6 +162,9 @@ def create_modular_result_explanation_agent(
                 "objective_value": result_data[
                     "objective_value"
                 ],
+                "objective_label": result_data.get(
+                    "objective_label"
+                ),
                 "decisions": list(
                     result_data["decisions"]
                 ),
@@ -177,7 +182,7 @@ def create_modular_result_explanation_agent(
         response = llm.invoke(
             [
                 SystemMessage(
-                    content=SYSTEM_PROMPT
+                    content=SYSTEM_PROMPT + language_instruction()
                 ),
                 HumanMessage(
                     content=json.dumps(

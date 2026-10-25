@@ -15,6 +15,7 @@ from agentic_optimization.ui.modular_product_list import (
 from agentic_optimization.ui.modular_input_builder import (
     build_dynamic_product_table_schema,
 )
+from agentic_optimization.i18n import t
 
 
 def _build_dynamic_column_config(
@@ -24,11 +25,10 @@ def _build_dynamic_column_config(
 
     column_config: dict[str, Any] = {
         "product_id": st.column_config.TextColumn(
-            "Produkt",
+            t("Produkt"),
             required=True,
             help=(
-                "Eindeutige Artikelnummer oder "
-                "Produktbezeichnung."
+                t("Eindeutige Artikelnummer oder Produktbezeichnung.")
             ),
         )
     }
@@ -38,8 +38,8 @@ def _build_dynamic_column_config(
         *schema["fact_fields"],
     ]:
         field_name = field["name"]
-        label = field["label"]
-        unit = field.get("unit")
+        label = t(field["label"])
+        unit = t(field.get("unit"))
 
         if unit:
             label = f"{label} ({unit})"
@@ -126,16 +126,12 @@ def render_dynamic_product_table_page(
         for row in (prefilled_rows or [])
     ] or [empty_row]
 
-    st.subheader("Angaben zur Berechnung")
+    st.subheader(t("Angaben zur Berechnung"))
     st.write(
-        "Eine Zeile entspricht einem Produkt. Sie können "
-        "weitere Zeilen hinzufügen oder vorhandene Zeilen "
-        "löschen."
+        t("Eine Zeile entspricht einem Produkt. Sie können weitere Zeilen hinzufügen oder vorhandene Zeilen löschen.")
     )
     st.caption(
-        "Vollständig leere Zeilen werden ignoriert. Zum "
-        "Löschen markieren Sie die Zeile links und verwenden "
-        "Sie das Löschsymbol oder die Entf-Taste."
+        t("Vollständig leere Zeilen werden ignoriert. Zum Löschen markieren Sie die Zeile links und verwenden Sie das Löschsymbol oder die Entf-Taste.")
     )
 
     edited_data = st.data_editor(
@@ -158,7 +154,7 @@ def render_dynamic_product_table_page(
     )
 
     submitted = st.button(
-        "Angaben prüfen",
+        t("Angaben prüfen"),
         type="primary",
         width="stretch",
         key="submit_dynamic_modular_product_table",
@@ -175,8 +171,7 @@ def render_dynamic_product_table_page(
         )
     else:
         st.error(
-            "Die Produkttabelle konnte nicht verarbeitet "
-            "werden."
+            t("Die Produkttabelle konnte nicht verarbeitet werden.")
         )
         return None
 

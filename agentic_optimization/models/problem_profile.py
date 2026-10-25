@@ -13,6 +13,7 @@ from typing import (
 from agentic_optimization.models.specification import (
     DemandForecast,
 )
+from agentic_optimization.i18n import t
 
 
 RecommendationType = Literal[
@@ -178,31 +179,27 @@ def create_profile_field(
 
     if status in unresolved_statuses and value is not None:
         raise ValueError(
-            f"Ein Feld mit Status '{status}' darf keinen "
-            "bestätigten Wert enthalten."
+            t("Ein Feld mit Status '{status}' darf keinen bestätigten Wert enthalten.", status=status)
         )
 
     if status in {"inferred", "confirmed"} and value is None:
         raise ValueError(
-            f"Ein Feld mit Status '{status}' benötigt einen Wert."
+            t("Ein Feld mit Status '{status}' benötigt einen Wert.", status=status)
         )
 
     if status != "missing" and not field_evidence:
         raise ValueError(
-            f"Ein Feld mit Status '{status}' benötigt mindestens "
-            "einen Quellenbeleg."
+            t("Ein Feld mit Status '{status}' benötigt mindestens einen Quellenbeleg.", status=status)
         )
 
     if status in {"ambiguous", "conflict"}:
         if candidate_values is None or len(candidate_values) < 2:
             raise ValueError(
-                f"Ein Feld mit Status '{status}' benötigt mindestens "
-                "zwei mögliche Werte."
+                t("Ein Feld mit Status '{status}' benötigt mindestens zwei mögliche Werte.", status=status)
             )
     elif candidate_values:
         raise ValueError(
-            "Mögliche Werte sind nur bei mehrdeutigen oder "
-            "widersprüchlichen Feldern erlaubt."
+            t("Mögliche Werte sind nur bei mehrdeutigen oder widersprüchlichen Feldern erlaubt.")
         )
 
     field: ProfileField[ProfileValue] = {
@@ -335,8 +332,7 @@ def merge_profile_fields(
 
     if len(candidate_values) < 2:
         raise ValueError(
-            "Die offenen Profilangaben enthalten nicht "
-            "genügend mögliche Werte."
+            t("Die offenen Profilangaben enthalten nicht genügend mögliche Werte.")
         )
 
     merged_status: KnowledgeStatus = (

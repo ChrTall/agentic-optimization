@@ -178,10 +178,28 @@ beides lässt sich jederzeit mischen.
 - **Gedächtnis:** Alles, was Sie im Chat schreiben, wird in der Sitzung gespeichert. Bevor der Assistent eine Frage
   stellt, prüft er Ihre bisherigen Aussagen und übernimmt bereits genannte Werte – mit wörtlichem Zitat als Beleg.
   Unter „🧠 Das weiß ich schon“ sehen Sie jederzeit, was bekannt ist.
-- **Antwort-Buttons und Beispiele:** Rückfragen lassen sich per Klick beantworten; zum Start gibt es drei Beispiele.
+- **Antwort-Buttons:** Rückfragen lassen sich per Klick beantworten.
+- **Beschreibung nur im Chat:** Formular 1 hat kein Freitextfeld und keinen Dokumentenupload mehr. Was der Assistent
+  erkennt, erscheint als **Erkannte Anforderungen** (aus dem Text, mit Zitat) und gesondert gekennzeichnete
+  **Annahmen**. Jeder Eintrag kann bestätigt, geändert oder verworfen werden. In späteren Schritten bleibt die
+  Übersicht als aufklappbarer Bereich **Bekannte Angaben** sichtbar und bearbeitbar.
+- **Formular 3:** Alle Felder bleiben sichtbar und an ihrer Position, auch nachdem sie ausgefüllt sind. Der
+  Produktname ist änderbar (Fallback „Produkt 1“). Zusätzliche kompatible Bausteine lassen sich im aufklappbaren
+  Bereich **Zusätzliche Bausteine** an- und abwählen – oder im Chat nennen. Sind alle Pflichtangaben vorhanden, weist
+  der Assistent auf diese Bausteine hin; weiter geht es mit **Weiter zur Überprüfung**.
+- **Ergebnis:** Der optimierte Wert heißt so, wie er gemeint ist (z. B. „Erwarteter Gewinn“).
+- **Chatbreite:** oben im Chat zwischen Schmal, Mittel, Breit und halber Fensterbreite umschaltbar.
+- **Sprache:** oben im Chat zwischen **Deutsch** und **English** umschaltbar. Die gesamte Oberfläche (Formulare,
+  Felder, Meldungen, Fehlertexte, Ergebnisse) wird übersetzt; neue Antworten des Assistenten kommen in der gewählten
+  Sprache. Bereits geschriebene Chatnachrichten bleiben in ihrer ursprünglichen Sprache. Übersetzungen liegen in
+  `agentic_optimization/i18n/en.py` (deutscher Text als Schlüssel, `t("…")` im Code); ein Test stellt sicher, dass
+  jeder Text übersetzt ist.
+- **Sofortige Übernahme:** Eingaben in den Formularen (Zahlen, Produktname, Antworten auf Rückfragen) werden ohne
+  Bestätigungsknopf übernommen; der Assistent sieht sie sofort und stellt direkt die nächste Frage.
 - **Ehrliche Grenzen:** Passt eine Situation zu keinem verfügbaren Rechenmodell, sagt der Assistent das klar, statt
   weiter nachzufragen. Bleibt eine Frage zweimal unbeantwortet, bietet er Auswege an.
-- **Produktname:** Bei einem einzelnen Produkt wird dessen Name aus der Beschreibung übernommen (z. B. „Weihnachtsbaum“).
+- **Produktname:** Bei einem einzelnen Produkt wird dessen Name aus der Beschreibung übernommen (z. B. „Weihnachtsbaum“),
+  sonst „Produkt 1“.
 
 Alle Werte aus dem Chat laufen durch dieselbe Validierung und dieselben Workflow-Events wie die Formulare.
 Relevante Dateien:

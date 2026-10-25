@@ -27,13 +27,17 @@ def test_renders_only_open_clarification_questions(
 ) -> None:
     streamlit = MagicMock()
     streamlit.radio.return_value = "not_possible"
-    streamlit.form_submit_button.return_value = True
+    # Die Auswahl wurde gerade geändert (on_change hat den Merker gesetzt).
+    streamlit.session_state.pop.return_value = True
 
     monkeypatch.setattr(
         business_clarification_page,
         "st",
         streamlit,
     )
+    from agentic_optimization.ui import business_intake_page
+
+    monkeypatch.setattr(business_intake_page, "st", streamlit)
 
     result = render_business_clarification_page(
         create_intake_state()

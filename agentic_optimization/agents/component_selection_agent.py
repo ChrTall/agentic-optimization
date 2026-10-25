@@ -6,6 +6,7 @@ import re
 from collections.abc import Callable
 from typing import Any, cast
 
+from agentic_optimization.i18n import language_instruction
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
     AIMessage,
@@ -966,7 +967,7 @@ def create_component_selection_agent(
                 ) + "\n\n" + EXPLICIT_REQUIREMENT_PROMPT
                 if require_explicit_requirement_evidence
                 else SYSTEM_PROMPT
-            )),
+            ) + language_instruction()),
             HumanMessage(content=user_message),
         ]
 

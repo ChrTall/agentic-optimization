@@ -23,6 +23,9 @@ from agentic_optimization.models.component_registry import (
 from agentic_optimization.models.core_registry import (
     CORE_REGISTRY,
 )
+from agentic_optimization.models.specification_updates import (
+    list_optional_components,
+)
 from agentic_optimization.models.validator import (
     MissingInput,
 )
@@ -53,8 +56,10 @@ from agentic_optimization.ui.modular_product_list import (
 )
 from agentic_optimization.ui.modular_result_builder import (
     METRIC_LABELS,
+    build_objective_label,
     STATUS_LABELS,
 )
+from agentic_optimization.i18n import t
 
 CHAT_SOURCE_ID = "chat_assistant"
 
@@ -79,8 +84,8 @@ GREETING = (
 
 
 def _field_label(field: dict[str, Any]) -> str:
-    unit = field.get("unit")
-    label = field["label"]
+    unit = t(field.get("unit"))
+    label = t(field["label"])
 
     return f"{label} ({unit})" if unit else label
 
@@ -94,7 +99,7 @@ def _core_name(core_id: str | None) -> str | None:
     if registered_core is None:
         return None
 
-    return registered_core["definition"]["name"]
+    return t(registered_core["definition"]["name"])
 
 
 def _truncate(text: str, limit: int = MAX_CONTEXT_TEXT) -> str:
@@ -184,7 +189,7 @@ def describe_missing_input(
     source = missing_input["source"]
 
     if source in {"forecast", "product_fact"}:
-        return f"{label} – Produkt „{missing_input['product_id']}“"
+        return t("{label} – Produkt „{product_id}“", label=label, product_id=missing_input['product_id'])
 
     if source == "constraint_parameter":
         component = CONSTRAINT_COMPONENTS.get(
@@ -504,6 +509,26 @@ MISSING_DECISIVE_INFO_MESSAGE = (
 )
 
 
+def _inputs_complete_text(specification: dict[str, Any]) -> str:
+    """Hinweis auf zusätzliche Bausteine, sobald alles ausgefüllt ist."""
+
+    inactive = [
+        t(component["name"])
+        for component in list_optional_components(specification)
+        if not component["locked"] and not component["active"]
+    ]
+    text = t("**Alle Pflichtangaben sind vollständig.** ")
+
+    if inactive:
+        text += (
+            t("Falls bei Ihnen weitere Vorgaben gelten, kann ich diese noch berücksichtigen:\n")
+            + "\n".join(f"- {name}" for name in inactive)
+            + t("\n\nSagen Sie mir einfach, was zutrifft (z. B. „höchstens 250 Stück“), oder wählen Sie es in Formular 3 unter **Zusätzliche Bausteine** aus. ")
+        )
+
+    return text + t("**Sonst geht es weiter zur Überprüfung.**")
+
+
 class NextQuestion(TypedDict):
     """Die eine Angabe, nach der der Assistent als Nächstes fragt."""
 
@@ -524,15 +549,13 @@ def _business_question_text(question: BusinessQuestion) -> str:
         if option["option_id"] != "user_unknown"
     ]
     option_lines = "\n".join(
-        f"- {option['label']}"
-        + (f" – {option['help']}" if option.get("help") else "")
+        f"- {t(option['label'])}"
+        + (f" – {t(option['help'])}" if option.get("help") else "")
         for option in options
     )
 
     return (
-        f"**{question['prompt']}**\n\n{option_lines}\n\n"
-        "Antworten Sie gern in eigenen Worten – "
-        "„weiß ich nicht“ ist auch in Ordnung."
+        t("**{prompt}**\n\n{option_lines}\n\nAntworten Sie gern in eigenen Worten – „weiß ich nicht“ ist auch in Ordnung.", prompt=t(question['prompt']), option_lines=option_lines)
     )
 
 
@@ -543,14 +566,13 @@ def _field_question_text(
     mention_product: bool,
 ) -> str:
     product_part = (
-        f" für „{product_id}“"
+        t(" für „{product_id}“", product_id=product_id)
         if mention_product and product_id
         else ""
     )
 
     return (
-        f"Wie hoch ist Ihr Wert für **{_field_label(field)}**"
-        f"{product_part}?"
+        t("Wie hoch ist Ihr Wert für **{value1}**{product_part}?", value1=_field_label(field), product_part=product_part)
         + _format_help(field.get("help"))
     )
 
@@ -568,9 +590,7 @@ def _next_product_table_question(
         return {
             "key": "product_table:names",
             "text": (
-                "**Für welche Produkte möchten Sie eine "
-                "Empfehlung?** Nennen Sie mir einfach die "
-                "Bezeichnungen oder Artikelnummern."
+                t("**Für welche Produkte möchten Sie eine Empfehlung?** Nennen Sie mir einfach die Bezeichnungen oder Artikelnummern.")
             ),
             "target": {"kind": "product_names"},
             "remaining": 1,
@@ -606,12 +626,11 @@ def _next_product_table_question(
     return {
         "key": f"product_table:more:{len(product_rows)}",
         "text": (
-            "Alle Angaben zu "
+            t("Alle Angaben zu ")
             + ", ".join(
                 f"„{row['product_id']}“" for row in product_rows
             )
-            + " sind da. **Kommen noch weitere Produkte "
-            "dazu, oder sind das alle?**"
+            + t(" sind da. **Kommen noch weitere Produkte dazu, oder sind das alle?**")
         ),
         "target": {"kind": "more_products"},
         "remaining": 0,
@@ -652,7 +671,7 @@ def build_next_question(
                 reason = core_selection.get("reason") or ""
                 return {
                     "key": "business_intake:unsupported",
-                    "text": UNSUPPORTED_MESSAGE.format(
+                    "text": t(UNSUPPORTED_MESSAGE,
                         reason=f"{reason}\n\n" if reason else ""
                     ),
                     "target": {"kind": "none"},
@@ -662,9 +681,7 @@ def build_next_question(
             return {
                 "key": f"business_intake:retry:{view['message']}",
                 "text": (
-                    f"{view['message']}\n\n"
-                    "**Können Sie Ihre Situation etwas genauer "
-                    "beschreiben?**"
+                    t("{message}\n\n**Können Sie Ihre Situation etwas genauer beschreiben?**", message=view['message'])
                 ),
                 "target": {"kind": "description"},
                 "remaining": 1,
@@ -673,9 +690,7 @@ def build_next_question(
         return {
             "key": "business_intake:description",
             "text": (
-                "**Worum geht es bei Ihnen?** Beschreiben Sie "
-                "kurz, welches Produkt Sie bestellen, wie oft "
-                "und was Ihnen dabei wichtig ist."
+                t("**Worum geht es bei Ihnen?** Beschreiben Sie kurz, welches Produkt Sie bestellen, wie oft und was Ihnen dabei wichtig ist.")
             ),
             "target": {"kind": "description"},
             "remaining": 1,
@@ -695,7 +710,7 @@ def build_next_question(
             ):
                 return {
                     "key": "business_clarification:missing_decisive_info",
-                    "text": MISSING_DECISIVE_INFO_MESSAGE,
+                    "text": t(MISSING_DECISIVE_INFO_MESSAGE),
                     "target": {"kind": "none"},
                     "remaining": 0,
                 }
@@ -726,12 +741,19 @@ def build_next_question(
         if specification is None:
             return None
 
-        missing_inputs = flatten_missing_inputs(
-            build_modular_input_layout(specification)
-        )
+        layout = build_modular_input_layout(specification)
+        missing_inputs = flatten_missing_inputs(layout)
 
         if not missing_inputs:
-            return None
+            if layout["validation_errors"]:
+                return None
+
+            return {
+                "key": "model_input:complete",
+                "text": _inputs_complete_text(specification),
+                "target": {"kind": "inputs_complete"},
+                "remaining": 0,
+            }
 
         # Pflichtfelder zuerst fragen.
         index, missing_input = min(
@@ -786,10 +808,10 @@ def _constraint_summaries(
 ) -> list[dict[str, Any]]:
     return [
         {
-            "name": CONSTRAINT_COMPONENTS.get(
+            "name": t(CONSTRAINT_COMPONENTS.get(
                 constraint["component_id"],
                 {"name": constraint["component_id"]},
-            )["name"],
+            )["name"]),
             "parameters": constraint.get("parameters", {}),
             "product_id": constraint.get("product_id"),
         }
@@ -848,19 +870,22 @@ def _result_summary(
     result = modular_state.get("optimization_result") or {}
 
     return {
-        "status": STATUS_LABELS.get(
+        "status": t(STATUS_LABELS.get(
             result.get("status", ""),
             result.get("status"),
-        ),
+        )),
         "objective_value": result.get("objective_value"),
+        "objective_label": build_objective_label(
+            modular_state.get("specification") or {}
+        ),
         "decisions": result.get("decisions", []),
         "metrics": [
             {
                 **metric,
-                "label": METRIC_LABELS.get(
+                "label": t(METRIC_LABELS.get(
                     metric.get("metric_id", ""),
                     metric.get("metric_id"),
-                ),
+                )),
             }
             for metric in result.get("metrics", [])
         ],
@@ -883,9 +908,7 @@ def _build_step_context(
     if step in {"business_intake", "business_clarification"}:
         return {
             "step_description": (
-                "Der Nutzer beschreibt seine betriebliche "
-                "Bestellsituation. Übernimm Situationsangaben "
-                "und beantwortete Rückfragen."
+                t("Der Nutzer beschreibt seine betriebliche Bestellsituation. Übernimm Situationsangaben und beantwortete Rückfragen.")
             ),
             "current_description": _truncate(raw_description),
             "open_questions": [
@@ -910,11 +933,7 @@ def _build_step_context(
 
         return {
             "step_description": (
-                "Der Nutzer nennt seine Produkte und deren "
-                "Daten. Übernimm jedes Produkt mit seiner "
-                "Kennung und den genannten Werten. Setze "
-                "submit_products, wenn der Nutzer bestätigt, "
-                "dass keine weiteren Produkte dazukommen."
+                t("Der Nutzer nennt seine Produkte und deren Daten. Übernimm jedes Produkt mit seiner Kennung und den genannten Werten. Setze submit_products, wenn der Nutzer bestätigt, dass keine weiteren Produkte dazukommen.")
             ),
             "product_fields": [
                 _describe_field_for_llm(field)
@@ -936,16 +955,27 @@ def _build_step_context(
         missing_inputs: list[MissingInput] = []
         validation_errors: list[str] = []
 
+        optional_components: list[dict[str, Any]] = []
+
         if specification is not None:
             layout = build_modular_input_layout(specification)
             missing_inputs = flatten_missing_inputs(layout)
             validation_errors = layout["validation_errors"]
+            optional_components = [
+                {
+                    "component_id": component["component_id"],
+                    "name": component["name"],
+                    "active": component["active"],
+                }
+                for component in list_optional_components(specification)
+                if not component["locked"]
+            ]
 
         return {
             "step_description": (
-                "Für die Berechnung fehlen noch Zahlenwerte. "
-                "Übernimm genannte Werte in input_values."
+                t("Für die Berechnung fehlen noch Zahlenwerte. Übernimm genannte Werte in input_values. Sind alle Pflichtangaben vorhanden, kann der Nutzer zusätzliche Bausteine ergänzen (add_components) oder mit continue_to_review zur Überprüfung weitergehen.")
             ),
+            "optional_components": optional_components,
             "missing_inputs": [
                 {
                     "input_id": _input_id(index),
@@ -962,8 +992,13 @@ def _build_step_context(
                 )
             ],
             "validation_errors": validation_errors,
-            "allowed_outputs": ["input_values"],
-            "allowed_actions": ["none", "restart"],
+            "allowed_outputs": ["input_values", "add_components"],
+            "allowed_actions": (
+                ["none", "restart", "continue_to_review"]
+                if specification is not None and not missing_inputs
+                and not validation_errors
+                else ["none", "restart"]
+            ),
         }
 
     if step == "model_unsupported":
@@ -972,12 +1007,7 @@ def _build_step_context(
 
         return {
             "step_description": (
-                "Einige Anforderungen lassen sich mit den "
-                "verfügbaren Bausteinen nicht abbilden. Der "
-                "Nutzer kann ohne sie fortfahren "
-                "(confirm_exclusions, nur nach ausdrücklicher "
-                "Zustimmung) oder die Beschreibung ändern "
-                "(edit_description)."
+                t("Einige Anforderungen lassen sich mit den verfügbaren Bausteinen nicht abbilden. Der Nutzer kann ohne sie fortfahren (confirm_exclusions, nur nach ausdrücklicher Zustimmung) oder die Beschreibung ändern (edit_description).")
             ),
             "selection_status": selection_status,
             "unresolved_requirements": proposal.get(
@@ -1003,13 +1033,7 @@ def _build_step_context(
         )
         return {
             "step_description": (
-                "Alle Angaben liegen vor. Der Nutzer prüft die "
-                "Berechnungsgrundlage (siehe known_parameters). "
-                "Beantworte Fragen dazu. Bei offenen "
-                "Grundmodell-Annahmen muss der Nutzer diese "
-                "zunächst im Review einzeln per Checkbox "
-                "bestätigen. Setze start_optimization nur nach "
-                "ausdrücklichem Berechnungswunsch."
+                t("Alle Angaben liegen vor. Der Nutzer prüft die Berechnungsgrundlage (siehe known_parameters). Beantworte Fragen dazu. Bei offenen Grundmodell-Annahmen muss der Nutzer diese zunächst im Review einzeln per Checkbox bestätigen. Setze start_optimization nur nach ausdrücklichem Berechnungswunsch.")
             ),
             "pending_core_assumptions": pending_assumptions,
             "review_explanation": _truncate(
@@ -1027,11 +1051,7 @@ def _build_step_context(
     if step == "result":
         return {
             "step_description": (
-                "Die Berechnung ist abgeschlossen. Erkläre das "
-                "Ergebnis verständlich und beantworte Fragen. "
-                "explain_result erzeugt eine ausführliche "
-                "Erklärung; restart beginnt eine neue "
-                "Optimierung."
+                t("Die Berechnung ist abgeschlossen. Erkläre das Ergebnis verständlich und beantworte Fragen. explain_result erzeugt eine ausführliche Erklärung; restart beginnt eine neue Optimierung.")
             ),
             "result": _result_summary(graph_state),
             "allowed_outputs": [],
@@ -1106,39 +1126,24 @@ def build_stuck_message(next_question: NextQuestion | None) -> str | None:
 
     if kind == "business_question":
         return (
-            "Wir kommen bei dieser Frage gerade nicht weiter – kein "
-            "Problem. **Tippen Sie einfach auf eine der Antworten unter "
-            "der Frage.** Wenn Sie es nicht wissen, wählen Sie "
-            "„Noch nicht bekannt“. Ich sage Ihnen dann ehrlich, ob ich "
-            "trotzdem rechnen kann."
+            t("Wir kommen bei dieser Frage gerade nicht weiter – kein Problem. **Tippen Sie einfach auf eine der Antworten unter der Frage.** Wenn Sie es nicht wissen, wählen Sie „Noch nicht bekannt“. Ich sage Ihnen dann ehrlich, ob ich trotzdem rechnen kann.")
         )
 
     if kind == "model_input":
         return (
-            "Bei dieser Angabe hänge ich fest. So geht es weiter:\n"
-            "- **Nennen Sie einfach die Zahl**, z. B. „120“ – die "
-            "Einheit steht in der Frage.\n"
-            "- **Sie kennen den Wert nicht?** Schreiben Sie „Wie schätze "
-            "ich das?“ – ich erkläre Ihnen, woher Sie ihn bekommen.\n"
-            "- Sie können den Wert auch direkt **im Formular rechts** "
-            "eintragen."
+            t("Bei dieser Angabe hänge ich fest. So geht es weiter:\n- **Nennen Sie einfach die Zahl**, z. B. „120“ – die Einheit steht in der Frage.\n- **Sie kennen den Wert nicht?** Schreiben Sie „Wie schätze ich das?“ – ich erkläre Ihnen, woher Sie ihn bekommen.\n- Sie können den Wert auch direkt **im Formular rechts** eintragen.")
         )
 
     if kind == "description":
         return (
-            "Ich konnte Ihre Situation bisher keinem Rechenmodell "
-            "zuordnen.\n\n"
-            + SUPPORTED_CASES_TEXT
-            + "\n\nWenn Ihre Situation zu keinem dieser Fälle passt, kann "
-            "ich sie leider noch nicht berechnen. Über **Neue "
-            "Optimierung starten** können Sie neu beginnen."
+            t("Ich konnte Ihre Situation bisher keinem Rechenmodell zuordnen.\n\n")
+            + t(SUPPORTED_CASES_TEXT)
+            + t("\n\nWenn Ihre Situation zu keinem dieser Fälle passt, kann ich sie leider noch nicht berechnen. Über **Neue Optimierung starten** können Sie neu beginnen.")
         )
 
     if kind in {"product_names", "product_table", "more_products"}:
         return (
-            "Bei den Produktdaten hänge ich fest. Am einfachsten tragen "
-            "Sie die Werte **direkt in die Tabelle rechts** ein – ich "
-            "übernehme den Rest."
+            t("Bei den Produktdaten hänge ich fest. Am einfachsten tragen Sie die Werte **direkt in die Tabelle rechts** ein – ich übernehme den Rest.")
         )
 
     return None
@@ -1240,7 +1245,7 @@ def _format_recalled_value(item: RecallItem, value: Any) -> str:
     if item["kind"] == "choice":
         for option in item.get("options", []):
             if option["option_id"] == value:
-                return option["label"]
+                return t(option["label"])
 
     if isinstance(value, list):
         return "; ".join(
@@ -1270,7 +1275,7 @@ def format_recall_note(
             continue
 
         lines.append(
-            f"- **{item['question']}**: "
+            f"- **{t(item['question'])}**: "
             f"{_format_recalled_value(item, answer['value'])} "
             f"_(„{answer['quote']}“)_"
         )
@@ -1279,8 +1284,7 @@ def format_recall_note(
         return None
 
     return (
-        "Das haben Sie mir schon gesagt – ich habe es übernommen, "
-        "Sie müssen es nicht noch einmal angeben:\n" + "\n".join(lines)
+        t("Das haben Sie mir schon gesagt – ich habe es übernommen, Sie müssen es nicht noch einmal angeben:\n") + "\n".join(lines)
     )
 
 
@@ -1294,8 +1298,7 @@ def _remaining_hint(remaining: int) -> str:
         return ""
 
     return (
-        f"\n\n_Noch {remaining} Angaben offen – Sie können "
-        "auch mehrere auf einmal nennen._"
+        t("\n\n_Noch {remaining} Angaben offen – Sie können auch mehrere auf einmal nennen._", remaining=remaining)
     )
 
 
@@ -1314,36 +1317,31 @@ def build_step_intro(
         intake_state = graph_state.get("business_intake") or {}
 
         if not intake_state.get("analyzed_raw_input"):
-            return GREETING
+            return t(GREETING)
 
         return (
-            "Sie können Ihre Beschreibung jederzeit ergänzen. "
-            "Schreiben Sie mir einfach, was sich geändert hat."
+            t("Sie können Ihre Beschreibung jederzeit ergänzen. Schreiben Sie mir einfach, was sich geändert hat.")
         )
 
     if step == "business_clarification":
         return (
-            "Danke, das habe ich ausgewertet. Ich habe noch ein "
-            "paar kurze Rückfragen."
+            t("Danke, das habe ich ausgewertet. Ich habe noch ein paar kurze Rückfragen.")
         )
 
     if step == "product_table":
         return (
-            "Gut, jetzt geht es um Ihre Produkte. Ich frage die "
-            "Daten der Reihe nach ab."
+            t("Gut, jetzt geht es um Ihre Produkte. Ich frage die Daten der Reihe nach ab.")
         )
 
     if step == "model_input_form":
         return (
-            "Prima, jetzt brauche ich noch ein paar Zahlen für "
-            "die Berechnung. Ich frage sie nacheinander ab."
+            t("Prima, jetzt brauche ich noch ein paar Zahlen für die Berechnung. Ich frage sie nacheinander ab.")
         )
 
     if step == "model_unsupported":
         proposal = modular_state.get("proposal") or {}
         lines = [
-            "Einige Ihrer Anforderungen kann ich mit den "
-            "verfügbaren Bausteinen noch nicht abbilden:",
+            t("Einige Ihrer Anforderungen kann ich mit den verfügbaren Bausteinen noch nicht abbilden:"),
             "",
             *(
                 f"- **{requirement['description']}**: "
@@ -1358,37 +1356,31 @@ def build_step_intro(
 
         if proposal.get("selection_status") == "unsupported":
             lines.append(
-                "**Möchten Sie ohne diese Anforderungen "
-                "fortfahren, oder Ihre Beschreibung anpassen?**"
+                t("**Möchten Sie ohne diese Anforderungen fortfahren, oder Ihre Beschreibung anpassen?**")
             )
         else:
             lines.append(
-                "**Können Sie genauer beschreiben, was gemeint "
-                "ist?**"
+                t("**Können Sie genauer beschreiben, was gemeint ist?**")
             )
 
         return "\n".join(lines)
 
     if step == "review":
         return (
-            "Damit habe ich alles, was ich brauche. Rechts sehen "
-            "Sie die Zusammenfassung – fragen Sie mich gern, "
-            "wenn etwas unklar ist.\n\n"
-            "**Stimmen die Angaben, und soll ich die Berechnung "
-            "starten?**"
+            t("Damit habe ich alles, was ich brauche. Rechts sehen Sie die Zusammenfassung – fragen Sie mich gern, wenn etwas unklar ist.\n\n**Stimmen die Angaben, und soll ich die Berechnung starten?**")
         )
 
     if step == "result":
         result = modular_state.get("optimization_result") or {}
-        status_label = STATUS_LABELS.get(
-            result.get("status", ""),
-            "Die Berechnung ist abgeschlossen",
+        status = result.get("status", "")
+        status_label = (
+            t(STATUS_LABELS[status])
+            if status in STATUS_LABELS
+            else t("Die Berechnung ist abgeschlossen")
         )
 
         return (
-            f"**{status_label}.** Das Ergebnis sehen Sie "
-            "rechts. **Soll ich es Ihnen erklären?** Oder "
-            "fragen Sie mich direkt zu einzelnen Zahlen."
+            t("**{status_label}.** Das Ergebnis sehen Sie rechts. **Soll ich es Ihnen erklären?** Oder fragen Sie mich direkt zu einzelnen Zahlen.", status_label=status_label)
         )
 
     return None
@@ -1420,6 +1412,14 @@ def build_follow_up_messages(
     messages: list[str] = []
 
     if step != previous_step:
+        if previous_step in {"business_intake", "business_clarification"}:
+            summary = build_proposal_summary(
+                (graph_state or {}).get("business_intake")
+            )
+
+            if summary:
+                messages.append(summary)
+
         intro = build_step_intro(
             step,
             graph_state,
@@ -1430,7 +1430,7 @@ def build_follow_up_messages(
             messages.append(intro)
 
         # Die Begrüßung enthält die Einstiegsfrage bereits.
-        if next_question and intro != GREETING:
+        if next_question and intro != t(GREETING):
             messages.append(
                 next_question["text"]
                 + _remaining_hint(next_question["remaining"])
@@ -1460,44 +1460,6 @@ STEP_PROGRESS = {
 }
 TOTAL_STEPS = 5
 
-EXAMPLE_DESCRIPTIONS = (
-    (
-        "🎄 Beispiel: Saisonware",
-        "Wir verkaufen Weihnachtsbäume in einer einzigen Saison und "
-        "bestellen sie einmal vor Saisonbeginn. Während der Saison können "
-        "wir nicht nachbestellen. Die Nachfrage ist unsicher. Ein Baum "
-        "wird für 25 € verkauft und kostet im Einkauf 10 €. Nicht "
-        "verkaufte Bäume können nach der Saison noch für 3 € pro Baum "
-        "verwertet werden. Wir möchten die Bestellmenge finden, mit der "
-        "wir voraussichtlich den höchsten Gewinn erzielen.",
-    ),
-    (
-        "🚲 Beispiel: Gleichmäßiger Bedarf",
-        "Die Bike-World GmbH verkauft ein E-Bike-Modell dauerhaft und "
-        "bestellt es regelmäßig nach. Für die kommenden 365 Tage erwarten "
-        "wir einen Bedarf von 1.200 E-Bikes, ungefähr gleichmäßig über die "
-        "Zeit. Es gibt keine Mengenrabatte und wir planen keine "
-        "Fehlbestände. Jede Bestellung verursacht feste Bestellkosten von "
-        "150 €. Die Lagerhaltung kostet 25 € pro E-Bike und Jahr. Wir "
-        "möchten die Bestellmenge bestimmen, bei der die jährlichen "
-        "Bestell- und Lagerhaltungskosten zusammen am geringsten sind.",
-    ),
-    (
-        "👕 Beispiel: Schwankende Nachfrage",
-        "Wir verkaufen ein T-Shirt-Modell dauerhaft und bestellen "
-        "regelmäßig nach. Der Lagerbestand wird laufend überwacht. Die "
-        "Lieferzeit beträgt konstant drei Tage. Die Nachfrage ist "
-        "unsicher: Für diese drei Tage erwarten wir 60 verkaufte "
-        "T-Shirts; die Nachfragequantile sind Q10 = 51,12, Q50 = 60 und "
-        "Q90 = 68,88. Wir möchten die Bestellmenge und den Meldebestand "
-        "bestimmen und die jährlichen Bestell-, Lagerhaltungs- und "
-        "Fehlmengenkosten minimieren. Jede Bestellung kostet 250 €, die "
-        "Lagerhaltung 50 € je T-Shirt und Jahr und jede fehlende Einheit "
-        "10 €.",
-    ),
-)
-
-
 def build_progress_label(step: str) -> str | None:
     """Kurze Fortschrittsangabe für den Chat, z. B. „Schritt 2 von 5“."""
 
@@ -1507,7 +1469,7 @@ def build_progress_label(step: str) -> str | None:
         return None
 
     number, label = progress
-    return f"Schritt {number} von {TOTAL_STEPS} · {label}"
+    return t("Schritt {number} von {TOTAL_STEPS} · {label}", number=number, TOTAL_STEPS=TOTAL_STEPS, label=t(label))
 
 
 class QuickReply(TypedDict):
@@ -1527,7 +1489,6 @@ def build_quick_replies(
     """Antwortvorschläge, damit der Nutzer nicht tippen muss."""
 
     graph_state = graph_state or {}
-    intake_state = graph_state.get("business_intake") or {}
     target = (next_question or {}).get("target") or {}
     question_key = (next_question or {}).get("key", step)
 
@@ -1535,23 +1496,10 @@ def build_quick_replies(
         return [
             {
                 "key": f"{question_key}:restart",
-                "label": "🔄 Neu beginnen",
+                "label": t("🔄 Neu beginnen"),
                 "kind": "action",
                 "value": "restart",
             }
-        ]
-
-    if step == "business_intake" and not intake_state.get(
-        "analyzed_raw_input"
-    ):
-        return [
-            {
-                "key": f"example:{index}",
-                "label": label,
-                "kind": "message",
-                "value": text,
-            }
-            for index, (label, text) in enumerate(EXAMPLE_DESCRIPTIONS)
         ]
 
     if target.get("kind") == "business_question":
@@ -1564,7 +1512,7 @@ def build_quick_replies(
             return [
                 {
                     "key": f"{question_key}:{option['option_id']}",
-                    "label": option["label"],
+                    "label": t(option["label"]),
                     "kind": "answer",
                     "value": {
                         "question_id": question_id,
@@ -1574,13 +1522,23 @@ def build_quick_replies(
                 for option in question["options"]
             ]
 
+    if target.get("kind") == "inputs_complete":
+        return [
+            {
+                "key": "model_input:continue",
+                "label": t("➡️ Weiter zur Überprüfung"),
+                "kind": "action",
+                "value": "continue_to_review",
+            }
+        ]
+
     if target.get("kind") == "model_input":
         return [
             {
                 "key": f"{question_key}:estimate",
-                "label": "🤔 Wie schätze ich das?",
+                "label": t("🤔 Wie schätze ich das?"),
                 "kind": "message",
-                "value": "Ich kenne den Wert nicht genau. Wie kann ich ihn schätzen?",
+                "value": t("Ich kenne den Wert nicht genau. Wie kann ich ihn schätzen?"),
             }
         ]
 
@@ -1588,7 +1546,7 @@ def build_quick_replies(
         return [
             {
                 "key": "review:start",
-                "label": "✅ Berechnung starten",
+                "label": t("✅ Berechnung starten"),
                 "kind": "action",
                 "value": "start_optimization",
             }
@@ -1598,13 +1556,13 @@ def build_quick_replies(
         return [
             {
                 "key": "result:explain",
-                "label": "💡 Ergebnis erklären",
+                "label": t("💡 Ergebnis erklären"),
                 "kind": "action",
                 "value": "explain_result",
             },
             {
                 "key": "result:restart",
-                "label": "🔄 Neue Optimierung",
+                "label": t("🔄 Neue Optimierung"),
                 "kind": "action",
                 "value": "restart",
             },
@@ -1654,7 +1612,7 @@ def _format_known_value(value: Any, field: dict[str, Any] | None) -> str:
     if isinstance(value, float) and value.is_integer():
         value = int(value)
 
-    unit = (field or {}).get("unit")
+    unit = t((field or {}).get("unit"))
     return f"{value} {unit}" if unit else str(value)
 
 
@@ -1682,9 +1640,10 @@ def build_known_facts_summary(
         if question is not None:
             label = next(
                 (
-                    option["label"]
+                    t(option["label"])
                     for option in question["options"]
-                    if option["option_id"] == field.get("value")
+                    if option.get("profile_value", option["option_id"])
+                    == field.get("value")
                 ),
                 label,
             )
@@ -1695,7 +1654,7 @@ def build_known_facts_summary(
     core_name = _core_name(core_id)
 
     if core_name:
-        lines.append(f"- **Rechenmodell:** {core_name}")
+        lines.append(t("- **Rechenmodell:** {core_name}", core_name=core_name))
 
     catalog = _field_catalog(core_id)
     products = specification.get("products") or modular_state.get("products") or []
@@ -1706,13 +1665,13 @@ def build_known_facts_summary(
             **(product.get("facts") or {}),
         }
         details = [
-            f"{(catalog.get(name) or {}).get('label', name)}: "
+            f"{t((catalog.get(name) or {}).get('label', name))}: "
             f"{_format_known_value(value, catalog.get(name))}"
             for name, value in values.items()
             if value not in (None, "", [])
         ]
         lines.append(
-            f"- **Produkt „{product['product_id']}“**"
+            t("- **Produkt „{product_id}“**", product_id=product['product_id'])
             + (":\n" + "\n".join(f"  - {detail}" for detail in details)
                if details else "")
         )
@@ -1727,3 +1686,36 @@ def build_known_facts_summary(
         )
 
     return lines
+
+
+def build_proposal_summary(
+    intake_state: dict[str, Any] | None,
+) -> str | None:
+    """Fasst erkannte, noch unbestätigte Anforderungen für den Chat zusammen."""
+
+    from agentic_optimization.ui.requirements_panel import (
+        build_requirement_items,
+    )
+
+    proposed = [
+        item
+        for item in build_requirement_items(intake_state)
+        if item["status"] == "proposed"
+    ]
+
+    if not proposed:
+        return None
+
+    lines = []
+
+    for item in proposed:
+        if item["kind"] == "assumption":
+            lines.append(t("- _Annahme:_ {title} ({value_label})", title=item['title'], value_label=item['value_label']))
+        else:
+            lines.append(f"- **{item['title']}:** {item['value_label']}")
+
+    return (
+        t("Das habe ich aus Ihren Angaben erkannt:\n")
+        + "\n".join(lines)
+        + t("\n\nBitte prüfen Sie die Punkte oben unter **Erkannte Anforderungen** bzw. **Bekannte Angaben** – Sie können sie bestätigen, ändern oder verwerfen.")
+    )

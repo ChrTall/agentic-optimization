@@ -72,6 +72,7 @@ EVENT_MODULAR_INPUTS_SUBMITTED: Final = "modular_inputs_submitted"
 EVENT_MODULAR_OPTIMIZATION_REQUESTED: Final = "modular_optimization_requested"
 EVENT_BUSINESS_INTAKE_REQUESTED: Final = "business_intake_requested"
 EVENT_MODULAR_REQUIREMENT_EXCLUSIONS_CONFIRMED: Final = "modular_requirement_exclusions_confirmed"
+EVENT_MODULAR_SPECIFICATION_EDITED: Final = "modular_specification_edited"
 
 
 
@@ -110,6 +111,7 @@ WorkflowEvent = Literal[
     "modular_optimization_requested",
     "business_intake_requested",
     "modular_requirement_exclusions_confirmed",
+    "modular_specification_edited",
 ]
 
 DecisionType = Literal[
@@ -203,6 +205,7 @@ class BusinessIntakeState(TypedDict, total=False):
     chosen_core_id: str | None
     core_question_plan: CoreQuestionPlan | None
     product_name: str | None
+    profile_overrides: list[dict[str, Any]]
     product_name_analyzed_raw_input: str | None
 
 
@@ -230,6 +233,8 @@ class ModularModelState(TypedDict, total=False):
     review_confirmed: bool
     optimization_result: OptimizationExecutionResult | None
     pending_input_submissions: list[ModularInputSubmission]
+    pending_specification_edits: dict[str, Any]
+    inputs_confirmed: bool
     preparation_error: str | None
     excluded_requirements: list[ExcludedRequirement]
     review_explanation: str
@@ -330,6 +335,7 @@ def invalidate_optimization_state(
         updated_state["modular_model"] = {
             **state["modular_model"],
             "review_confirmed": False,
+            "inputs_confirmed": False,
             "optimization_result": None,
             "review_explanation": "",
             "review_explanation_source": "",

@@ -11,6 +11,7 @@ import logging
 from collections.abc import Callable, Sequence
 from typing import Any, Literal, TypedDict
 
+from agentic_optimization.i18n import language_instruction
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -25,6 +26,7 @@ LOGGER = logging.getLogger(__name__)
 ChatAction = Literal[
     "none",
     "submit_products",
+    "continue_to_review",
     "confirm_exclusions",
     "start_optimization",
     "explain_result",
@@ -35,6 +37,7 @@ ChatAction = Literal[
 ALL_CHAT_ACTIONS: tuple[ChatAction, ...] = (
     "none",
     "submit_products",
+    "continue_to_review",
     "confirm_exclusions",
     "start_optimization",
     "explain_result",
@@ -76,6 +79,7 @@ class ChatAssistantDecision(TypedDict):
     question_answers: list[ChatQuestionAnswer]
     input_values: list[ChatInputValue]
     products: list[ChatProductRow]
+    add_components: list[str]
     action: ChatAction
 
 
@@ -97,7 +101,8 @@ Du erhältst:
 - die neue NACHRICHT des Nutzers.
 
 So führst du das Gespräch:
-1. Antworte kurz, freundlich und auf Deutsch (Sie-Form).
+1. Antworte kurz und freundlich – auf Deutsch in der Sie-Form,
+   sofern unten keine andere Sprache verlangt wird.
    Vermeide Fachbegriffe wie Newsvendor, EOQ oder (Q,R).
 2. Die Anwendung stellt die Fragen der Reihe nach selbst
    (current_question). Übernimm, was der Nutzer beantwortet –
@@ -149,6 +154,11 @@ Feldregeln:
   hat. Frage nie nach etwas, das dort schon steht. Steht die
   Antwort auf current_question dort, übernimm sie und sage
   kurz, dass du sie aus seinen Angaben übernommen hast.
+- add_components: component_id-Werte aus optional_components,
+  wenn der Nutzer einen zusätzlichen Baustein ausdrücklich
+  wünscht (z. B. "höchstens 250 Stück bestellen" ->
+  maximum_order_quantity). Werte dafür übernimmst du erst,
+  wenn die Anwendung danach fragt.
 - known_parameters: bereits erfasste Angaben. Nutze sie, um
   Fragen dazu zu beantworten. Übernimm sie nicht erneut.
   Bereits gesetzte Werte kannst du nicht ändern – verweise
@@ -162,6 +172,7 @@ Gib ausschließlich ein JSON-Objekt in diesem Format zurück:
   "question_answers": [],
   "input_values": [],
   "products": [],
+  "add_components": [],
   "action": "none"
 }
 """.strip()
@@ -229,6 +240,7 @@ def sanitize_chat_decision(
         "question_answers": [],
         "input_values": [],
         "products": [],
+        "add_components": [],
         "action": "none",
     }
 
@@ -302,6 +314,13 @@ def sanitize_chat_decision(
                 }
             )
 
+    if "add_components" in allowed:
+        decision["add_components"] = [
+            item
+            for item in raw_decision.get("add_components") or []
+            if isinstance(item, str) and item.strip()
+        ]
+
     action = raw_decision.get("action")
 
     if (
@@ -339,7 +358,7 @@ def create_chat_assistant_agent(
 
         response = llm.invoke(
             [
-                SystemMessage(content=SYSTEM_PROMPT),
+                SystemMessage(content=SYSTEM_PROMPT + language_instruction()),
                 HumanMessage(content=human_content),
             ]
         )

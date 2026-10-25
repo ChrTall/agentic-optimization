@@ -21,6 +21,7 @@ from agentic_optimization.models.types import (
     ModelCoreDefinition,
     ModelInputField,
 )
+from agentic_optimization.i18n import t
 
 CORE_DEFINITION: ModelCoreDefinition = {
     "core_id": "single_period_newsvendor",
@@ -169,12 +170,7 @@ def validate_single_period_newsvendor_forecast(
         > MAX_EXPECTED_DEMAND_DEVIATION
     ):
         return [
-            "Die erwartete Nachfrage "
-            f"({expected_value:g}) passt nicht zu den "
-            "Nachfragequantilen, deren Verteilung einen Mittelwert "
-            f"von etwa {model_expected_value:.1f} ergibt. Bitte prüfen "
-            "Sie, ob sich beide Angaben auf denselben "
-            "Prognosezeitraum beziehen."
+            t("Die erwartete Nachfrage ({expected_value:g}) passt nicht zu den Nachfragequantilen, deren Verteilung einen Mittelwert von etwa {model_expected_value:.1f} ergibt. Bitte prüfen Sie, ob sich beide Angaben auf denselben Prognosezeitraum beziehen.", expected_value=expected_value, model_expected_value=model_expected_value)
         ]
 
     return []
@@ -222,10 +218,7 @@ def validate_single_period_newsvendor_semantics(
 
             if salvage_value >= purchase_cost:
                 errors.append(
-                    f"Für das Produkt '{product_id}' muss "
-                    "der Restwert pro unverkaufter Einheit "
-                    "kleiner als die Einkaufskosten pro "
-                    "Einheit sein."
+                    t("Für das Produkt '{product_id}' muss der Restwert pro unverkaufter Einheit kleiner als die Einkaufskosten pro Einheit sein.", product_id=product_id)
                 )
 
         fulfillment_incentive = (
@@ -236,12 +229,7 @@ def validate_single_period_newsvendor_semantics(
 
         if fulfillment_incentive <= 0:
             errors.append(
-                f"Für das Produkt '{product_id}' bieten die "
-                "ausgewählten Zielfunktionsbausteine keinen "
-                "positiven Anreiz zur Deckung der Nachfrage. "
-                "Die Summe aus Verkaufspreis und "
-                "Fehlmengenkosten muss größer als der "
-                "Restwert sein."
+                t("Für das Produkt '{product_id}' bieten die ausgewählten Zielfunktionsbausteine keinen positiven Anreiz zur Deckung der Nachfrage. Die Summe aus Verkaufspreis und Fehlmengenkosten muss größer als der Restwert sein.", product_id=product_id)
             )
 
     products_by_id = {
@@ -275,11 +263,7 @@ def validate_single_period_newsvendor_semantics(
 
         if not has_sufficient_quantile:
             errors.append(
-                f"Für das Produkt '{product_id}' enthält "
-                "die Nachfrageprognose kein "
-                "Nachfragequantil auf oder oberhalb des "
-                "geforderten Servicelevels von "
-                f"{service_level_percent:g} %."
+                t("Für das Produkt '{product_id}' enthält die Nachfrageprognose kein Nachfragequantil auf oder oberhalb des geforderten Servicelevels von {service_level_percent:g} %.", product_id=product_id, service_level_percent=service_level_percent)
             )
 
     return errors
@@ -316,16 +300,14 @@ class BuiltSinglePeriodNewsvendorCore:
         if quantity_id == "order_quantity":
             if forecast_point_index is not None:
                 raise ValueError(
-                    "Die Bestellmenge ist nicht "
-                    "nach Forecast-Punkten indiziert."
+                    t("Die Bestellmenge ist nicht nach Forecast-Punkten indiziert.")
                 )
 
             return self.order_quantities[product_id]
 
         if forecast_point_index is None:
             raise ValueError(
-                f"Für die Modellgröße '{quantity_id}' "
-                "fehlt der Forecast-Punkt."
+                t("Für die Modellgröße '{quantity_id}' fehlt der Forecast-Punkt.", quantity_id=quantity_id)
             )
 
         key = (
@@ -343,8 +325,7 @@ class BuiltSinglePeriodNewsvendorCore:
 
         if quantity_mapping is None:
             raise KeyError(
-                f"Die Modellgröße '{quantity_id}' "
-                "wird vom Newsvendor-Kern nicht bereitgestellt."
+                t("Die Modellgröße '{quantity_id}' wird vom Newsvendor-Kern nicht bereitgestellt.", quantity_id=quantity_id)
             )
 
         return quantity_mapping[key]

@@ -18,6 +18,7 @@ from agentic_optimization.models.types import (
     ConstraintParameterDefinition,
     ModelInputField,
 )
+from agentic_optimization.i18n import t
 
 
 class CoreCatalogEntry(TypedDict):
@@ -77,7 +78,7 @@ def build_component_catalog(
 
     if registered_core is None:
         raise ValueError(
-            f"Das Grundmodell '{core_id}' ist nicht registriert."
+            t("Das Grundmodell '{core_id}' ist nicht registriert.", core_id=core_id)
         )
 
     core_definition = registered_core["definition"]
