@@ -36,6 +36,7 @@ from agentic_optimization.ui.business_intake_view_builder import (
 )
 from agentic_optimization.ui.business_problem_form import (
     BusinessQuestion,
+    BUSINESS_QUESTIONS,
 )
 from agentic_optimization.ui.field_renderer import (
     _format_existing_forecast_quantiles,
@@ -67,8 +68,8 @@ GREETING = (
     "Bestellempfehlung.\n\n"
     "Erzählen Sie mir einfach in eigenen Worten, worum es "
     "geht – zum Beispiel welches Produkt, wie oft Sie "
-    "bestellen und was Ihnen wichtig ist. Ich übernehme Ihre "
-    "Angaben direkt in die Anwendung.\n\n"
+    "bestellen und was Ihnen wichtig ist. Ich schlage Ihnen vor, "
+    "welche Angaben ich übernehmen würde. Sie können sie bestätigen oder ändern.\n\n"
     "Sie können genauso gut das Formular rechts nutzen – "
     "beides lässt sich jederzeit kombinieren."
 )
@@ -291,6 +292,9 @@ def get_open_business_questions(
 def resolve_question_answers(
     answers: list[ChatQuestionAnswer],
     questions: list[BusinessQuestion],
+    *,
+    user_message: str | None = None,
+    current_question_id: str | None = None,
 ) -> list[BusinessQuestionAnswer]:
     """Übernimmt nur Antworten auf aktuell offene Fragen."""
 
@@ -315,16 +319,72 @@ def resolve_question_answers(
         ):
             continue
 
+        if user_message is not None:
+            short = user_message.strip().casefold().strip(".!?")
+            if short in {"ja", "nein", "weiß ich nicht", "weiss ich nicht", "ich bin mir nicht sicher"} and question_id != current_question_id:
+                continue
+            if len({a["option_id"] for a in answers if a["question_id"] == question_id}) > 1:
+                continue
+
+        excerpt = answer.get("excerpt")
+        explicit = (user_message is not None and answer.get("explicit") is True
+                    and isinstance(excerpt, str) and bool(excerpt.strip())
+                    and excerpt in user_message)
+        if answer.get("explicit") and not explicit:
+            continue
+
         seen_questions.add(question_id)
         resolved.append(
             {
                 "question_id": question_id,
                 "option_id": option_id,
-                "source_id": CHAT_SOURCE_ID,
+                "source_id": "chat_assistant_explicit" if explicit else CHAT_SOURCE_ID,
             }
         )
 
     return resolved
+
+
+def get_answerable_business_questions(graph_state):
+    """Geschäftsangaben bleiben auch nach einer Antwort korrigierbar."""
+    questions = list(get_open_business_questions(graph_state))
+    for qid in ("primary_goal", "recommendation", "procurement_pattern", "replenishment_during_period", "inventory_review", "product_scope"):
+        if not any(q["question_id"] == qid for q in questions):
+            questions.append(BUSINESS_QUESTIONS[qid])
+    return questions
+
+
+def business_update_message(before, after, changed_description=False):
+    """Übernahme erst anhand des tatsächlich gespeicherten Profils bestätigen."""
+    old = (before or {}).get("business_intake", {}).get("profile") or {}
+    new = (after or {}).get("business_intake", {}).get("profile") or {}
+    labels = []
+    conflicts = False
+    for field_id in ("primary_goal", "recommendation", "procurement_pattern", "replenishment_during_period", "product_scope"):
+        field = new.get(field_id, {})
+        previous = old.get(field_id, {})
+        if field.get("status") == "conflict":
+            conflicts = True
+        if (field.get("status") != "confirmed" or field.get("value") is None
+                or (previous.get("value") == field.get("value") and previous.get("status") in {"inferred", "confirmed"})):
+            continue
+        question = BUSINESS_QUESTIONS.get(field_id)
+        if question:
+            label = next((option["label"] for option in question["options"]
+                          if option.get("profile_value") == field["value"]), None)
+            if label:
+                labels.append(label)
+    if conflicts:
+        return "Es gibt widersprüchliche Angaben. Ich frage gezielt nach, bevor wir weitergehen."
+    if labels:
+        changed = any(old.get(field_id, {}).get("status") == "confirmed"
+                      and new.get(field_id, {}).get("status") == "confirmed"
+                      and old[field_id].get("value") != new[field_id].get("value")
+                      for field_id in old if field_id in new)
+        return ("Geändert: " if changed else "Übernommen: ") + "; ".join(labels) + "."
+    if changed_description:
+        return "Ihre Ergänzung ist gespeichert. Die noch offenen Angaben klären wir im nächsten Schritt."
+    return None
 
 
 def append_to_description(
@@ -500,10 +560,19 @@ def _business_question_text(question: BusinessQuestion) -> str:
         for option in options
     )
 
+    prompt = question["prompt"]
+    if question["question_id"] == "procurement_pattern":
+        prompt = ("Wird die gesamte Bestellmenge für diesen Verkaufszeitraum vorher festgelegt, "
+                  "oder wird währenddessen nachbestellt? Sie können auch angeben, ob Nachbestellungen möglich sind.")
+    elif question["question_id"] == "core_condition:single_decision_period":
+        prompt = "Muss die gesamte Bestellmenge für diesen Verkaufszeitraum im Voraus festgelegt werden?"
     return (
-        f"**{question['prompt']}**\n\n{option_lines}\n\n"
+        f"**{prompt}**\n\n{option_lines}\n\n"
         "Antworten Sie gern in eigenen Worten – "
-        "„weiß ich nicht“ ist auch in Ordnung."
+        "„weiß ich nicht“ ist auch in Ordnung.\n\n"
+        "Sie können die Frage direkt beantworten oder Ihre Geschäftssituation weiter "
+        "beschreiben. Ich berücksichtige Ihre Ergänzungen und frage anschließend "
+        "nach, was noch offen ist."
     )
 
 
@@ -841,6 +910,8 @@ def _build_step_context(
                     graph_state
                 )
             ],
+            "answerable_questions": [_describe_question_for_llm(question)
+                                     for question in get_answerable_business_questions(graph_state)],
             "allowed_outputs": [
                 "use_message_as_description",
                 "question_answers",
@@ -1035,7 +1106,7 @@ def build_chat_context(
         product_rows=product_rows,
     )
 
-    return {
+    context = {
         "step": step,
         **_build_step_context(
             step,
@@ -1054,6 +1125,11 @@ def build_chat_context(
         ),
         "known_parameters": _known_parameters(graph_state),
     }
+    if step in {"model_input_form", "review", "result"}:
+        context["answerable_questions"] = [_describe_question_for_llm(q)
+                                           for q in get_answerable_business_questions(graph_state)]
+        context["allowed_outputs"] = [*context.get("allowed_outputs", []), "question_answers"]
+    return context
 
 
 # ---------------------------------------------------------------------------

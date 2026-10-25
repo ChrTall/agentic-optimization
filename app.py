@@ -71,6 +71,7 @@ from agentic_optimization.ui.modular_review_page import (
 
 from agentic_optimization.models.preparation_recovery import failed_preparation_state
 from agentic_optimization.ui.preparation_error_page import render_preparation_error_page
+from agentic_optimization.ui.business_answer_summary import render_answer_summary
 
 LOGGER = logging.getLogger(__name__)
 
@@ -260,6 +261,7 @@ def reset_workflow() -> None:
         "raw_problem_description",
         "review_sections",
         "business_intake_documents",
+        "business_edit_question",
     ]
     keys_to_clear.extend(
         key
@@ -268,6 +270,7 @@ def reset_workflow() -> None:
         or key.startswith(CORE_ASSUMPTION_CONFIRMATION_PREFIX)
         or key.startswith("business_question_")
         or key.startswith("business_clarification_")
+        or key.startswith("business_edit_value_")
     )
 
     for key in keys_to_clear:
@@ -338,11 +341,14 @@ def invoke_event(
 def run_business_intake(
     raw_input: str,
     answers: list,
+    *, chat_verified: bool | None = None,
 ) -> None:
     """Wertet Beschreibung und Antworten des Geschäftseinstiegs aus."""
 
     graph_state = ensure_graph_state()
     intake_state = graph_state["business_intake"]
+    if chat_verified is None:
+        chat_verified = bool(intake_state.get("chat_verified_mode"))
     # The retry form does not render questions answered in the failed turn.
     # Replay those submissions only for the same description; fresh answers
     # from the form take precedence by question ID.
@@ -363,6 +369,7 @@ def run_business_intake(
             "business_intake": {
                 **intake_state,
                 "pending_answers": answers,
+                "chat_verified_mode": chat_verified,
             },
         }
     st.session_state.raw_problem_description = raw_input
@@ -381,7 +388,8 @@ def retry_preparation() -> None:
     model = graph.get("modular_model", {})
     stage = (model.get("preparation_error_details") or {}).get("stage")
     if stage == "business_analysis":
-        run_business_intake(graph.get("raw_input", st.session_state.raw_problem_description), [])
+        run_business_intake(graph.get("raw_input", st.session_state.raw_problem_description), [],
+                            chat_verified=graph.get("business_intake", {}).get("chat_verified_mode", False))
     else:
         event = (EVENT_MODULAR_PRODUCT_SCHEMA_REQUESTED if stage == "product_schema"
                  or not model.get("products") else EVENT_MODULAR_MODEL_PREPARATION_REQUESTED)
@@ -484,7 +492,7 @@ ensure_graph_state()
 render_chat_panel(
     ChatWorkflowHandlers(
         get_llm=get_or_create_llm,
-        run_business_intake=run_business_intake,
+        run_business_intake=lambda text, answers: run_business_intake(text, answers, chat_verified=True),
         submit_products=submit_products,
         submit_model_inputs=submit_model_inputs,
         confirm_exclusions=confirm_exclusions,
@@ -497,6 +505,18 @@ render_chat_panel(
 )
 
 render_progress()
+
+if st.session_state.get("chat_pending_proposal"):
+    st.info("Bitte prüfen Sie den Vorschlag im Chat. Sie können ihn übernehmen, ändern oder weitere Angaben ergänzen.")
+    st.stop()
+
+if st.session_state.step in {"review", "result"}:
+    edited, editing = render_answer_summary(st.session_state.graph_state.get("business_intake", {}))
+    if edited:
+        run_business_intake(st.session_state.raw_problem_description, edited)
+        st.rerun()
+    if editing:
+        st.stop()
 
 
 if st.session_state.step == "business_intake":
@@ -541,6 +561,11 @@ if st.session_state.step == "business_intake":
 
         st.rerun()
 
+    st.caption("Beim kompletten Neustart werden die bisherigen Angaben und der Chat zurückgesetzt.")
+    if st.button("Komplett neu starten", key="restart_business_intake", width="stretch"):
+        reset_workflow()
+        st.rerun()
+
 
 elif st.session_state.step == "preparation_failed":
     model = (st.session_state.graph_state or {}).get("modular_model", {})
@@ -581,7 +606,7 @@ elif st.session_state.step == "business_clarification":
         st.rerun()
 
     if st.button(
-        "Beschreibung bearbeiten",
+        "Angaben im Chat ergänzen",
         width="stretch",
     ):
         st.session_state.step = "business_intake"

@@ -121,6 +121,14 @@ def build_business_intake_view_data(
                 "ist nicht registriert."
             )
 
+        if question.get("target_field") and profile[question["target_field"]]["status"] == "conflict":
+            from agentic_optimization.ui.business_answer_summary import option_label
+            field_id = question["target_field"]
+            choices = profile[field_id].get("candidate_values", [])
+            labels = " / ".join(option_label(field_id, value) for value in choices)
+            question = deepcopy(question)
+            question["prompt"] = ("Änderung noch zu klären: " + labels
+                                  + ". Welche Angabe soll künftig gelten?")
         questions.append(deepcopy(question))
 
     profile_field_ids = (

@@ -1,4 +1,4 @@
-from typing import Any, Final, Literal, TypedDict
+from typing import Any, Final, Literal, NotRequired, TypedDict
 
 from agentic_optimization.models.execution import (
     OptimizationExecutionResult,
@@ -180,11 +180,13 @@ class BusinessQuestionAnswer(TypedDict):
     question_id: str
     option_id: str
     source_id: str
+    excerpt: NotRequired[str]
 
 class BusinessIntakeState(TypedDict, total=False):
     """Zustand des modellneutralen Geschäftseinstiegs."""
 
     profile: BusinessProblemProfile
+    chat_verified_mode: bool
     asked_question_ids: list[str]
     pending_question_ids: list[str]
     core_selection: CoreSelectionDecision

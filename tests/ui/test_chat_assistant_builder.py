@@ -24,7 +24,30 @@ from agentic_optimization.ui.chat_assistant_builder import (
     merge_product_rows,
     resolve_input_submissions,
     resolve_question_answers,
+    get_answerable_business_questions,
+    business_update_message,
 )
+
+
+def test_explicit_answers_need_current_message_evidence_and_short_yes_is_not_broadcast():
+    questions = [{"question_id": "core_condition:single_decision_period", "prompt": "Vorab?",
+                  "options": [{"option_id": "yes", "label": "Ja"}]},
+                 {"question_id": "core_condition:no_replenishment_within_period", "prompt": "Keine Nachbestellung?",
+                  "options": [{"option_id": "yes", "label": "Ja"}]}]
+    answers = [{"question_id": q["question_id"], "option_id": "yes", "explicit": True, "excerpt": "ja"}
+               for q in questions]
+    resolved = resolve_question_answers(answers, questions, user_message="ja",
+                                        current_question_id=questions[0]["question_id"])
+    assert len(resolved) == 1
+    assert resolved[0]["source_id"] == "chat_assistant_explicit"
+    assert resolve_question_answers(answers, questions, user_message="vielleicht",
+                                    current_question_id=questions[0]["question_id"]) == []
+
+
+def test_acknowledgement_uses_saved_values_instead_of_claimed_llm_answers():
+    initial = create_initial_business_intake_state()
+    graph = {"business_intake": initial}
+    assert "Gewinn" not in business_update_message(graph, graph, changed_description=True)
 from agentic_optimization.ui.business_problem_form import (
     BUSINESS_QUESTIONS,
 )
@@ -385,7 +408,7 @@ def test_model_input_context_uses_stable_ids() -> None:
 
     ids = [item["input_id"] for item in context["missing_inputs"]]
     assert ids == [f"i{index + 1}" for index in range(len(ids))]
-    assert context["allowed_outputs"] == ["input_values"]
+    assert context["allowed_outputs"] == ["input_values", "question_answers"]
 
     assert context["current_question"]["target"] == {
         "kind": "model_input",

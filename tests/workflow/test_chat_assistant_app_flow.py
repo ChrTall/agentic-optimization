@@ -43,6 +43,11 @@ def _chat_reply(context: dict) -> dict:
         return {
             "reply": "Danke, ich schaue mir das an.",
             "use_message_as_description": True,
+            "question_answers": [
+                {"question_id": "recommendation", "option_id": "order_quantity"},
+                {"question_id": "procurement_pattern", "option_id": "recurring"},
+                {"question_id": "product_scope", "option_id": "single_product"},
+            ],
         }
 
     if step == "business_clarification":
@@ -100,6 +105,13 @@ class FakeLLM:
     def invoke(self, messages):
         system = messages[0].content
         human = messages[-1].content
+        if system.startswith("Prüfe unabhängig die Zuordnung"):
+            payload = json.loads(human)
+            return AIMessage(content=json.dumps({"findings": [
+                {**answer, "verdict": "explicit", "intent": "answer", "excerpt": payload["message"],
+                 "evidence_basis": "direct_request" if answer["question_id"] == "recommendation" else "direct_statement"}
+                for answer in payload["proposed_answers"]
+            ]}))
 
         if system.startswith("Du bist ein freundlicher Assistent"):
             raw_context = human.split("KONTEXT:\n", 1)[1].split(
@@ -182,6 +194,9 @@ class RetryProfileLLM(FakeLLM):
 def _say(app: AppTest, text: str) -> None:
     app.chat_input("chat_assistant_input").set_value(text).run()
     assert not app.exception, app.exception
+    if "chat_pending_proposal" in app.session_state:
+        app.button("confirm_chat_proposal").click().run()
+        assert not app.exception, app.exception
 
 
 def test_form_retry_replays_answer_after_profile_failure() -> None:
@@ -296,7 +311,7 @@ def test_complete_workflow_through_chat() -> None:
     assert "raw_input" not in app.session_state["graph_state"]
     assert app.session_state["business_question_recommendation"] is None
     assert "business_clarification_primary_goal" not in app.session_state
-    assert app.session_state["business_intake_documents"] in (None, [])
+    assert "business_intake_documents" not in app.session_state
     assert app.session_state["chat_product_rows_version"] == (
         previous_editor_version + 1
     )

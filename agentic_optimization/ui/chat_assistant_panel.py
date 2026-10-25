@@ -23,6 +23,14 @@ from agentic_optimization.agents.chat_assistant_agent import (
     ChatMessage,
     create_chat_assistant_agent,
 )
+from agentic_optimization.agents.chat_intake_validation import validate_chat_intake
+from agentic_optimization.ui.chat_proposals import (
+    PENDING_KEY, EDIT_KEY, is_direct_answer, match_current_option, proposal_message, proposal_sentence,
+)
+from agentic_optimization.ui.chat_diagnostics import (
+    ENABLED_KEY, RECORDS_KEY, diagnostic_sink, intake_snapshot,
+    render_diagnostics, start_diagnostic,
+)
 from agentic_optimization.llm.errors import (
     describe_llm_error,
     is_llm_service_error,
@@ -40,6 +48,8 @@ from agentic_optimization.ui.chat_assistant_builder import (
     build_follow_up_messages,
     check_product_rows,
     get_open_business_questions,
+    get_answerable_business_questions,
+    business_update_message,
     get_product_table_schema,
     merge_product_rows,
     resolve_input_submissions,
@@ -55,6 +65,7 @@ LOGGER = logging.getLogger(__name__)
 MESSAGES_KEY = "chat_messages"
 STEP_KEY = "chat_announced_step"
 QUESTION_KEY = "chat_question_key"
+CONFIRM_FOLLOW_UP_KEY = "chat_confirm_follow_up"
 PRODUCT_ROWS_KEY = "chat_product_rows"
 PRODUCT_ROWS_VERSION_KEY = "chat_product_rows_version"
 
@@ -116,7 +127,12 @@ def reset_chat_state() -> None:
         MESSAGES_KEY,
         STEP_KEY,
         QUESTION_KEY,
+        CONFIRM_FOLLOW_UP_KEY,
         PRODUCT_ROWS_KEY,
+        ENABLED_KEY,
+        RECORDS_KEY,
+        PENDING_KEY,
+        EDIT_KEY,
         "modular_input_drafts",
         "modular_input_known_values",
         "modular_table_base",
@@ -161,16 +177,19 @@ def _announce_current_step() -> None:
     Angabe erfragt.
     """
 
+    if st.session_state.get(PENDING_KEY):
+        return
     step = st.session_state.get("step", "business_intake")
     product_rows, _ = get_chat_product_rows()
+    confirmed = st.session_state.get(CONFIRM_FOLLOW_UP_KEY, False)
 
     try:
         messages, question_key = build_follow_up_messages(
             step,
             st.session_state.get("graph_state"),
             product_rows=product_rows,
-            previous_step=st.session_state.get(STEP_KEY),
-            previous_question_key=st.session_state.get(QUESTION_KEY),
+            previous_step=step if confirmed and step == "business_clarification" else st.session_state.get(STEP_KEY),
+            previous_question_key=None if confirmed else st.session_state.get(QUESTION_KEY),
             additional_inputs_confirmed=st.session_state.get("modular_additions_confirmed", False),
         )
     except (KeyError, TypeError, ValueError):
@@ -179,6 +198,9 @@ def _announce_current_step() -> None:
 
     st.session_state[STEP_KEY] = step
     st.session_state[QUESTION_KEY] = question_key
+    if confirmed:
+        st.session_state.pop(CONFIRM_FOLLOW_UP_KEY, None)
+        messages = ["Ihre Angaben sind übernommen." + ("\n\n" + "\n\n".join(messages) if messages else "")]
 
     for message in messages:
         if not _messages() or _messages()[-1]["content"] != message:
@@ -194,24 +216,143 @@ def _apply_business_decision(
     decision: ChatAssistantDecision,
     user_message: str,
     handlers: ChatWorkflowHandlers,
-) -> None:
+    diagnostic=None,
+) -> list[str]:
     graph_state = st.session_state.get("graph_state") or {}
     description = st.session_state.get(
         "raw_problem_description",
         "",
     )
-    answers = resolve_question_answers(
-        decision["question_answers"],
-        get_open_business_questions(graph_state),
-    )
+    pending = st.session_state.get(PENDING_KEY)
+    if pending:
+        description = pending["description"]
+    questions = get_answerable_business_questions(graph_state)
+    context = build_chat_context(st.session_state.get("step", "business_intake"), graph_state)
+    current_question_id = (context.get("current_question") or {}).get("target", {}).get("question_id")
+    explicit_option = (match_current_option(user_message, next(
+        (q for q in questions if q["question_id"] == current_question_id), None))
+        if not pending else None)
+    try:
+        answers = [explicit_option] if explicit_option else validate_chat_intake(
+            handlers.get_llm(), message=user_message,
+            questions=questions,
+            proposed_answers=decision["question_answers"],
+            profile=graph_state.get("business_intake", {}).get("profile") or {},
+            current_question_id=current_question_id if not pending else None,
+            diagnostic=diagnostic,
+            allow_assumptions=True,
+        )
+        if explicit_option and diagnostic is not None:
+            diagnostic({"stage": "explicit_option_match", "answer": explicit_option})
+    except Exception:
+        LOGGER.exception("Die automatische Antwortzuordnung konnte nicht geprüft werden.")
+        return ["Ihre Antwort konnte nicht zuverlässig geprüft werden. Es wurden keine Angaben "
+                "automatisch übernommen. Bitte versuchen Sie es erneut oder nutzen Sie das Formular."]
     new_description = (
         append_to_description(description, user_message)
-        if decision["use_message_as_description"]
+        if decision["use_message_as_description"] or answers
         else description
     )
 
     if new_description != description or answers:
+        if not is_direct_answer(answers, current_question_id, pending):
+            merged = {a["question_id"]: a for a in (pending or {}).get("answers", [])}
+            merged.update({a["question_id"]: a for a in answers})
+            proposed = list(merged.values())
+            st.session_state[PENDING_KEY] = {
+                "description": new_description, "answers": proposed, "questions": questions,
+                "base": deepcopy(graph_state.get("business_intake", {})),
+            }
+            st.session_state[EDIT_KEY] = False
+            st.session_state["chat_proposal_version"] = st.session_state.get("chat_proposal_version", 0) + 1
+            if diagnostic is not None:
+                diagnostic({"stage": "pending_confirmation", "answers": proposed})
+            return [proposal_message(proposed, questions)]
+        before = deepcopy(graph_state)
+        if answers:
+            intake = graph_state.get("business_intake", {})
+            intake["pending_question_ids"] = list(dict.fromkeys([
+                *intake.get("pending_question_ids", []), *[a["question_id"] for a in answers],
+            ]))
+        st.session_state["graph_state"] = graph_state
         handlers.run_business_intake(new_description, answers)
+        message = business_update_message(before, st.session_state.get("graph_state"),
+                                          changed_description=new_description != description)
+        if answers:
+            return (["Ihre Antwort ist übernommen."] if answers[0]["question_id"].startswith("core_condition:")
+                    else [proposal_sentence(answers[0], questions)])
+        return [message or "Ihre Antwort wurde gespeichert."]
+    if decision["question_answers"]:
+        return ["Ich konnte die Antwort nicht eindeutig zuordnen. Bitte präzisieren Sie die noch offene Angabe."]
+    return [decision["reply"]] if decision["reply"] else []
+
+
+def _confirm_business_proposal(handlers, answers=None):
+    pending = st.session_state.get(PENDING_KEY)
+    if not pending:
+        return
+    graph = st.session_state.get("graph_state") or {}
+    if graph.get("business_intake", {}) != pending["base"]:
+        st.session_state.pop(PENDING_KEY, None)
+        _add_message("assistant", "Ihre Angaben wurden inzwischen geändert. Bitte ergänzen Sie Ihre Beschreibung erneut.")
+        return
+    selected = pending["answers"] if answers is None else answers
+    confirmed = [{**a, "source_id": "business_clarification_form"} for a in selected]
+    graph["business_intake"]["pending_question_ids"] = list(dict.fromkeys([
+        *graph["business_intake"].get("pending_question_ids", []),
+        *[a["question_id"] for a in confirmed],
+    ]))
+    st.session_state["graph_state"] = graph
+    handlers.run_business_intake(pending["description"], confirmed)
+    records = st.session_state.get(RECORDS_KEY, [])
+    if records:
+        records[-1]["events"].append({"stage": "user_confirmed_proposal", "answers": deepcopy(confirmed)})
+        records[-1]["step_after"] = st.session_state.get("step")
+        records[-1]["after"] = intake_snapshot(st.session_state.get("graph_state"))
+    st.session_state.pop(PENDING_KEY, None)
+    st.session_state.pop(EDIT_KEY, None)
+    _add_message("user", "Diese Angaben übernehmen.")
+    st.session_state[CONFIRM_FOLLOW_UP_KEY] = True
+
+
+def _render_business_proposal(handlers):
+    pending = st.session_state.get(PENDING_KEY)
+    if not pending:
+        return
+    if (st.session_state.get("graph_state") or {}).get("business_intake", {}) != pending["base"]:
+        st.session_state.pop(PENDING_KEY, None)
+        st.session_state.pop(EDIT_KEY, None)
+        _add_message("assistant", "Das Formular wurde inzwischen geändert. Der bisherige Vorschlag ist verworfen; bitte ergänzen Sie Ihre Angaben erneut.")
+        st.rerun()
+    st.caption("Diese Angaben sind vorgemerkt und noch nicht übernommen.")
+    if st.session_state.get(EDIT_KEY):
+        edited = []
+        with st.form("edit_chat_proposal"):
+            for index, answer in enumerate(pending["answers"]):
+                question = next(q for q in pending["questions"] if q["question_id"] == answer["question_id"])
+                labels = {o["option_id"]: o["label"] for o in question["options"]}
+                labels["omit"] = "Diese Angabe nicht übernehmen"
+                value = st.radio(question["prompt"], list(labels),
+                    index=list(labels).index(answer["option_id"]), format_func=lambda v, labels=labels: labels[v],
+                    key=f"proposal_edit_{st.session_state.get('chat_proposal_version', 0)}_{index}")
+                if value != "omit":
+                    edited.append({**answer, "option_id": value})
+            if st.form_submit_button("Änderungen übernehmen"):
+                _confirm_business_proposal(handlers, edited)
+                st.rerun()
+        st.caption("Weitere Details oder Korrekturen können Sie auch direkt in den Chat schreiben.")
+    else:
+        if st.button("Übernehmen", key="confirm_chat_proposal", type="primary"):
+            _confirm_business_proposal(handlers)
+            st.rerun()
+        if st.button("Ändern", key="edit_chat_proposal"):
+            st.session_state[EDIT_KEY] = True
+            st.rerun()
+    if st.button("Vorschlag verwerfen", key="discard_chat_proposal"):
+        st.session_state.pop(PENDING_KEY, None)
+        st.session_state.pop(EDIT_KEY, None)
+        _add_message("assistant", "Der Vorschlag wurde verworfen. Sie können neue Angaben machen oder das Formular nutzen.")
+        st.rerun()
 
 
 def _apply_product_decision(
@@ -347,7 +488,14 @@ def _process_user_message(
         ),
         product_rows=product_rows,
     )
-    agent = create_chat_assistant_agent(llm)
+    if st.session_state.get(PENDING_KEY):
+        context["pending_proposal"] = st.session_state[PENDING_KEY]
+        if user_message.strip().casefold().strip(".! ") in {"ja", "übernehmen", "ja übernehmen", "ja, übernehmen", "passt"}:
+            _confirm_business_proposal(handlers)
+            return
+    trace = start_diagnostic(user_message, step, graph_state, context)
+    diagnostic = diagnostic_sink(trace)
+    agent = create_chat_assistant_agent(llm, diagnostic=diagnostic)
 
     try:
         decision = agent(
@@ -355,7 +503,12 @@ def _process_user_message(
             history=_messages()[:-1],
             user_message=user_message,
         )
+        if diagnostic is not None:
+            diagnostic({"stage": "sanitized_decision", "decision": decision})
     except Exception as error:  # noqa: BLE001 – Provider-Fehler sind vielfältig
+        if trace is not None:
+            trace["error_type"] = type(error).__name__
+            trace["after"] = intake_snapshot(st.session_state.get("graph_state"))
         LOGGER.exception("Chat-Assistent ist fehlgeschlagen.")
         _add_message(
             "assistant",
@@ -369,7 +522,8 @@ def _process_user_message(
         )
         return
 
-    _add_message("assistant", decision["reply"] or "Alles klar.")
+    if step not in {"business_intake", "business_clarification"} and not decision["question_answers"]:
+        _add_message("assistant", decision["reply"] or "Alles klar.")
     action = decision["action"]
 
     try:
@@ -388,8 +542,10 @@ def _process_user_message(
 
         notes: list[str] = []
 
-        if step in {"business_intake", "business_clarification"}:
-            _apply_business_decision(decision, user_message, handlers)
+        if step in {"business_intake", "business_clarification"} or (
+            step in {"model_input_form", "review", "result"} and decision["question_answers"]
+        ):
+            notes = _apply_business_decision(decision, user_message, handlers, diagnostic)
         elif step == "product_table":
             notes = _apply_product_decision(decision, handlers, user_message)
         elif step == "model_input_form":
@@ -415,6 +571,8 @@ def _process_user_message(
             _add_message("assistant", note)
 
     except Exception as error:  # noqa: BLE001
+        if diagnostic is not None:
+            diagnostic({"stage": "apply_failed", "error_type": type(error).__name__})
         LOGGER.exception("Chat-Aktion ist fehlgeschlagen.")
         _add_message(
             "assistant",
@@ -425,6 +583,10 @@ def _process_user_message(
                 f"{error}"
             ),
         )
+    finally:
+        if trace is not None:
+            trace["step_after"] = st.session_state.get("step")
+            trace["after"] = intake_snapshot(st.session_state.get("graph_state"))
 
 
 # ---------------------------------------------------------------------------
@@ -448,10 +610,11 @@ def render_chat_panel(handlers: ChatWorkflowHandlers) -> None:
         st.markdown(SIDEBAR_CSS, unsafe_allow_html=True)
         st.subheader("💬 Ihr Assistent")
         st.caption(
-            "Schreiben Sie einfach drauflos – ich trage Ihre "
-            "Angaben ins Formular ein und führe Sie durch die "
+            "Schreiben Sie einfach drauflos – ich schlage Angaben zur "
+            "Übernahme vor und führe Sie durch die "
             "Schritte."
         )
+        render_diagnostics()
 
         message_box = st.container(height=560, border=False)
 
@@ -459,6 +622,7 @@ def render_chat_panel(handlers: ChatWorkflowHandlers) -> None:
             for message in _messages():
                 with st.chat_message(message["role"]):
                     st.markdown(message["content"])
+            _render_business_proposal(handlers)
 
         user_message = st.chat_input(
             "Nachricht an den Assistenten …",

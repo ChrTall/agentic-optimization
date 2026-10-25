@@ -31,6 +31,8 @@ from agentic_optimization.models.core_applicability import (
 from agentic_optimization.models.problem_profile import (
     BusinessProblemProfile,
     PROFILE_FIELD_ALLOWED_VALUES,
+    create_profile_field,
+    merge_profile_fields,
 )
 from agentic_optimization.models.core_candidate_selection import (
     compatible_registered_core_ids,
@@ -172,6 +174,7 @@ def create_business_intake_node(
         chosen_core_id = intake_state.get("chosen_core_id")
         submitted_condition_answers: dict[str, str] = {}
         submitted_chosen_core_id = None
+        explicit_chat_profile_fields = []
 
         for answer in intake_state.get(
             "pending_answers",
@@ -211,13 +214,24 @@ def create_business_intake_node(
                     applicability_answers[condition_id]
                 )
             else:
-                profile = apply_business_question_answer(
-                    profile,
-                    question_id=question_id,
-                    option_id=answer["option_id"],
-                    source_id=answer["source_id"],
-                )
-                if answer["source_id"] != "chat_assistant":
+                if answer["source_id"] == "chat_assistant_conflict":
+                    question = BUSINESS_QUESTIONS[question_id]
+                    field_id = question["target_field"]
+                    option = next(o for o in question["options"] if o["option_id"] == answer["option_id"])
+                    incoming = create_profile_field(status="inferred", value=option["profile_value"],
+                        evidence=[{"source_id": answer["source_id"], "source_type": "free_text",
+                                   "excerpt": answer.get("excerpt", "")}])
+                    profile = {**profile, field_id: merge_profile_fields(profile[field_id], incoming)}
+                else:
+                    profile = apply_business_question_answer(
+                        profile,
+                        question_id=question_id,
+                        option_id=answer["option_id"],
+                        source_id=answer["source_id"],
+                    )
+                if answer["source_id"] in {"chat_assistant_verified", "chat_assistant_correction"}:
+                    explicit_chat_profile_fields.append(BUSINESS_QUESTIONS[question_id]["target_field"])
+                elif answer["source_id"] not in {"chat_assistant", "chat_assistant_explicit", "chat_assistant_conflict"}:
                     field_id = BUSINESS_QUESTIONS[question_id][
                         "target_field"
                     ]
@@ -281,12 +295,14 @@ def create_business_intake_node(
             and raw_input.startswith(f"{analyzed_raw_input.rstrip()}\n")
             and bool(raw_input[len(analyzed_raw_input.rstrip()) + 1:].strip())
         )
+        profile_text = (raw_input[len(analyzed_raw_input.rstrip()) + 1:]
+                        if additive_clarification else raw_input_for_analysis)
 
         try:
             preparation = prepare_business_intake(
                 profile=profile,
                 profile_agent=profile_agent,
-                raw_input=raw_input_for_analysis,
+                raw_input="" if intake_state.get("chat_verified_mode") else profile_text,
                 source_id="raw_input",
                 asked_question_ids=asked_question_ids,
             )
@@ -333,6 +349,20 @@ def create_business_intake_node(
                     WORKFLOW_BUSINESS_PROFILE_ANALYSIS_FAILED
                 ),
             )
+
+        # Nur ausdrücklich beantwortete und weiterhin eindeutige Profilfelder
+        # bestätigen auch die dazugehörigen strukturellen Voraussetzungen.
+        for field_id in explicit_chat_profile_fields:
+            field = preparation["profile"][field_id]
+            if field["status"] not in {"confirmed", "user_unknown"}:
+                continue
+            for mappings in PROFILE_CONDITIONS.values():
+                for mapped_field, expected, condition_id in mappings:
+                    if mapped_field == field_id:
+                        value = ("unknown" if field["status"] == "user_unknown" else
+                                 "supported" if field["value"] == expected else "contradicted")
+                        applicability_answers[condition_id] = value
+                        submitted_condition_answers[condition_id] = value
 
         question_ids = [
             question["question_id"]
@@ -396,6 +426,7 @@ def create_business_intake_node(
             if (
                 raw_input_for_analysis.strip()
                 and "product_scope" in question_ids
+                and not intake_state.get("chat_verified_mode")
             ):
                 preparation["profile"] = recover_missing_product_scope(
                     llm,
@@ -419,6 +450,8 @@ def create_business_intake_node(
                     or (
                         question_id == "recommendation"
                         and (
+                            intake_state.get("chat_verified_mode")
+                            or
                             preparation["profile"]["procurement_pattern"][
                                 "status"
                             ] in {"ambiguous", "conflict"}
@@ -896,6 +929,7 @@ def initialize_modular_core_node(
         "evidence": evidence,
         "pending_input_submissions": [],
         "review_confirmed": False,
+        "form_3_review_confirmed": False,
         "optimization_result": None,
         "preparation_error": None,
         "preparation_error_details": None,

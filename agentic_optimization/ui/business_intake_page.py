@@ -60,9 +60,9 @@ def render_business_intake_page(
 
     st.subheader("Ihre Bestellsituation")
     st.write(
-        "Beschreiben Sie kurz, wobei Sie Unterstützung "
-        "benötigen. Offene Angaben fragen wir anschließend "
-        "in verständlicher Form ab."
+        "Beschreiben Sie Ihre Situation im Chat. Alternativ können Sie "
+        "die strukturierten Fragen im Formular beantworten. Weitere Angaben "
+        "und Korrekturen können Sie jederzeit im Chat ergänzen."
     )
 
     if view["message_type"] == "error":
@@ -77,40 +77,6 @@ def render_business_intake_page(
     ] = []
 
     with st.form("business_intake_form"):
-        raw_input = st.text_area(
-            "Kurze Beschreibung",
-            value=raw_input_value,
-            placeholder=(
-                "Zum Beispiel: Wir bestellen diesen Artikel "
-                "regelmäßig nach und möchten wissen, wie viel "
-                "wir jeweils bestellen sollen."
-            ),
-            help=(
-                "Sie können normale Alltagssprache verwenden. "
-                "Technische Modellbegriffe sind nicht notwendig."
-            ),
-        )
-
-        st.file_uploader(
-            "Dokumente hinzufügen (optional)",
-            type=[
-                "pdf",
-                "xlsx",
-                "xls",
-                "csv",
-            ],
-            accept_multiple_files=True,
-            key="business_intake_documents",
-            help=(
-                "Zum Beispiel Prognosen, Artikellisten oder "
-                "Lieferantenunterlagen."
-            ),
-        )
-        st.caption(
-            "Die automatische Auswertung der Dokumentinhalte "
-            "wird separat angebunden."
-        )
-
         if questions:
             st.markdown("### Kurze Rückfragen")
 
@@ -162,6 +128,6 @@ def render_business_intake_page(
     ]
 
     return {
-        "raw_input": raw_input,
+        "raw_input": raw_input_value,
         "answers": answers,
     }

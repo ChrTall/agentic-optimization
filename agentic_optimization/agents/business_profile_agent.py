@@ -38,6 +38,11 @@ aus der Beschreibung sein, der die Ableitung belegt.
 
 Wenn ein Merkmal nicht erkennbar ist, lasse es weg.
 Fehlende Informationen sind keine Fehler.
+Die Eingabe kann eine Ergänzung zu einem bereits gespeicherten Profil sein.
+Analysiere nur die übergebene neue Beschreibung. Bereits bekannte Merkmale
+müssen nicht erneut ausgegeben werden. Lasse nicht angesprochene Felder weg.
+Unterscheide Wiederholungen über mehrere Jahre von Nachbestellungen innerhalb
+eines Verkaufszeitraums: „jedes Jahr“ allein belegt keine laufende Beschaffung.
 Jede field_id darf höchstens einmal insgesamt in inferences
 und ambiguities vorkommen. Wenn Hinweise zu einem Feld
 widersprüchlich oder uneindeutig sind, verwende ambiguities
@@ -268,6 +273,8 @@ def create_business_profile_agent(
             )
 
         payload = {
+            "known_profile": {key: field for key, field in profile.items()
+                              if isinstance(field, dict) and field.get("value") is not None},
             "allowed_profile_values": {
                 field_id: sorted(values)
                 for field_id, values

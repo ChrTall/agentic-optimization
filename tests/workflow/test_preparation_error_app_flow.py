@@ -97,7 +97,8 @@ def test_edit_keeps_description_and_entered_products():
     app.button("edit_failed_description").click().run()
     assert not app.exception
     assert app.session_state["step"] == "business_intake"
-    assert next(field for field in app.text_area if field.label == "Kurze Beschreibung").value == original
+    assert not app.text_area
+    assert app.session_state["raw_problem_description"] == original
     assert app.session_state["graph_state"]["modular_model"]["products"][0]["facts"]["ordering_cost"] == 120
 
 

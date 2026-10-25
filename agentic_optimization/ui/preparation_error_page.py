@@ -7,16 +7,16 @@ def render_preparation_error_page(details):
     st.subheader("Die Vorbereitung konnte nicht abgeschlossen werden")
     st.error(details.get("message") or "Die automatische Verarbeitung wurde unterbrochen.")
     st.write("Ihre bisherigen Angaben bleiben erhalten. Sie können die Verarbeitung "
-             "erneut versuchen oder Ihre Beschreibung bearbeiten.")
+             "erneut versuchen oder Ihre Angaben im Chat ergänzen.")
     st.caption("Es liegt ein technischer Verarbeitungsfehler vor. Daraus lässt sich "
                "nicht ableiten, ob ein passendes Modell verfügbar ist.")
     if st.button("Vorbereitung erneut versuchen", type="primary", width="stretch",
                  key="retry_preparation"):
         return "retry"
-    if st.button("Beschreibung bearbeiten", width="stretch", key="edit_failed_description"):
+    if st.button("Angaben im Chat ergänzen", width="stretch", key="edit_failed_description"):
         return "edit"
-    st.caption("Beim kompletten Neustart werden alle bisherigen Angaben, Antworten, "
-               "Uploads und der Chat dieser Optimierung zurückgesetzt.")
+    st.caption("Beim kompletten Neustart werden alle bisherigen Angaben, Antworten "
+               "und der Chat dieser Optimierung zurückgesetzt.")
     if st.button("Komplett neu starten", width="stretch", key="restart_failed_preparation"):
         return "restart"
     with st.expander("Technische Details", expanded=False):

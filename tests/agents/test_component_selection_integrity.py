@@ -77,6 +77,32 @@ def test_moves_forecast_values_to_form_and_drops_unrequested_bound():
     ]} >= {"expected_value", "quantiles", "horizon_days"}
 
 
+def test_invalid_classification_gets_one_validated_repair_attempt():
+    llm = Mock()
+    invalid = {"rejected_constraints": [], "input_only_requirements": [
+        {"index": 42, "field_names": ["not_registered"]}]}
+    valid = {"rejected_constraints": [], "input_only_requirements": [
+        {"index": 0, "field_names": ["expected_value", "quantiles"]}]}
+    llm.invoke.side_effect = [AIMessage(content=json.dumps(value))
+                              for value in (invalid, valid)]
+    result = create_component_selection_integrity_agent(llm)(
+        proposal=_proposal(), evidence=[], objective_goal="minimize_cost")
+    assert result["unresolved_requirements"] == []
+    assert result["constraints"] == _proposal()["constraints"]
+    assert llm.invoke.call_count == 2
+    repair = llm.invoke.call_args.args[0][-1].content
+    assert "Ungültige Eingabewert-Klassifikation" in repair
+
+
+def test_provider_failure_does_not_trigger_response_repair():
+    llm = Mock()
+    llm.invoke.side_effect = RuntimeError("unavailable")
+    with pytest.raises(ValueError, match="nicht zuverlässig"):
+        create_component_selection_integrity_agent(llm)(
+            proposal=_proposal(), evidence=[], objective_goal="minimize_cost")
+    assert llm.invoke.call_count == 1
+
+
 def test_preserves_explicit_minimum_bound_without_numeric_value():
     proposal = _proposal()
     proposal["unresolved_requirements"] = []

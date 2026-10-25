@@ -12,6 +12,7 @@ from agentic_optimization.ui.business_intake_page import (
 from agentic_optimization.ui.business_intake_view_builder import (
     build_business_intake_view_data,
 )
+from agentic_optimization.ui.business_answer_summary import render_answer_summary
 
 
 def render_business_clarification_page(
@@ -28,6 +29,9 @@ def render_business_clarification_page(
     )
 
     st.subheader("Offene Angaben klären")
+    edited, editing = render_answer_summary(intake_state)
+    if editing:
+        return edited
 
     if view["message_type"] == "error":
         st.error(view["message"])
@@ -42,8 +46,7 @@ def render_business_clarification_page(
         return None
 
     st.write(
-        "Für die passende Berechnung benötigen wir noch "
-        "folgende Angaben:"
+        "Wir klären die offenen Angaben Schritt für Schritt."
     )
 
     rendered_answers: list[
@@ -51,7 +54,7 @@ def render_business_clarification_page(
     ] = []
 
     with st.form("business_clarification_form"):
-        for question in view["questions"]:
+        for question in view["questions"][:1]:
             options_by_id = {
                 option["option_id"]: option
                 for option in question["options"]

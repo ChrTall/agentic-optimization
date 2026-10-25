@@ -56,6 +56,9 @@ class ChatMessage(TypedDict):
 class ChatQuestionAnswer(TypedDict):
     question_id: str
     option_id: str
+    excerpt: NotRequired[str]
+    explicit: NotRequired[bool]
+    change_intent: NotRequired[str]
 
 
 class ChatInputValue(TypedDict):
@@ -139,7 +142,37 @@ Feldregeln:
   Kosten, Ziele, Einschränkungen). false bei reinen Fragen,
   Grüßen oder Bestätigungen.
 - question_answers: Nur question_id und option_id aus
-  open_questions. Nur wenn die Antwort eindeutig ist.
+  answerable_questions (falls vorhanden, sonst open_questions).
+  Nur wenn die Antwort eindeutig ist. Gib excerpt als wörtliche Stelle
+  der NEUEN Nachricht und explicit: true nur bei einer ausdrücklichen Antwort an.
+  Prüfe jede erlaubte Geschäftsfrage gegen die gesamte neue Nachricht,
+  nicht nur current_question oder auffällige Schlüsselwörter. Übernimm ein
+  ausdrücklich genanntes Minimierungs- oder Maximierungsziel auch dann,
+  wenn mehrere konkrete Kostenarten oder Ertragsgrößen aufgezählt werden.
+  Ein ausdrücklich einzelner Artikel oder ein einzelnes Modell beantwortet
+  die Produktanzahl; bloße Produktkategorien belegen die Anzahl nicht.
+  Trenne den beschriebenen IST-Ablauf vom gewünschten Berechnungsauftrag:
+  Eine vorhandene Bestellregel mit Menge und Auslösegrenze bedeutet NICHT,
+  dass beide Größen optimiert werden sollen. recommendation nur setzen,
+  wenn die zu bestimmenden Größen ausdrücklich gewünscht werden.
+  Ein Kostenziel allein legt diese Größen ebenfalls nicht fest.
+  Eine Antwort darf mehrere Fragen eindeutig beantworten. Kurzes „ja“/„nein“
+  beantwortet ausschließlich current_question, niemals alle offenen Fragen.
+  „Jedes Jahr“ allein sagt nichts über Nachbestellungen innerhalb der Saison.
+  Modellentscheidende Angaben zur Beschaffung, Bestandsprüfung und Nachbestellung
+  dürfen auch aus der Erstbeschreibung übernommen werden, wenn der Nutzer den
+  konkreten Ablauf ausdrücklich beschreibt. Produktart, Saisonalität oder eine
+  jährliche Planung allein genügen nicht. Frage im Zweifel konkret nach.
+  Unterscheide klare Nutzerangaben von Vermutungen. Bei unklaren oder
+  widersprüchlichen Aussagen nachfragen, nichts als explicit kennzeichnen.
+  Bekannte Angaben bleiben änderbar: Nenne abweichende oder korrigierte Antworten
+  ebenfalls unter question_answers, auch wenn die Frage bereits beantwortet ist
+  oder gerade Zahlen eingegeben werden. Unterscheide ausdrücklich angekündigte
+  Korrekturen von bloßen Abweichungen und zusätzlichen Wünschen. Eine unabhängige
+  Prüfung entscheidet anschließend über die Übernahme.
+  Setze change_intent: correction nur bei ausdrücklich angekündigtem Ersetzen
+  einer früheren Angabe (z. B. „stattdessen“, „ich ändere das Ziel“).
+  Bei einer bloß anderen Aussage setze change_intent: statement.
   "Weiß ich nicht" -> option_id "user_unknown".
 - input_values: input_id aus missing_inputs. Zahlen als
   JSON-Zahl. Zahlenlisten als Liste. Nachfragequantile als
@@ -283,6 +316,12 @@ def sanitize_chat_decision(
                         "option_id": item["option_id"],
                     }
                 )
+                if isinstance(item.get("excerpt"), str):
+                    decision["question_answers"][-1]["excerpt"] = item["excerpt"]
+                if item.get("explicit") is True:
+                    decision["question_answers"][-1]["explicit"] = True
+                if item.get("change_intent") in {"correction", "statement"}:
+                    decision["question_answers"][-1]["change_intent"] = item["change_intent"]
 
     if "input_values" in allowed:
         for item in raw_decision.get("input_values") or []:
@@ -340,6 +379,7 @@ def sanitize_chat_decision(
 
 def create_chat_assistant_agent(
     llm: BaseChatModel,
+    *, diagnostic: Callable[[dict], None] | None = None,
 ) -> ChatAssistantAgent:
     """Erzeugt den begleitenden Chat-Assistenten."""
 
@@ -368,6 +408,8 @@ def create_chat_assistant_agent(
             ]
         )
         text = _response_text(response.content)
+        if diagnostic is not None:
+            diagnostic({"stage": "assistant_response", "response": text})
 
         try:
             raw_decision = _parse_json_response(text)

@@ -42,7 +42,6 @@ def test_returns_none_before_submission(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     streamlit = MagicMock()
-    streamlit.text_area.return_value = ""
     streamlit.radio.return_value = None
     streamlit.form_submit_button.return_value = False
 
@@ -63,9 +62,6 @@ def test_returns_description_and_selected_answers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     streamlit = MagicMock()
-    streamlit.text_area.return_value = (
-        "Das Produkt wird regelmäßig nachbestellt."
-    )
     streamlit.radio.side_effect = [
         "order_quantity",
         "minimize_cost",
@@ -79,7 +75,8 @@ def test_returns_description_and_selected_answers(
     )
 
     result = render_business_intake_page(
-        create_intake_state()
+        create_intake_state(),
+        raw_input_value="Das Produkt wird regelmäßig nachbestellt.",
     )
 
     assert result == {
@@ -101,11 +98,10 @@ def test_returns_description_and_selected_answers(
     }
 
 
-def test_offers_documents_without_processing_them(
+def test_offers_neither_free_text_nor_document_upload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     streamlit = MagicMock()
-    streamlit.text_area.return_value = ""
     streamlit.radio.return_value = None
     streamlit.form_submit_button.return_value = False
 
@@ -119,34 +115,14 @@ def test_offers_documents_without_processing_them(
         create_intake_state()
     )
 
-    streamlit.file_uploader.assert_called_once_with(
-        "Dokumente hinzufügen (optional)",
-        type=[
-            "pdf",
-            "xlsx",
-            "xls",
-            "csv",
-        ],
-        accept_multiple_files=True,
-        key="business_intake_documents",
-        help=(
-            "Zum Beispiel Prognosen, Artikellisten oder "
-            "Lieferantenunterlagen."
-        ),
-    )
-    streamlit.caption.assert_called_once_with(
-        "Die automatische Auswertung der Dokumentinhalte "
-        "wird separat angebunden."
-    )
+    streamlit.file_uploader.assert_not_called()
+    streamlit.text_area.assert_not_called()
 
 
 def test_can_hide_questions_when_editing_description(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     streamlit = MagicMock()
-    streamlit.text_area.return_value = (
-        "Bearbeitete Beschreibung"
-    )
     streamlit.form_submit_button.return_value = False
 
     monkeypatch.setattr(
