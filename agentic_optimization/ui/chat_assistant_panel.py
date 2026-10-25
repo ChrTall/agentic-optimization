@@ -71,14 +71,27 @@ PRODUCT_ROWS_VERSION_KEY = "chat_product_rows_version"
 
 SIDEBAR_CSS = """
 <style>
-section[data-testid="stSidebar"] {
-    width: 420px !important;
-    min-width: 420px !important;
+section[data-testid="stSidebar"][aria-expanded="true"] {
+    min-width: min(420px, 50vw) !important;
+    max-width: min(600px, 50vw) !important;
 }
 @media (max-width: 900px) {
-    section[data-testid="stSidebar"] {
+    section[data-testid="stSidebar"][aria-expanded="true"] {
         width: 100vw !important;
         min-width: 0 !important;
+        max-width: 100vw !important;
+    }
+}
+</style>
+"""
+
+HALF_WIDTH_CSS = """
+<style>
+@media (min-width: 901px) {
+    section[data-testid="stSidebar"][aria-expanded="true"] {
+        width: 50vw !important;
+        min-width: 50vw !important;
+        max-width: 50vw !important;
     }
 }
 </style>
@@ -609,6 +622,11 @@ def render_chat_panel(handlers: ChatWorkflowHandlers) -> None:
     with st.sidebar:
         st.markdown(SIDEBAR_CSS, unsafe_allow_html=True)
         st.subheader("💬 Ihr Assistent")
+        half_width = st.toggle("Chat auf halber Fensterbreite", key="chat_half_width")
+        if half_width:
+            st.markdown(HALF_WIDTH_CSS, unsafe_allow_html=True)
+        else:
+            st.caption("Zum Vergrößern den rechten Rand des Chats nach rechts ziehen.")
         st.caption(
             "Schreiben Sie einfach drauflos – ich schlage Angaben zur "
             "Übernahme vor und führe Sie durch die "
