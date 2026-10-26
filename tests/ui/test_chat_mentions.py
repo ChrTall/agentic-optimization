@@ -64,3 +64,27 @@ def test_neutral_or_missing_values_are_not_conflicts() -> None:
     assert not value_conflicts_with_text(
         "purchase_cost", 10, "Wir kaufen für 10 € ein und verkaufen für 25 €"
     )
+
+
+def test_money_value_does_not_fit_a_quantity_field() -> None:
+    assert value_conflicts_with_text(
+        "quantity", 3, "Es liegt ein Restwert von 3 Euro vor.",
+        unit="Einheiten", component_id="maximum_order_quantity",
+    )
+    assert not value_conflicts_with_text(
+        "quantity", 270, "Die Höchstbestellmenge beträgt 270 Weihnachtsbäume.",
+        unit="Einheiten", component_id="maximum_order_quantity",
+    )
+    assert value_conflicts_with_text(
+        "quantity", 250, "Die Höchstbestellmenge liegt bei 250 Stück.",
+        unit="Einheiten", component_id="minimum_order_quantity",
+    )
+
+
+def test_quote_must_contain_the_number() -> None:
+    from agentic_optimization.ui.chat_mentions import value_supported_by_quote
+
+    assert not value_supported_by_quote(365, "jedes Jahr")
+    assert not value_supported_by_quote(1, "Weihnachtsbäume")
+    assert value_supported_by_quote(14, "2 Wochen Lieferzeit")
+    assert value_supported_by_quote(250, "Höchstbestellmenge von 250")

@@ -56,7 +56,51 @@ FIELD_TERMS: dict[str, tuple[str, ...]] = {
         r"\bservicegrad", r"\bservice ?level", r"\blieferbereitschaft",
         r"\blieferfähigkeit",
     ),
+    "expected_value": (
+        r"\bnachfrage", r"\bbedarf", r"\babsatz", r"\bverkauf",
+        r"\babverkauf", r"\bdemand", r"\bsell", r"\bsales\b",
+    ),
+    "horizon_days": (
+        r"\bzeitraum", r"\bsaison", r"\btage?n?\b", r"\bwochen?\b",
+        r"\bmonate?n?\b", r"\bjahr", r"\bperiod", r"\bhorizon",
+        r"\bdays?\b", r"\bweeks?\b", r"\bmonths?\b", r"\byears?\b",
+    ),
+    # Parameter von Bausteinen (Schlüssel = component_id).
+    "maximum_order_quantity": (
+        r"höchstbestell", r"\bmaximal", r"\bhöchstens", r"obergrenze",
+        r"\bmax\b", r"\bmaximum", r"\bat most", r"\bno more than",
+        r"\bup to\b", r"\bbis zu\b",
+    ),
+    "minimum_order_quantity": (
+        r"mindestbestell", r"\bmindestens", r"mindestabnahme",
+        r"mindestmenge", r"\bminimum", r"\bat least", r"\bmoq\b",
+    ),
+    "order_multiple": (
+        r"vielfache", r"gebinde", r"verpackungseinheit", r"packung",
+        r"karton", r"palette", r"\d+er\b", r"multiple", r"\bpacks?\b",
+    ),
+    "storage_capacity": (
+        r"lagerkapazität", r"lagerplatz", r"\bplatz", r"kapazität",
+        r"stellpl", r"capacity", r"\bspace",
+    ),
+    "maximum_inventory_position": (
+        r"bestandsposition", r"höchstbestand", r"kapazität", r"\bplatz",
+        r"capacity", r"maximum inventory",
+    ),
+    "minimum_reorder_point": (r"meldebestand", r"reorder point"),
+    "maximum_reorder_point": (r"meldebestand", r"reorder point"),
 }
+
+# Begriffe, die zwar eine eigene Zuordnung bestätigen, aber zu allgemein
+# sind, um eine andere Zuordnung auszuschließen („3500 Stück im Jahr“).
+WEAK_TERMS = {"horizon_days", "expected_value"}
+
+_MONEY_AFTER = re.compile(r"^\s*(?:€|euro\b|eur\b|\$|dollar)", re.IGNORECASE)
+_COUNT_AFTER = re.compile(
+    r"^\s*(?:stück|stk\b|einheiten|units?\b|pieces?\b|%|prozent|percent"
+    r"|tage?n?\b|days?\b|wochen?\b|weeks?\b)",
+    re.IGNORECASE,
+)
 
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
 _SEGMENT_SPLIT = re.compile(
@@ -114,24 +158,64 @@ def _contains_value(text: str, value: float) -> bool:
     return any(abs(number - value) < 1e-9 for number in numbers_in(text))
 
 
+def _value_suffixes(text: str, value: float) -> list[str]:
+    """Text direkt hinter jedem Vorkommen des Werts."""
+
+    suffixes = []
+
+    for match in _NUMBER.finditer(text or ""):
+        if any(
+            abs(number - value) < 1e-9
+            for number in _number_candidates(match.group(0))
+        ):
+            suffixes.append(text[match.end():match.end() + 12])
+
+    return suffixes
+
+
+def _unit_mismatch(text: str, value: float, unit: str | None) -> bool:
+    """„3 Euro“ passt nicht zu einem Feld in Einheiten und umgekehrt."""
+
+    if not unit:
+        return False
+
+    suffixes = _value_suffixes(text, value)
+
+    if not suffixes:
+        return False
+
+    is_money_field = "€" in unit
+
+    if is_money_field:
+        return all(_COUNT_AFTER.match(suffix) for suffix in suffixes)
+
+    return all(_MONEY_AFTER.match(suffix) for suffix in suffixes)
+
+
 def value_conflicts_with_text(
     field_name: str,
     value: Any,
     text: str,
+    *,
+    unit: str | None = None,
+    component_id: str | None = None,
 ) -> bool:
-    """True, wenn ``value`` im Text nur bei einer anderen Größe steht.
+    """True, wenn ``value`` im Text erkennbar zu etwas anderem gehört.
 
-    Beispiel: „Es liegt ein Verkaufspreis von 25 Euro vor.“ passt nicht zu
-    ``purchase_cost`` = 25. Kommt der Wert gar nicht vor oder steht er
-    neutral (ohne Begriff), gibt es keinen Konflikt.
+    Beispiele: „Es liegt ein Verkaufspreis von 25 Euro vor.“ passt nicht
+    zu ``purchase_cost`` = 25; „Restwert von 3 Euro“ passt nicht zu einer
+    Höchstbestellmenge (Einheiten). Kommt der Wert gar nicht vor oder
+    steht er neutral (ohne Begriff), gibt es keinen Konflikt.
     """
 
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return False
 
-    if field_name not in FIELD_TERMS:
-        return False
-
+    term_key = (
+        component_id
+        if component_id in FIELD_TERMS
+        else field_name
+    )
     segments = [
         segment
         for segment in split_segments(text)
@@ -142,19 +226,52 @@ def value_conflicts_with_text(
         return False
 
     for segment in segments:
-        if _mentions(segment, field_name):
+        if _unit_mismatch(segment, float(value), unit):
+            continue
+
+        if term_key in FIELD_TERMS and _mentions(segment, term_key):
             return False
 
         others = [
             other
             for other in FIELD_TERMS
-            if other != field_name and _mentions(segment, other)
+            if other != term_key
+            and other not in WEAK_TERMS
+            and not (
+                # Gleiche Begriffe (z. B. Meldebestand) zählen nicht
+                # als Widerspruch.
+                set(FIELD_TERMS[other]) & set(FIELD_TERMS.get(term_key, ()))
+            )
+            and _mentions(segment, other)
         ]
 
         if not others:
             return False
 
     return True
+
+
+_CONVERSIONS = (1, 7, 30, 31, 52, 12, 365, 100, 0.01)
+
+
+def value_supported_by_quote(value: Any, quote: str) -> bool:
+    """Steht eine Zahl im Zitat, die den Wert belegt?
+
+    Erlaubt sind einfache Umrechnungen (Wochen/Monate/Jahre in Tage,
+    Prozent). „jedes Jahr“ belegt also keine 365, „ein Baum“ keine 1.
+    """
+
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return True
+
+    numbers = numbers_in(quote)
+
+    return any(
+        abs(number * factor - value) < 1e-6
+        or (factor and abs(number / factor - value) < 1e-6)
+        for number in numbers
+        for factor in _CONVERSIONS
+    )
 
 
 # ---------------------------------------------------------------------------

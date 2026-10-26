@@ -50,6 +50,7 @@ from agentic_optimization.ui.modular_input_builder import (
     ModularInputLayout,
     build_dynamic_product_table_schema,
     build_modular_input_layout,
+    input_key,
 )
 from agentic_optimization.ui.modular_product_list import (
     parse_dynamic_product_table,
@@ -206,21 +207,95 @@ def _input_id(index: int) -> str:
     return f"i{index + 1}"
 
 
+def _filled_input_id(index: int) -> str:
+    return f"k{index + 1}"
+
+
+def flatten_filled_inputs(specification: dict[str, Any]) -> list[MissingInput]:
+    """Bereits ausgefüllte Eingaben in Formular 3 (änderbar)."""
+
+    missing_keys = {
+        input_key(item)
+        for item in flatten_missing_inputs(
+            build_modular_input_layout(specification)
+        )
+    }
+
+    return [
+        item
+        for item in flatten_missing_inputs(
+            build_modular_input_layout(specification, include_complete=True)
+        )
+        if input_key(item) not in missing_keys
+    ]
+
+
+def current_input_value(
+    specification: dict[str, Any],
+    missing_input: MissingInput,
+) -> Any:
+    """Aktueller Wert einer Eingabe im Modell."""
+
+    source = missing_input["source"]
+    name = missing_input["field"]["name"]
+
+    if source in {"forecast", "product_fact"}:
+        product = next(
+            (
+                product for product in specification["products"]
+                if product["product_id"] == missing_input.get("product_id")
+            ),
+            {},
+        )
+        container = product.get(
+            "forecast" if source == "forecast" else "facts"
+        ) or {}
+        return container.get(name)
+
+    if source == "global_fact":
+        return (specification.get("global_facts") or {}).get(name)
+
+    if source == "constraint_parameter":
+        index = missing_input.get("constraint_index")
+        if index is None or index >= len(specification["constraints"]):
+            return None
+        return specification["constraints"][index]["parameters"].get(name)
+
+    return None
+
+
+def inputs_by_chat_id(
+    missing_inputs: list[MissingInput],
+    filled_inputs: list[MissingInput] = (),
+) -> dict[str, MissingInput]:
+    """Offene Eingaben (i1, i2, …) und ausgefüllte (k1, k2, …)."""
+
+    return {
+        **{
+            _input_id(index): missing_input
+            for index, missing_input in enumerate(missing_inputs)
+        },
+        **{
+            _filled_input_id(index): filled_input
+            for index, filled_input in enumerate(filled_inputs)
+        },
+    }
+
+
 def resolve_input_submissions(
     values: list[ChatInputValue],
     missing_inputs: list[MissingInput],
+    filled_inputs: list[MissingInput] = (),
 ) -> tuple[list[ModularInputSubmission], list[str]]:
     """
     Übersetzt Chatwerte in reguläre Formular-Einreichungen.
 
     Ungültige Werte werden nicht übernommen, sondern als
-    verständliche Fehlermeldung zurückgegeben.
+    verständliche Fehlermeldung zurückgegeben. ``filled_inputs``
+    erlaubt das Ändern bereits ausgefüllter Werte (Kennungen k1, k2, …).
     """
 
-    inputs_by_id = {
-        _input_id(index): missing_input
-        for index, missing_input in enumerate(missing_inputs)
-    }
+    inputs_by_id = inputs_by_chat_id(missing_inputs, filled_inputs)
     submissions: list[ModularInputSubmission] = []
     errors: list[str] = []
     seen_ids: set[str] = set()
@@ -945,10 +1020,12 @@ def _build_step_context(
         validation_errors: list[str] = []
 
         optional_components: list[dict[str, Any]] = []
+        filled_inputs: list[MissingInput] = []
 
         if specification is not None:
             layout = build_modular_input_layout(specification)
             missing_inputs = flatten_missing_inputs(layout)
+            filled_inputs = flatten_filled_inputs(specification)
             validation_errors = layout["validation_errors"]
             optional_components = [
                 {
@@ -962,7 +1039,7 @@ def _build_step_context(
 
         return {
             "step_description": (
-                t("Für die Berechnung fehlen noch Zahlenwerte. Übernimm genannte Werte in input_values. Sind alle Pflichtangaben vorhanden, kann der Nutzer zusätzliche Bausteine ergänzen (add_components) oder mit continue_to_review zur Überprüfung weitergehen.")
+                t("Für die Berechnung fehlen noch Zahlenwerte. Übernimm genannte Werte in input_values (input_id aus missing_inputs). Nennt der Nutzer einen neuen Wert für eine bereits ausgefüllte Angabe, ändere sie mit der input_id aus filled_inputs. Sind alle Pflichtangaben vorhanden, kann der Nutzer zusätzliche Bausteine ergänzen (add_components) oder mit continue_to_review zur Überprüfung weitergehen.")
             ),
             "optional_components": optional_components,
             "missing_inputs": [
@@ -979,6 +1056,17 @@ def _build_step_context(
                 for index, missing_input in enumerate(
                     missing_inputs
                 )
+            ],
+            "filled_inputs": [
+                {
+                    "input_id": _filled_input_id(index),
+                    "description": describe_missing_input(filled_input),
+                    "current_value": current_input_value(
+                        specification, filled_input
+                    ),
+                    **_describe_field_for_llm(filled_input["field"]),
+                }
+                for index, filled_input in enumerate(filled_inputs)
             ],
             "validation_errors": validation_errors,
             "allowed_outputs": ["input_values", "add_components"],
@@ -1216,10 +1304,23 @@ def build_recall_items(
             build_modular_input_layout(specification)
         )
 
+        product_positions = {
+            product["product_id"]: position
+            for position, product in enumerate(specification["products"])
+        }
+
         return [
             {
                 "id": _input_id(index),
-                "key": "model_input:" + describe_missing_input(missing_input),
+                # Unabhängig vom Produktnamen: Ein Umbenennen löst kein
+                # erneutes Erinnern aus.
+                "key": "model_input:{}:{}:{}:{}:{}".format(
+                    missing_input["source"],
+                    product_positions.get(missing_input.get("product_id")),
+                    missing_input.get("component_id"),
+                    missing_input.get("constraint_index"),
+                    missing_input["field"]["name"],
+                ),
                 "kind": "value",
                 "question": describe_missing_input(missing_input),
                 "field": _describe_field_for_llm(missing_input["field"]),

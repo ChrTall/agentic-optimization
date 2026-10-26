@@ -56,6 +56,9 @@ from agentic_optimization.ui.chat_assistant_builder import (
     get_open_business_questions,
     get_product_table_schema,
     merge_product_rows,
+    current_input_value,
+    flatten_filled_inputs,
+    inputs_by_chat_id,
     resolve_input_submissions,
     resolve_question_answers,
 )
@@ -66,6 +69,7 @@ from agentic_optimization.i18n import t
 from agentic_optimization.ui.chat_mentions import (
     detect_component_mentions,
     value_conflicts_with_text,
+    value_supported_by_quote,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -355,18 +359,14 @@ def _recall_known_answers(handlers: ChatWorkflowHandlers) -> None:
                 missing_input = ids_by_index.get(answer["id"])
 
                 # Ein Zitat wie „Verkaufspreis von 25 €“ gehört nicht zu
-                # den Einkaufskosten – solche Zuordnungen verwerfen.
-                if missing_input is not None and (
-                    value_conflicts_with_text(
-                        missing_input["field"]["name"],
-                        answer["value"],
-                        answer["quote"],
-                    )
-                    or value_conflicts_with_text(
-                        missing_input["field"]["name"],
-                        answer["value"],
-                        _sentence_around(answer["quote"], statements),
-                    )
+                # den Einkaufskosten, „jedes Jahr“ belegt keine 365 Tage –
+                # solche Zuordnungen verwerfen.
+                if missing_input is not None and not _value_fits_input(
+                    missing_input,
+                    answer["value"],
+                    answer["quote"],
+                    _sentence_around(answer["quote"], statements),
+                    require_number_in_quote=True,
                 ):
                     LOGGER.info(
                         "Erinnerter Wert verworfen (passt nicht zum Feld): %s",
@@ -394,6 +394,43 @@ def _recall_known_answers(handlers: ChatWorkflowHandlers) -> None:
 
     if note:
         _add_message("assistant", note)
+
+
+def _as_number(value: Any) -> Any:
+    if isinstance(value, str):
+        try:
+            return float(value.strip().replace(",", "."))
+        except ValueError:
+            return value
+    return value
+
+
+def _value_fits_input(
+    missing_input: Any,
+    value: Any,
+    *texts: str,
+    require_number_in_quote: bool = False,
+) -> bool:
+    """Prüft, ob ein Wert laut Text wirklich zu diesem Feld gehört."""
+
+    field = missing_input["field"]
+    number = _as_number(value)
+
+    if require_number_in_quote and field["type"] in {"number", "integer"}:
+        if not value_supported_by_quote(number, texts[0] if texts else ""):
+            return False
+
+    return not any(
+        value_conflicts_with_text(
+            field["name"],
+            number,
+            text,
+            unit=field.get("unit"),
+            component_id=missing_input.get("component_id"),
+        )
+        for text in texts
+        if text
+    )
 
 
 def _sentence_around(quote: str, text: str) -> str:
@@ -490,18 +527,23 @@ def _apply_component_mentions(
 
             if mention["value"] is not None:
                 missing_inputs = _missing_inputs_for(specification)
+                filled_inputs = flatten_filled_inputs(specification)
                 product_ids = [
                     product["product_id"]
                     for product in specification["products"]
                 ]
                 values = []
 
-                for index, missing_input in enumerate(missing_inputs):
-                    if missing_input.get("component_id") != component_id:
+                # Offene und bereits ausgefüllte Felder: Ein neu genannter
+                # Wert ersetzt den bisherigen.
+                for input_id, candidate in inputs_by_chat_id(
+                    missing_inputs, filled_inputs
+                ).items():
+                    if candidate.get("component_id") != component_id:
                         continue
 
                     constraint = specification["constraints"][
-                        missing_input["constraint_index"]
+                        candidate["constraint_index"]
                     ]
                     product_id = constraint.get("product_id")
 
@@ -514,13 +556,18 @@ def _apply_component_mentions(
                     ):
                         continue
 
+                    if current_input_value(
+                        specification, candidate
+                    ) == mention["value"]:
+                        continue
+
                     values.append({
-                        "input_id": f"i{index + 1}",
+                        "input_id": input_id,
                         "value": mention["value"],
                     })
 
                 submissions, _ = resolve_input_submissions(
-                    values, missing_inputs
+                    values, missing_inputs, filled_inputs
                 )
 
                 if submissions:
@@ -746,23 +793,23 @@ def _apply_model_input_decision(
     #    offenen Eingaben, die sich durch neue Bausteine verschieben.
     if decision["input_values"]:
         missing_inputs = _missing_inputs_for(specification)
-        inputs_by_id = {
-            f"i{index + 1}": missing_input
-            for index, missing_input in enumerate(missing_inputs)
-        }
+        filled_inputs = flatten_filled_inputs(specification)
+        inputs_by_id = inputs_by_chat_id(missing_inputs, filled_inputs)
         # Werte verwerfen, die laut Nachricht zu einer anderen Größe
         # gehören (z. B. Verkaufspreis als Einkaufskosten).
         values = [
             item
             for item in decision["input_values"]
             if item["input_id"] not in inputs_by_id
-            or not value_conflicts_with_text(
-                inputs_by_id[item["input_id"]]["field"]["name"],
+            or _value_fits_input(
+                inputs_by_id[item["input_id"]],
                 item["value"],
                 user_message,
             )
         ]
-        submissions, errors = resolve_input_submissions(values, missing_inputs)
+        submissions, errors = resolve_input_submissions(
+            values, missing_inputs, filled_inputs
+        )
 
         if submissions:
             # Der Tabelleneditor speichert Änderungen relativ zu den

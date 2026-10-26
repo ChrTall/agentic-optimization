@@ -144,7 +144,8 @@ Feldregeln:
 - question_answers: Nur question_id und option_id aus
   open_questions. Nur wenn die Antwort eindeutig ist.
   "Weiß ich nicht" -> option_id "user_unknown".
-- input_values: input_id aus missing_inputs. Zahlen als
+- input_values: input_id aus missing_inputs (bzw. filled_inputs
+  zum Ändern). Zahlen als
   JSON-Zahl. Zahlenlisten als Liste. Nachfragequantile als
   [{"level": 0.1, "value": 70}, ...].
   Ordne einen Wert nur dem Feld zu, das der Nutzer dafür
@@ -165,8 +166,13 @@ Feldregeln:
   wenn die Anwendung danach fragt.
 - known_parameters: bereits erfasste Angaben. Nutze sie, um
   Fragen dazu zu beantworten. Übernimm sie nicht erneut.
-  Bereits gesetzte Werte kannst du nicht ändern – verweise
-  dafür auf "Situation bearbeiten" bzw. einen Neustart.
+  Werte in Formular 3 (filled_inputs) kannst du ändern, wenn
+  der Nutzer ausdrücklich einen neuen Wert nennt: input_values
+  mit der input_id aus filled_inputs (k1, k2, …). Andere bereits
+  gesetzte Angaben änderst du nicht – verweise dafür auf
+  "Situation bearbeiten" bzw. einen Neustart.
+- Sage nur dann, dass ein Wert übernommen wurde, wenn du ihn
+  wirklich in input_values zurückgibst.
 
 Gib ausschließlich ein JSON-Objekt in diesem Format zurück:
 

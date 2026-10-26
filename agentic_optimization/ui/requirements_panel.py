@@ -257,3 +257,74 @@ def render_requirements_panel(
                     change = result
 
     return change
+
+
+def _question_is_answered(question_id: str, intake_state: dict[str, Any]) -> bool:
+    if question_id == "core_choice":
+        return bool(intake_state.get("chosen_core_id"))
+
+    if question_id.startswith("core_condition:"):
+        condition_id = question_id.split(":", 1)[1]
+        return condition_id in (
+            intake_state.get("applicability_user_answers") or {}
+        )
+
+    field = (intake_state.get("profile") or {}).get(question_id) or {}
+    return field.get("status") in {"confirmed", "inferred", "user_unknown"}
+
+
+def keep_unanswered_questions(
+    previous_intake: dict[str, Any],
+    result_state: dict[str, Any],
+    *,
+    step: str,
+) -> dict[str, Any]:
+    """Bleibt bei den Rückfragen, solange eine gestellte Frage offen ist.
+
+    Bestätigt der Nutzer in der Übersicht eine erkannte Angabe, soll die
+    App nicht an einer im Chat noch offenen Rückfrage vorbei zu
+    Formular 3 springen.
+    """
+
+    from agentic_optimization.state import (
+        WORKFLOW_BUSINESS_CORE_SELECTED,
+        WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT,
+        get_workflow_status,
+    )
+
+    if step not in {"business_intake", "business_clarification"}:
+        return result_state
+
+    if get_workflow_status(result_state) != WORKFLOW_BUSINESS_CORE_SELECTED:
+        return result_state
+
+    result_intake = result_state.get("business_intake") or {}
+    still_open = [
+        question_id
+        for question_id in previous_intake.get("pending_question_ids", [])
+        if not _question_is_answered(question_id, result_intake)
+    ]
+
+    if not still_open:
+        return result_state
+
+    kept_intake = {**result_intake, "pending_question_ids": still_open}
+
+    # Die Fragen werden aus diesen Plänen aufgebaut.
+    if any(q.startswith("core_condition:") for q in still_open):
+        kept_intake["core_question_plan"] = previous_intake.get(
+            "core_question_plan"
+        )
+    if "core_choice" in still_open:
+        kept_intake["candidate_proposal"] = previous_intake.get(
+            "candidate_proposal"
+        )
+
+    return {
+        **result_state,
+        "business_intake": kept_intake,
+        "control": {
+            **result_state.get("control", {}),
+            "workflow_status": WORKFLOW_NEEDS_BUSINESS_PROFILE_INPUT,
+        },
+    }

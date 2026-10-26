@@ -202,6 +202,13 @@ beides lässt sich jederzeit mischen.
 - **Bausteine aus dem Gespräch:** Ausdrücklich genannte Vorgaben wie „Höchstbestellmenge von 250“, „Budget 5.000 €“,
   „10er-Gebinde“ oder „Servicegrad 95 %“ werden in Formular 3 automatisch angewählt und der Wert eingetragen – auch
   wenn sie schon in der Beschreibung standen. Im Formular abgewählte Bausteine werden nicht erneut hinzugefügt.
+- **Werte per Chat ändern:** Nennt man im Chat einen neuen Wert für ein bereits ausgefülltes Feld (z. B. „Die
+  Höchstbestellmenge beträgt 270“), wird er im Formular ersetzt.
+- **Strenges Erinnern:** Aus früheren Aussagen wird ein Zahlenwert nur übernommen, wenn die Zahl im Zitat steht und
+  Einheit und Begriff passen („Restwert von 3 Euro“ wird nie zur Höchstbestellmenge, „jedes Jahr“ nie zu 365 Tagen).
+  Ein Umbenennen des Produkts löst kein erneutes Erinnern aus.
+- **Rückfragen zuerst:** Eine Bestätigung in „Erkannte Anforderungen“ springt nicht an einer noch offenen Rückfrage
+  vorbei zu Formular 3.
 - **Sofortige Übernahme:** Eingaben in den Formularen (Zahlen, Produktname, Antworten auf Rückfragen) werden ohne
   Bestätigungsknopf übernommen; der Assistent sieht sie sofort und stellt direkt die nächste Frage.
 - **Ehrliche Grenzen:** Passt eine Situation zu keinem verfügbaren Rechenmodell, sagt der Assistent das klar, statt

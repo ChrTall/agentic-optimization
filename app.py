@@ -64,6 +64,7 @@ from agentic_optimization.ui.modular_result_page import (
     render_modular_result_page,
 )
 from agentic_optimization.ui.requirements_panel import (
+    keep_unanswered_questions,
     render_requirements_panel,
 )
 from agentic_optimization.ui.modular_review_page import (
@@ -396,6 +397,9 @@ def apply_requirement_change(change: dict) -> None:
                 "profile_overrides": [dict(change)],
             },
         }
+    )
+    result_state = keep_unanswered_questions(
+        intake_state, result_state, step=st.session_state.step
     )
     advance_after_business_intake(workflow, result_state)
 

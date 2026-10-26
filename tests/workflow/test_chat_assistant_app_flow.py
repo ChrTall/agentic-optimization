@@ -730,3 +730,134 @@ def test_value_is_not_assigned_to_a_different_field() -> None:
     facts = _specification(app)["products"][0]["facts"]
     assert facts.get("holding_cost") == 12
     assert facts.get("ordering_cost") is None
+
+
+class StrictRecallLLM(SilentComponentLLM):
+    """Erinnern liefert unbelegte bzw. falsch zugeordnete Werte."""
+
+    def invoke(self, messages):
+        system = messages[0].content
+        human = messages[-1].content
+        if system.startswith("Du bist ein freundlicher") and any(
+            phrase in human.rsplit("NACHRICHT DES NUTZERS:", 1)[-1]
+            for phrase in ("Restwert", "jedes Jahr")
+        ):
+            return AIMessage(content=json.dumps({"reply": "Notiert."}))
+        if system.startswith("Du erhältst alle bisherigen Aussagen"):
+            payload = json.loads(human)
+            answers = []
+            for item in payload["open_items"]:
+                name = (item.get("field") or {}).get("name")
+                if name == "quantity" and "Restwert" in payload["statements"]:
+                    answers.append({"id": item["id"], "value": 3,
+                                    "quote": "Restwert von 3 Euro"})
+                if name == "horizon_days" and "jedes Jahr" in payload["statements"]:
+                    answers.append({"id": item["id"], "value": 365,
+                                    "quote": "jedes Jahr"})
+            return AIMessage(content=json.dumps({"answers": answers}))
+        return super().invoke(messages)
+
+
+def test_recall_rejects_values_that_belong_elsewhere_or_lack_a_number() -> None:
+    app = AppTest.from_file(str(APP_PATH), default_timeout=60)
+    app.session_state["llm"] = StrictRecallLLM()
+    app.run()
+    _reach_input_form(app)
+
+    _say(app, "Es liegt ein Restwert von 3 Euro vor. Wir bestellen jedes Jahr.")
+    app.checkbox(
+        key="modular_component_toggle_maximum_order_quantity_0"
+    ).check().run()
+    assert not app.exception
+
+    specification = _specification(app)
+    assert specification["constraints"][0]["parameters"] == {}
+    assert "horizon_days" not in specification["products"][0]["forecast"]
+
+
+def test_existing_value_is_updated_from_chat() -> None:
+    app = AppTest.from_file(str(APP_PATH), default_timeout=60)
+    app.session_state["llm"] = SilentComponentLLM()
+    app.run()
+    _reach_input_form(app)
+
+    _say(app, "Es gibt eine Höchstbestellmenge von 250 Stück.")
+    assert _specification(app)["constraints"][0]["parameters"] == {
+        "quantity": 250
+    }
+
+    _say(app, "Die Höchstbestellmenge beträgt 270 Stück.")
+    assert _specification(app)["constraints"][0]["parameters"] == {
+        "quantity": 270
+    }
+    # Das Formularfeld zeigt den neuen Wert.
+    assert any(
+        widget.value == 270
+        for widget in app.number_input
+        if "maximum_order_quantity" in (widget.key or "")
+    )
+
+
+class UpdateValueLLM(FakeLLM):
+    """Der Assistent ändert einen bereits ausgefüllten Wert (k-Kennung)."""
+
+    def invoke(self, messages):
+        system = messages[0].content
+        human = messages[-1].content
+        if system.startswith("Du bist ein freundlicher") and (
+            "Lagerkosten sind jetzt 15" in human.rsplit("NACHRICHT DES NUTZERS:", 1)[-1]
+        ):
+            context = json.loads(
+                human.split("KONTEXT:\n", 1)[1].split(
+                    "\n\nNACHRICHT DES NUTZERS:", 1
+                )[0]
+            )
+            return AIMessage(content=json.dumps({
+                "reply": "Geändert.",
+                "input_values": [
+                    {"input_id": item["input_id"], "value": 15}
+                    for item in context["filled_inputs"]
+                    if item["name"] == "holding_cost"
+                ],
+            }))
+        return super().invoke(messages)
+
+
+def test_chat_changes_an_already_filled_value() -> None:
+    app = AppTest.from_file(str(APP_PATH), default_timeout=60)
+    app.session_state["llm"] = UpdateValueLLM()
+    app.run()
+    _reach_input_form(app)
+    _say(app, "3500 Stück im Jahr, 120 € je Bestellung, 12 € Lager.")
+    assert _specification(app)["products"][0]["facts"]["holding_cost"] == 12
+
+    _say(app, "Die Lagerkosten sind jetzt 15 € pro Stück und Jahr.")
+    assert _specification(app)["products"][0]["facts"]["holding_cost"] == 15
+
+
+class CountingRecallLLM(FakeLLM):
+    recall_calls = 0
+
+    def invoke(self, messages):
+        if messages[0].content.startswith("Du erhältst alle bisherigen Aussagen"):
+            type(self).recall_calls += 1
+        return super().invoke(messages)
+
+
+def test_renaming_the_product_does_not_trigger_recall_again() -> None:
+    app = AppTest.from_file(str(APP_PATH), default_timeout=60)
+    app.session_state["llm"] = CountingRecallLLM()
+    app.run()
+    _reach_input_form(app)
+    calls = CountingRecallLLM.recall_calls
+
+    name_input = next(
+        widget for widget in app.text_input
+        if (widget.key or "").startswith("modular_product_name")
+    )
+    name_input.set_value("Weihnachtsbaum").run()
+    assert not app.exception
+
+    assert _specification(app)["products"][0]["product_id"] == "Weihnachtsbaum"
+    assert _specification(app)["products"][0]["forecast"] == {}
+    assert CountingRecallLLM.recall_calls == calls
