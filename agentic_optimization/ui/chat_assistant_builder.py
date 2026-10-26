@@ -543,20 +543,9 @@ def _format_help(help_text: str | None) -> str:
 
 
 def _business_question_text(question: BusinessQuestion) -> str:
-    options = [
-        option
-        for option in question["options"]
-        if option["option_id"] != "user_unknown"
-    ]
-    option_lines = "\n".join(
-        f"- {t(option['label'])}"
-        + (f" – {t(option['help'])}" if option.get("help") else "")
-        for option in options
-    )
-
-    return (
-        t("**{prompt}**\n\n{option_lines}\n\nAntworten Sie gern in eigenen Worten – „weiß ich nicht“ ist auch in Ordnung.", prompt=t(question['prompt']), option_lines=option_lines)
-    )
+    # Die Antwortmöglichkeiten stehen als Buttons unter dem Chat und im
+    # Formular – im Text reicht die Frage selbst.
+    return f"**{t(question['prompt'])}**"
 
 
 def _field_question_text(
@@ -1284,7 +1273,7 @@ def format_recall_note(
         return None
 
     return (
-        t("Das haben Sie mir schon gesagt – ich habe es übernommen, Sie müssen es nicht noch einmal angeben:\n") + "\n".join(lines)
+        t("Aus Ihren bisherigen Angaben übernommen:\n") + "\n".join(lines)
     )
 
 
@@ -1325,7 +1314,7 @@ def build_step_intro(
 
     if step == "business_clarification":
         return (
-            t("Danke, das habe ich ausgewertet. Ich habe noch ein paar kurze Rückfragen.")
+            t("Noch ein paar kurze Rückfragen – antworten Sie gern in eigenen Worten, „weiß ich nicht“ geht auch.")
         )
 
     if step == "product_table":
@@ -1335,7 +1324,7 @@ def build_step_intro(
 
     if step == "model_input_form":
         return (
-            t("Prima, jetzt brauche ich noch ein paar Zahlen für die Berechnung. Ich frage sie nacheinander ab.")
+            t("Jetzt brauche ich noch ein paar Zahlen für die Berechnung.")
         )
 
     if step == "model_unsupported":
@@ -1412,7 +1401,8 @@ def build_follow_up_messages(
     messages: list[str] = []
 
     if step != previous_step:
-        if previous_step in {"business_intake", "business_clarification"}:
+        # Nur einmal – direkt nach der Beschreibung – zusammenfassen.
+        if previous_step == "business_intake":
             summary = build_proposal_summary(
                 (graph_state or {}).get("business_intake")
             )
@@ -1706,16 +1696,14 @@ def build_proposal_summary(
     if not proposed:
         return None
 
-    lines = []
+    parts = [
+        f"{item['title']} ({item['value_label']})"
+        if item["kind"] == "assumption"
+        else item["value_label"]
+        for item in proposed
+    ]
 
-    for item in proposed:
-        if item["kind"] == "assumption":
-            lines.append(t("- _Annahme:_ {title} ({value_label})", title=item['title'], value_label=item['value_label']))
-        else:
-            lines.append(f"- **{item['title']}:** {item['value_label']}")
-
-    return (
-        t("Das habe ich aus Ihren Angaben erkannt:\n")
-        + "\n".join(lines)
-        + t("\n\nBitte prüfen Sie die Punkte oben unter **Erkannte Anforderungen** bzw. **Bekannte Angaben** – Sie können sie bestätigen, ändern oder verwerfen.")
+    return t(
+        "Erkannt: {items}. _Rechts oben können Sie das bestätigen oder ändern._",
+        items=" · ".join(parts),
     )

@@ -194,6 +194,14 @@ beides lässt sich jederzeit mischen.
   Sprache. Bereits geschriebene Chatnachrichten bleiben in ihrer ursprünglichen Sprache. Übersetzungen liegen in
   `agentic_optimization/i18n/en.py` (deutscher Text als Schlüssel, `t("…")` im Code); ein Test stellt sicher, dass
   jeder Text übersetzt ist.
+- **Eine Sprechblase pro Runde:** Antwort, Hinweise und nächste Frage erscheinen zusammen in einer Nachricht;
+  Antwortmöglichkeiten stehen nur noch als Buttons darunter.
+- **Sichere Zuordnung:** Ein Wert wird nicht einem Feld zugeordnet, wenn der Satz ausdrücklich eine andere Größe nennt
+  (z. B. „Verkaufspreis von 25 €“ landet nie bei den Einkaufskosten) – gilt für Chat und Erinnern
+  (`agentic_optimization/ui/chat_mentions.py`).
+- **Bausteine aus dem Gespräch:** Ausdrücklich genannte Vorgaben wie „Höchstbestellmenge von 250“, „Budget 5.000 €“,
+  „10er-Gebinde“ oder „Servicegrad 95 %“ werden in Formular 3 automatisch angewählt und der Wert eingetragen – auch
+  wenn sie schon in der Beschreibung standen. Im Formular abgewählte Bausteine werden nicht erneut hinzugefügt.
 - **Sofortige Übernahme:** Eingaben in den Formularen (Zahlen, Produktname, Antworten auf Rückfragen) werden ohne
   Bestätigungsknopf übernommen; der Assistent sieht sie sofort und stellt direkt die nächste Frage.
 - **Ehrliche Grenzen:** Passt eine Situation zu keinem verfügbaren Rechenmodell, sagt der Assistent das klar, statt

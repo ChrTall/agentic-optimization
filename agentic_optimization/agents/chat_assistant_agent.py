@@ -147,6 +147,10 @@ Feldregeln:
 - input_values: input_id aus missing_inputs. Zahlen als
   JSON-Zahl. Zahlenlisten als Liste. Nachfragequantile als
   [{"level": 0.1, "value": 70}, ...].
+  Ordne einen Wert nur dem Feld zu, das der Nutzer dafür
+  nennt – nicht einfach der aktuellen Frage. Ein Verkaufspreis
+  ist kein Einkaufspreis, Lagerkosten sind keine Bestellkosten.
+  Jeder genannte Wert gehört zu genau einem Feld.
 - products: Werte je Produkt, Schlüssel sind die name-Felder
   aus product_fields. Nur genannte Werte. Werden nur
   Produktnamen genannt, gib die Produkte mit leeren values an.
@@ -406,6 +410,10 @@ Regeln:
 - kind "value": value als JSON-Zahl; Nachfragequantile als
   [{"level": 0.1, "value": 70}, ...]. Rechne nur eindeutige
   Einheiten um (z. B. "2 Wochen" -> 14 Tage).
+- Ordne ein Zitat nur der Angabe zu, die es ausdrücklich
+  benennt. Ein Verkaufspreis ist kein Einkaufspreis, Lager-
+  kosten sind keine Bestellkosten. Ein Wert aus den Aussagen
+  gehört zu höchstens einer Angabe.
 - Ist eine Angabe nicht genannt, lasse sie weg.
 
 Gib ausschließlich ein JSON-Objekt zurück:

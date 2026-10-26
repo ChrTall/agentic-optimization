@@ -365,13 +365,15 @@ def test_values_from_earlier_messages_are_not_asked_again() -> None:
     ]["products"][0]["facts"]
     assert facts["ordering_cost"] == 120
 
+    # Eine Sprechblase kann mehrere Abschnitte enthalten.
     assistant_messages = [
-        message["content"]
+        part
         for message in app.session_state["chat_messages"]
         if message["role"] == "assistant"
+        for part in message.get("parts", [message["content"]])
     ]
     assert any(
-        "Das haben Sie mir schon gesagt" in message
+        "Aus Ihren bisherigen Angaben übernommen" in message
         for message in assistant_messages
     )
     assert not any(
@@ -461,7 +463,7 @@ def test_detected_requirements_can_be_confirmed_discarded_and_changed() -> None:
 
     assert profile()["procurement_pattern"]["status"] == "inferred"
     assert any(
-        "Das habe ich aus Ihren Angaben erkannt" in message["content"]
+        "Erkannt: " in message["content"]
         for message in app.session_state["chat_messages"]
     )
 
@@ -609,3 +611,122 @@ def test_form_answer_is_applied_without_button() -> None:
         message["content"].split("\n")[0].strip("*")
         for message in app.session_state["chat_messages"][-1:]
     ]
+
+
+def _reach_input_form(app: AppTest) -> None:
+    _say(
+        app,
+        "Wir bestellen einen Artikel regelmäßig nach und wollen "
+        "wissen, wie viel wir jeweils bestellen sollen.",
+    )
+    _say(app, "Vor allem sollen die Kosten niedrig bleiben.")
+    if app.session_state["step"] == "business_clarification":
+        _say(app, "Ja, wir bestellen regelmäßig nach.")
+    assert app.session_state["step"] == "model_input_form"
+
+
+def _specification(app: AppTest) -> dict:
+    return app.session_state["graph_state"]["modular_model"]["specification"]
+
+
+class SilentComponentLLM(FakeLLM):
+    """Der Assistent selbst erkennt die Höchstbestellmenge nicht."""
+
+    def invoke(self, messages):
+        human = messages[-1].content
+        if (
+            messages[0].content.startswith("Du bist ein freundlicher")
+            and "Höchstbestellmenge" in human.rsplit("NACHRICHT DES NUTZERS:", 1)[-1]
+        ):
+            return AIMessage(content=json.dumps({"reply": "Alles klar."}))
+        return super().invoke(messages)
+
+
+def test_named_component_is_added_and_value_filled() -> None:
+    app = AppTest.from_file(str(APP_PATH), default_timeout=60)
+    app.session_state["llm"] = SilentComponentLLM()
+    app.run()
+    _reach_input_form(app)
+
+    _say(app, "Es gibt eine Höchstbestellmenge von 250 Stück.")
+
+    constraints = _specification(app)["constraints"]
+    assert [c["component_id"] for c in constraints] == ["maximum_order_quantity"]
+    assert constraints[0]["parameters"] == {"quantity": 250}
+    last = app.session_state["chat_messages"][-1]["content"]
+    assert "Höchstbestellmenge" in last and "250" in last
+
+
+def test_component_from_description_is_added_on_input_form() -> None:
+    app = AppTest.from_file(str(APP_PATH), default_timeout=60)
+    app.session_state["llm"] = FakeLLM()
+    app.run()
+    _say(
+        app,
+        "Wir bestellen einen Artikel regelmäßig nach und wollen "
+        "wissen, wie viel wir jeweils bestellen sollen. Die "
+        "Höchstbestellmenge liegt bei 300 Stück.",
+    )
+    _say(app, "Vor allem sollen die Kosten niedrig bleiben.")
+    if app.session_state["step"] == "business_clarification":
+        _say(app, "Ja, wir bestellen regelmäßig nach.")
+
+    constraints = _specification(app)["constraints"]
+    assert [c["component_id"] for c in constraints] == ["maximum_order_quantity"]
+    assert constraints[0]["parameters"] == {"quantity": 300}
+
+    # Im Formular abgewählt -> wird nicht erneut hinzugefügt.
+    app.checkbox(
+        key="modular_component_toggle_maximum_order_quantity_1"
+    ).uncheck().run()
+    assert not app.exception
+    assert _specification(app)["constraints"] == []
+    app.run()
+    assert _specification(app)["constraints"] == []
+
+
+class WrongFieldLLM(FakeLLM):
+    """Ordnet Lagerkosten fälschlich auch den Bestellkosten zu."""
+
+    def invoke(self, messages):
+        system = messages[0].content
+        human = messages[-1].content
+        if system.startswith("Du bist ein freundlicher") and (
+            "Lagerkosten" in human.rsplit("NACHRICHT DES NUTZERS:", 1)[-1]
+        ):
+            context = json.loads(
+                human.split("KONTEXT:\n", 1)[1].split(
+                    "\n\nNACHRICHT DES NUTZERS:", 1
+                )[0]
+            )
+            return AIMessage(content=json.dumps({
+                "reply": "Notiert.",
+                "input_values": [
+                    {"input_id": item["input_id"], "value": 12}
+                    for item in context["missing_inputs"]
+                    if item["name"] in {"ordering_cost", "holding_cost"}
+                ],
+            }))
+        if system.startswith("Du erhältst alle bisherigen Aussagen"):
+            payload = json.loads(human)
+            return AIMessage(content=json.dumps({"answers": [
+                {"id": item["id"], "value": 12,
+                 "quote": "Die Lagerkosten betragen 12 €"}
+                for item in payload["open_items"]
+                if (item.get("field") or {}).get("name") == "ordering_cost"
+                and "Lagerkosten" in payload["statements"]
+            ]}))
+        return super().invoke(messages)
+
+
+def test_value_is_not_assigned_to_a_different_field() -> None:
+    app = AppTest.from_file(str(APP_PATH), default_timeout=60)
+    app.session_state["llm"] = WrongFieldLLM()
+    app.run()
+    _reach_input_form(app)
+
+    _say(app, "Die Lagerkosten betragen 12 € pro Stück und Jahr.")
+
+    facts = _specification(app)["products"][0]["facts"]
+    assert facts.get("holding_cost") == 12
+    assert facts.get("ordering_cost") is None
