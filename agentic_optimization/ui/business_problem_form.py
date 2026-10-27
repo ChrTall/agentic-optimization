@@ -10,6 +10,8 @@ from agentic_optimization.models.problem_profile import (
 )
 from collections.abc import Collection
 from copy import deepcopy
+from agentic_optimization.models.core_applicability import CORE_CONDITIONS
+from agentic_optimization.i18n import t
 
 
 BusinessQuestionId = Literal[
@@ -34,8 +36,8 @@ class BusinessQuestionOption(TypedDict):
 class BusinessQuestion(TypedDict):
     """Eine mögliche Frage des adaptiven Einstiegs."""
 
-    question_id: BusinessQuestionId
-    target_field: BusinessProfileFieldId
+    question_id: str
+    target_field: NotRequired[BusinessProfileFieldId]
     prompt: str
     options: list[BusinessQuestionOption]
 
@@ -43,6 +45,50 @@ UNKNOWN_OPTION: BusinessQuestionOption = {
     "option_id": "user_unknown",
     "label": "Ich bin mir nicht sicher",
 }
+
+
+APPLICABILITY_QUESTION_PROMPTS = {
+    "recurring_orders": (
+        "Wird der Artikel dauerhaft und regelmäßig nachbestellt?"
+    ),
+    "steady_demand": "Ist der Bedarf über die Zeit ungefähr gleichmäßig?",
+    "no_quantity_discounts": (
+        "Bleibt der Einkaufspreis je Stück unabhängig von der Bestellmenge?"
+    ),
+    "no_shortages": (
+        "Sollen geplante Fehlbestände oder Rückstände ausgeschlossen sein?"
+    ),
+    "single_decision_period": (
+        "Wird die Bestellmenge einmal vor dem Verkaufszeitraum festgelegt?"
+    ),
+    "no_replenishment_within_period": (
+        "Sind Nachbestellungen während des Verkaufszeitraums ausgeschlossen?"
+    ),
+    "continuous_inventory_review": (
+        "Wird der Lagerbestand laufend statt nur zu festen Terminen geprüft?"
+    ),
+    "constant_lead_time": (
+        "Kann für die Berechnung eine konstante Lieferzeit angenommen werden?"
+    ),
+}
+
+
+def build_applicability_question(
+    core_id: str, condition_id: str
+) -> BusinessQuestion:
+    """Erzeugt eine konkrete Rückfrage zu einer Modellvoraussetzung."""
+
+    if condition_id not in CORE_CONDITIONS.get(core_id, ()):
+        raise ValueError(t("Unbekannte Modellvoraussetzung."))
+    return {
+        "question_id": f"core_condition:{condition_id}",
+        "prompt": APPLICABILITY_QUESTION_PROMPTS[condition_id],
+        "options": [
+            {"option_id": "yes", "label": t("Ja")},
+            {"option_id": "no", "label": t("Nein")},
+            {"option_id": "user_unknown", "label": t("Noch nicht bekannt")},
+        ],
+    }
 
 
 BUSINESS_QUESTIONS: dict[
@@ -242,7 +288,18 @@ def get_relevant_business_questions(
     asked_question_id_set = set(asked_question_ids)
     question_ids: list[BusinessQuestionId] = []
 
-    if _needs_clarification(profile["recommendation"]):
+    # If the ordering pattern is unresolved, a text-inferred decision is not
+    # enough to settle which quantity the user wants calculated.
+    # Ask directly so equivalent profile inferences lead to the same form.
+    if (
+        _needs_clarification(profile["recommendation"])
+        or (
+            profile["recommendation"]["status"] == "inferred"
+            and profile["procurement_pattern"]["status"] in {
+                "missing", "ambiguous", "conflict"
+            }
+        )
+    ):
         question_ids.append("recommendation")
 
     if _needs_clarification(
@@ -270,7 +327,8 @@ def get_relevant_business_questions(
     recommendation = _known_value(profile["recommendation"])
 
     if (
-        procurement_pattern == "one_time"
+        profile["procurement_pattern"]["status"] == "confirmed"
+        and procurement_pattern == "one_time"
         and _needs_clarification(
             profile["replenishment_during_period"]
         )
@@ -296,7 +354,13 @@ def get_relevant_business_questions(
     ):
         question_ids.append("product_scope")
 
-    if _needs_clarification(profile["primary_goal"]):
+    if (
+        _needs_clarification(profile["primary_goal"])
+        and not (
+            profile["primary_goal"]["status"] == "user_unknown"
+            and "primary_goal" in asked_question_id_set
+        )
+    ):
         question_ids.append("primary_goal")
 
     return [
@@ -318,8 +382,7 @@ def apply_business_question_answer(
 
     if question is None:
         raise ValueError(
-            f"Die Geschäftsfrage '{question_id}' ist "
-            "nicht registriert."
+            t("Die Geschäftsfrage '{question_id}' ist nicht registriert.", question_id=question_id)
         )
 
     selected_option = next(
@@ -333,14 +396,12 @@ def apply_business_question_answer(
 
     if selected_option is None:
         raise ValueError(
-            f"Die Antwortoption '{option_id}' gehört "
-            f"nicht zur Geschäftsfrage '{question_id}'."
+            t("Die Antwortoption '{option_id}' gehört nicht zur Geschäftsfrage '{question_id}'.", option_id=option_id, question_id=question_id)
         )
 
     if not source_id.strip():
         raise ValueError(
-            "Für eine Geschäftsantwort wird eine "
-            "gültige Quellen-ID benötigt."
+            t("Für eine Geschäftsantwort wird eine gültige Quellen-ID benötigt.")
         )
 
     evidence = [
@@ -363,8 +424,7 @@ def apply_business_question_answer(
 
         if profile_value is None:
             raise ValueError(
-                f"Die Antwortoption '{option_id}' besitzt "
-                "keinen fachlichen Profilwert."
+                t("Die Antwortoption '{option_id}' besitzt keinen fachlichen Profilwert.", option_id=option_id)
             )
 
         updated_field = create_profile_field(

@@ -10,6 +10,7 @@ from agentic_optimization.models.specification import (
     DemandForecast,
     ForecastQuantile,
 )
+from agentic_optimization.i18n import t
 
 
 class WeightedDemandPoint(TypedDict):
@@ -38,6 +39,40 @@ class PreparedContinuousReviewForecast(TypedDict):
     lead_time_days: int
 
 
+DEMAND_SCENARIO_COUNT = 100
+"""Anzahl gleich wahrscheinlicher Szenarien der diskreten Approximation."""
+
+
+def _interpolate_quantile(
+    levels: list[float],
+    values: list[float],
+    level: float,
+) -> float:
+    """Wertet die stückweise lineare Quantilsfunktion aus."""
+
+    if len(levels) == 1:
+        return values[0]
+
+    if level <= levels[0]:
+        left, right = 0, 1
+    elif level >= levels[-1]:
+        left, right = len(levels) - 2, len(levels) - 1
+    else:
+        right = next(
+            index
+            for index, candidate in enumerate(levels)
+            if candidate >= level
+        )
+        left = right - 1
+
+    slope = (values[right] - values[left]) / (
+        levels[right] - levels[left]
+    )
+    value = values[left] + slope * (level - levels[left])
+
+    return round(max(value, 0.0), 6)
+
+
 def _is_number(value: object) -> bool:
     """Prüft auf endliche numerische Werte und schließt bool aus."""
 
@@ -59,14 +94,18 @@ def prepare_demand_forecast(
     """
     Erzeugt eine diskrete Approximation aus Forecast-Quantilen.
 
-    Die Grenzen zwischen zwei Quantilen liegen jeweils in der Mitte
-    ihrer Wahrscheinlichkeitsniveaus. Die äußeren Quantile repräsentieren
-    zusätzlich die nicht abgedeckten Randbereiche.
+    Zwischen zwei angegebenen Quantilen wird die Quantilsfunktion linear
+    interpoliert, außerhalb des äußersten Quantils mit der Steigung des
+    benachbarten Abschnitts linear fortgesetzt (nie unter null). Die
+    Verteilung wird anschließend durch ``DEMAND_SCENARIO_COUNT`` gleich
+    wahrscheinliche Nachfrageszenarien dargestellt. Dadurch ist die
+    optimale Bestellmenge nicht mehr auf die wenigen angegebenen
+    Quantilswerte beschränkt.
     """
 
     if not isinstance(forecast, dict):
         raise ValueError(
-            "Die Nachfrageprognose muss als Objekt vorliegen."
+            t("Die Nachfrageprognose muss als Objekt vorliegen.")
         )
 
     expected_value = forecast.get("expected_value")
@@ -75,8 +114,7 @@ def prepare_demand_forecast(
 
     if not _is_number(expected_value) or expected_value < 0:
         raise ValueError(
-            "Der Erwartungswert der Nachfrage muss "
-            "eine endliche, nicht negative Zahl sein."
+            t("Der Erwartungswert der Nachfrage muss eine endliche, nicht negative Zahl sein.")
         )
 
     if (
@@ -85,14 +123,12 @@ def prepare_demand_forecast(
         or horizon_days <= 0
     ):
         raise ValueError(
-            "Der Prognosezeitraum muss eine positive "
-            "ganze Zahl sein."
+            t("Der Prognosezeitraum muss eine positive ganze Zahl sein.")
         )
 
     if not isinstance(quantiles, list) or not quantiles:
         raise ValueError(
-            "Die Nachfragequantile müssen als "
-            "nicht leere Liste vorliegen."
+            t("Die Nachfragequantile müssen als nicht leere Liste vorliegen.")
         )
 
     normalized_quantiles: list[ForecastQuantile] = []
@@ -100,15 +136,12 @@ def prepare_demand_forecast(
     for index, quantile in enumerate(quantiles):
         if not isinstance(quantile, dict):
             raise ValueError(
-                f"Das Nachfragequantil an Position "
-                f"{index} muss als Objekt vorliegen."
+                t("Das Nachfragequantil an Position {index} muss als Objekt vorliegen.", index=index)
             )
 
         if "level" not in quantile or "value" not in quantile:
             raise ValueError(
-                f"Beim Nachfragequantil an Position "
-                f"{index} fehlen Quantilsniveau "
-                "oder Nachfragewert."
+                t("Beim Nachfragequantil an Position {index} fehlen Quantilsniveau oder Nachfragewert.", index=index)
             )
 
         level = quantile["level"]
@@ -119,14 +152,12 @@ def prepare_demand_forecast(
             or not 0 < level < 1
         ):
             raise ValueError(
-                "Quantilsniveaus müssen endliche Zahlen "
-                "zwischen 0 und 1 sein."
+                t("Quantilsniveaus müssen endliche Zahlen zwischen 0 und 1 sein.")
             )
 
         if not _is_number(value) or value < 0:
             raise ValueError(
-                "Quantilswerte müssen endliche, "
-                "nicht negative Zahlen sein."
+                t("Quantilswerte müssen endliche, nicht negative Zahlen sein.")
             )
 
         normalized_quantiles.append(
@@ -150,13 +181,12 @@ def prepare_demand_forecast(
 
         if previous_level is not None and level == previous_level:
             raise ValueError(
-                "Jedes Quantilsniveau darf nur einmal vorkommen."
+                t("Jedes Quantilsniveau darf nur einmal vorkommen.")
             )
 
         if previous_value is not None and value < previous_value:
             raise ValueError(
-                "Quantilswerte müssen mit steigendem "
-                "Quantilsniveau monoton steigen."
+                t("Quantilswerte müssen mit steigendem Quantilsniveau monoton steigen – der Wert bei 90 % muss mindestens so hoch sein wie bei 50 %, dieser mindestens so hoch wie bei 10 % (z. B. 0.1: 150; 0.5: 300; 0.9: 350).")
             )
 
         previous_level = level
@@ -166,39 +196,27 @@ def prepare_demand_forecast(
         float(quantile["level"])
         for quantile in sorted_quantiles
     ]
+    values = [
+        float(quantile["value"])
+        for quantile in sorted_quantiles
+    ]
 
-    boundaries = [0.0]
+    # Gleiche Nachfragewerte (z. B. bei identischen Quantilen) werden
+    # zu einem Szenario mit entsprechend höherer Wahrscheinlichkeit
+    # zusammengefasst.
+    counts_by_value: dict[float, int] = {}
 
-    boundaries.extend(
-        (left_level + right_level) / 2
-        for left_level, right_level in zip(
-            levels,
-            levels[1:],
-        )
-    )
-
-    boundaries.append(1.0)
-
-    probabilities_by_value: dict[float, float] = {}
-
-    for index, quantile in enumerate(sorted_quantiles):
-        value = float(quantile["value"])
-        probability = (
-            boundaries[index + 1]
-            - boundaries[index]
-        )
-
-        probabilities_by_value[value] = (
-            probabilities_by_value.get(value, 0.0)
-            + probability
-        )
+    for index in range(DEMAND_SCENARIO_COUNT):
+        level = (index + 0.5) / DEMAND_SCENARIO_COUNT
+        value = _interpolate_quantile(levels, values, level)
+        counts_by_value[value] = counts_by_value.get(value, 0) + 1
 
     demand_points: list[WeightedDemandPoint] = [
         {
             "value": value,
-            "probability": probability,
+            "probability": count / DEMAND_SCENARIO_COUNT,
         }
-        for value, probability in probabilities_by_value.items()
+        for value, count in sorted(counts_by_value.items())
     ]
 
     approximated_expected_value = sum(
@@ -239,8 +257,7 @@ def prepare_continuous_review_forecast(
         or lead_time_days <= 0
     ):
         raise ValueError(
-            "Die Lieferzeit muss eine positive "
-            "ganze Zahl sein."
+            t("Die Lieferzeit muss eine positive ganze Zahl sein.")
         )
 
     quantiles = sorted(
@@ -261,9 +278,7 @@ def prepare_continuous_review_forecast(
 
     if not lower_quantiles or not upper_quantiles:
         raise ValueError(
-            "Für die kontinuierliche Überprüfung wird "
-            "mindestens ein Nachfragequantil unterhalb "
-            "und eines oberhalb von 0,5 benötigt."
+            t("Für die kontinuierliche Überprüfung wird mindestens ein Nachfragequantil unterhalb und eines oberhalb von 0,5 benötigt.")
         )
 
     lower_quantile = lower_quantiles[0]
@@ -275,8 +290,7 @@ def prepare_continuous_review_forecast(
 
     if not lower_value <= expected_value <= upper_value:
         raise ValueError(
-            "Der Erwartungswert der Nachfrage muss zwischen "
-            "dem verwendeten unteren und oberen Quantil liegen."
+            t("Der Erwartungswert der Nachfrage muss zwischen dem verwendeten unteren und oberen Quantil liegen.")
         )
 
     normal_distribution = NormalDist()

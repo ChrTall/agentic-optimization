@@ -6,15 +6,20 @@ from typing import Literal, TypedDict
 from agentic_optimization.state import (
     BusinessIntakeState,
 )
+from agentic_optimization.models.core_applicability import CONDITION_LABELS
+from agentic_optimization.models.core_registry import CORE_REGISTRY
 from agentic_optimization.ui.business_problem_form import (
     BUSINESS_QUESTIONS,
     BusinessQuestion,
+    build_applicability_question,
 )
+from agentic_optimization.i18n import t
 
 
 BusinessIntakeMessageType = Literal[
     "none",
     "success",
+    "warning",
     "error",
 ]
 
@@ -38,7 +43,7 @@ def build_business_intake_view_data(
 
     if profile is None:
         raise ValueError(
-            "Das Geschäftsprofil für die Darstellung fehlt."
+            t("Das Geschäftsprofil für die Darstellung fehlt.")
         )
 
     questions: list[BusinessQuestion] = []
@@ -49,10 +54,69 @@ def build_business_intake_view_data(
     ):
         question = BUSINESS_QUESTIONS.get(question_id)
 
+        if question is None and question_id == "core_choice":
+            proposal = intake_state.get("candidate_proposal")
+            candidate_ids = (
+                [item["core_id"] for item in proposal["candidates"]]
+                if proposal else []
+            )
+            question = {
+                "question_id": "core_choice",
+                "prompt": (
+                    t("Welche Beschreibung passt zu Ihrer Bestellsituation?")
+                ),
+                "options": [
+                    {
+                        "option_id": core_id,
+                        "label": CORE_REGISTRY[core_id]["definition"][
+                            "decision_description"
+                        ],
+                        "help": CORE_REGISTRY[core_id]["definition"][
+                            "description"
+                        ],
+                    }
+                    for core_id in candidate_ids
+                ],
+            }
+
+        if question is None and question_id.startswith("core_condition:"):
+            plan = intake_state.get("core_question_plan")
+            if (
+                plan is not None
+                and plan["question_id"] == question_id
+                and plan["core_id"] is not None
+                and plan["condition_id"] is not None
+            ):
+                condition_id = plan["condition_id"]
+                question = build_applicability_question(
+                    plan["core_id"], condition_id
+                )
+                if plan["kind"] == "candidate_condition":
+                    question["options"] = [
+                        {
+                            "option_id": "yes",
+                            "label": t("Ja — ") + t(CONDITION_LABELS[condition_id]),
+                        },
+                        {
+                            "option_id": "no",
+                            "label": (
+                                t("Nein — diese Voraussetzung trifft nicht zu.")
+                            ),
+                        },
+                        {
+                            "option_id": "user_unknown",
+                            "label": t("Noch nicht bekannt"),
+                        },
+                    ]
+                if plan["reason"] == "conflict":
+                    question["prompt"] = (
+                        t("Ihre Angaben dazu widersprechen sich. ")
+                        + t(question["prompt"])
+                    )
+
         if question is None:
             raise ValueError(
-                f"Die Geschäftsfrage '{question_id}' "
-                "ist nicht registriert."
+                t("Die Geschäftsfrage '{question_id}' ist nicht registriert.", question_id=question_id)
             )
 
         questions.append(deepcopy(question))
@@ -93,10 +157,13 @@ def build_business_intake_view_data(
     ):
         message_type = "error"
         message = (
-            "Diese betriebliche Situation kann mit den "
-            "derzeit verfügbaren Grundmodellen noch nicht "
-            "zuverlässig abgebildet werden."
+            t("Diese betriebliche Situation kann mit den derzeit verfügbaren Grundmodellen noch nicht zuverlässig abgebildet werden.")
         )
+        if (
+            intake_state.get("applicability_plan")
+            and intake_state["applicability_plan"]["status"] == "rejected"
+        ):
+            message += " " + core_selection["reason"]
     elif (
         core_selection is not None
         and core_selection["status"] == "selected"
@@ -104,8 +171,35 @@ def build_business_intake_view_data(
     ):
         message_type = "success"
         message = (
-            "Die betriebliche Ausgangssituation wurde "
-            "vollständig erfasst."
+            t("Die betriebliche Ausgangssituation wurde vollständig erfasst.")
+        )
+    elif (
+        core_selection is not None
+        and core_selection["status"] == "needs_clarification"
+        and not questions
+        and (
+            "unknown" in intake_state.get(
+                "applicability_user_answers", {}
+            ).values()
+            or profile["primary_goal"]["status"] == "user_unknown"
+        )
+    ):
+        message_type = "warning"
+        message = (
+            t("Für eine Berechnung fehlen noch entscheidende Angaben: ")
+            + (
+                t("Das Optimierungsziel ist nicht bekannt. ")
+                if profile["primary_goal"]["status"] == "user_unknown"
+                else ""
+            )
+            + (
+                t("Mindestens eine Modellvoraussetzung ist nicht bekannt. ")
+                if "unknown" in intake_state.get(
+                    "applicability_user_answers", {}
+                ).values()
+                else ""
+            )
+            + t("Es wird keine Annahme stillschweigend gesetzt. Sie können die Beschreibung später ergänzen.")
         )
     else:
         message_type = "none"

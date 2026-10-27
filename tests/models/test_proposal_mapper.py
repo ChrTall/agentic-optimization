@@ -4,6 +4,7 @@ from agentic_optimization.models.proposal_mapper import (
     build_specification_from_proposal,
     exclude_unsupported_requirements,
     validate_component_selection_proposal,
+    build_component_selection_proposal,
 )
 from agentic_optimization.models.specification import (
     ComponentSelectionProposal,
@@ -63,6 +64,199 @@ def create_products() -> list[ProductSpecification]:
             },
         }
     ]
+
+
+def test_builds_proposal_from_semantic_decision() -> None:
+    decision = {
+        "objective_sense": "maximize",
+        "objective_components": [
+            {
+                "component_id": "sales_revenue",
+                "reason": (
+                    "Verkaufserlöse sollen berücksichtigt "
+                    "werden."
+                ),
+                "sources": ["Freitext"],
+            },
+            {
+                "component_id": "purchase_cost",
+                "reason": (
+                    "Einkaufskosten wurden angegeben."
+                ),
+                "sources": ["Lieferantenvertrag"],
+            },
+        ],
+        "constraints": [],
+        "unresolved_requirements": [],
+    }
+
+    proposal = build_component_selection_proposal(
+        core_id="single_period_newsvendor",
+        decision=decision,
+    )
+
+    assert proposal["core_id"] == (
+        "single_period_newsvendor"
+    )
+    assert proposal["selection_status"] == "complete"
+    assert proposal["objective_sense"] == "maximize"
+    assert proposal["objective_components"] == (
+        decision["objective_components"]
+    )
+    assert proposal["constraints"] == []
+    assert proposal["unresolved_requirements"] == []
+
+
+def test_profit_goal_adds_required_cost_component_without_value() -> None:
+    proposal = build_component_selection_proposal(
+        core_id="single_period_newsvendor",
+        objective_goal="maximize_profit",
+        decision={
+            "objective_sense": "maximize",
+            "objective_components": [{
+                "component_id": "sales_revenue",
+                "reason": "Erlöse berücksichtigen.",
+                "sources": ["raw_input"],
+            }],
+            "constraints": [],
+            "unresolved_requirements": [],
+        },
+    )
+
+    assert {item["component_id"] for item in proposal[
+        "objective_components"
+    ]} == {"sales_revenue", "purchase_cost"}
+    assert next(item for item in proposal["objective_components"]
+                if item["component_id"] == "purchase_cost")[
+        "sources"
+    ] == ["core_definition"]
+
+
+def test_profit_goal_overrides_wrong_llm_objective_sense() -> None:
+    proposal = build_component_selection_proposal(
+        core_id="single_period_newsvendor",
+        objective_goal="maximize_profit",
+        decision={
+            "objective_sense": "minimize",
+            "objective_components": [],
+            "constraints": [],
+            "unresolved_requirements": [],
+        },
+    )
+
+    assert proposal["objective_sense"] == "maximize"
+    assert validate_component_selection_proposal(proposal) == []
+    specification = build_specification_from_proposal(
+        proposal, create_products(), {},
+    )
+    assert specification["objective"]["sense"] == "maximize"
+
+
+def test_rejects_newsvendor_proposal_without_purchase_cost() -> None:
+    proposal = create_proposal()
+    proposal["objective_components"] = [
+        component for component in proposal["objective_components"]
+        if component["component_id"] != "purchase_cost"
+    ]
+
+    assert any(
+        "purchase_cost" in error
+        for error in validate_component_selection_proposal(proposal)
+    )
+    with pytest.raises(ValueError, match="purchase_cost"):
+        build_specification_from_proposal(
+            proposal, create_products(), {},
+        )
+
+
+def test_rejects_unregistered_newsvendor_objective_direction() -> None:
+    proposal = create_proposal()
+    proposal["objective_sense"] = "minimize"
+
+    assert any(
+        "Zielrichtung" in error
+        for error in validate_component_selection_proposal(proposal)
+    )
+
+
+def test_adds_required_core_components_deterministically(
+) -> None:
+    decision = {
+        "objective_sense": "minimize",
+        "objective_components": [],
+        "constraints": [],
+        "unresolved_requirements": [],
+    }
+
+    proposal = build_component_selection_proposal(
+        core_id="eoq",
+        decision=decision,
+    )
+
+    assert [
+        component["component_id"]
+        for component in proposal[
+            "objective_components"
+        ]
+    ] == [
+        "annual_ordering_cost",
+        "annual_holding_cost",
+    ]
+
+    assert all(
+        component["reason"]
+        == (
+            "Vom ausgewählten Grundmodell "
+            "verpflichtend benötigt."
+        )
+        for component in proposal[
+            "objective_components"
+        ]
+    )
+
+    assert all(
+        component["sources"] == ["core_definition"]
+        for component in proposal[
+            "objective_components"
+        ]
+    )
+
+
+def test_fixed_core_sets_its_objective_sense() -> None:
+    decision = {
+        "objective_sense": "maximize",
+        "objective_components": [],
+        "constraints": [],
+        "unresolved_requirements": [],
+    }
+
+    for core_id in ("eoq", "continuous_review_q_r"):
+        proposal = build_component_selection_proposal(
+            core_id=core_id,
+            decision=decision,
+        )
+        assert proposal["objective_sense"] == "minimize"
+        assert validate_component_selection_proposal(proposal) == []
+
+
+def test_rejects_external_proposal_with_wrong_fixed_core_sense() -> None:
+    proposal = build_component_selection_proposal(
+        core_id="eoq",
+        decision={
+            "objective_sense": "minimize",
+            "objective_components": [],
+            "constraints": [],
+            "unresolved_requirements": [],
+        },
+    )
+    proposal["objective_sense"] = "maximize"
+
+    assert any(
+        "erfordert die Zielrichtung 'minimize'" in error
+        for error in validate_component_selection_proposal(
+            proposal
+        )
+    )
 
 
 def test_builds_specification_from_agent_proposal() -> None:

@@ -14,6 +14,7 @@ from agentic_optimization.ui.modular_result_builder import (
     ModularResultValue,
     build_modular_result_data,
 )
+from agentic_optimization.i18n import t
 
 
 def _format_result_value(value: int | float) -> str:
@@ -43,7 +44,7 @@ def _build_result_overview_rows(
         product_label = (
             item["product_id"]
             if item["product_id"] is not None
-            else "Gesamtmodell"
+            else t("Gesamtmodell")
         )
 
         row = rows_by_product.setdefault(
@@ -76,7 +77,7 @@ def render_modular_result_page(
         result,
     )
 
-    st.subheader("Optimierungsergebnis")
+    st.subheader(t("Optimierungsergebnis"))
 
     if result_data["successful"]:
         st.success(result_data["status_label"])
@@ -88,24 +89,27 @@ def render_modular_result_page(
     for error in result_data["errors"]:
         st.error(error)
 
+    for warning in result_data["warnings"]:
+        st.warning(warning)
+
     st.markdown(
-        f"**Grundmodell:** {result_data['core_name']}"
+        t("**Grundmodell:** {core_name}", core_name=result_data['core_name'])
     )
     st.markdown(
-        "**Berechnungsmethode:** "
-        f"{result_data['solution_method_label']}"
+        t("**Berechnungsmethode:** {solution_method_label}", solution_method_label=result_data['solution_method_label'])
     )
 
     if result_data["objective_value"] is not None:
         st.metric(
-            "Zielfunktionswert",
+            result_data["objective_label"],
             _format_result_value(
                 result_data["objective_value"]
-            ),
+            )
+            + " €",
         )
 
     if result_data["decisions"]:
-        st.markdown("### Empfohlene Entscheidungen")
+        st.markdown(t("### Empfohlene Entscheidungen"))
 
         decision_product_ids = {
             decision["product_id"]
@@ -118,7 +122,7 @@ def render_modular_result_page(
                 _build_result_overview_rows(
                     result_data["decisions"]
                 ),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
         else:
@@ -129,34 +133,32 @@ def render_modular_result_page(
                     else ""
                 )
 
+                value = decision["value"]
                 st.metric(
                     f"{decision['label']}{product_label}",
-                    _format_result_value(
-                        decision["value"]
-                    ),
+                    # Mengen in ganzen Einheiten ohne „,00“ anzeigen.
+                    f"{int(value):,}".replace(",", ".")
+                    if float(value).is_integer()
+                    else _format_result_value(value),
                 )
 
     if result_data["excluded_requirements"]:
-        st.markdown("### Geltungsbereich der Empfehlung")
+        st.markdown(t("### Geltungsbereich der Empfehlung"))
 
         st.warning(
-            "Die folgenden Anforderungen wurden bei der "
-            "Berechnung nicht berücksichtigt. Die Empfehlung "
-            "gilt daher nur, wenn diese Vorgaben außer Acht "
-            "gelassen werden können."
+            t("Die folgenden Anforderungen wurden bei der Berechnung nicht berücksichtigt. Die Empfehlung gilt daher nur, wenn diese Vorgaben außer Acht gelassen werden können.")
         )
 
         for requirement in result_data[
             "excluded_requirements"
         ]:
             st.markdown(
-                "**Nicht berücksichtigt:** "
-                f"{requirement['description']}"
+                t("**Nicht berücksichtigt:** {description}", description=requirement['description'])
             )
             st.write(requirement["reason"])
 
     if result_data["metrics"]:
-        st.markdown("### Weitere Kennzahlen")
+        st.markdown(t("### Weitere Kennzahlen"))
 
         metric_product_ids = {
             metric["product_id"]
@@ -173,7 +175,7 @@ def render_modular_result_page(
                 {
                     "Produkt": (
                         metric["product_id"]
-                        or "Gesamtmodell"
+                        or t("Gesamtmodell")
                     ),
                     "Kennzahl": metric["label"],
                     "Wert": _format_result_value(
@@ -185,14 +187,14 @@ def render_modular_result_page(
 
         st.dataframe(
             metric_rows,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
     explanation_requested = False
 
     if result_data["successful"]:
-        st.markdown("### Ergebnis verstehen")
+        st.markdown(t("### Ergebnis verstehen"))
 
         if (
             isinstance(explanation, str)
@@ -201,23 +203,20 @@ def render_modular_result_page(
             st.info(explanation.strip())
         else:
             st.write(
-                "Lassen Sie sich die Empfehlung und die "
-                "wichtigsten Kennzahlen in verständlicher "
-                "Form erklären."
+                t("Lassen Sie sich die Empfehlung und die wichtigsten Kennzahlen in verständlicher Form erklären.")
             )
             explanation_requested = st.button(
-                "Optimierungsergebnis erklären",
-                use_container_width=True,
+                t("Optimierungsergebnis erklären"),
+                width="stretch",
                 key="explain_modular_optimization_result",
             )
 
-    with st.expander("Technische Details"):
+    with st.expander(t("Technische Details")):
         st.markdown(
-            f"**Status:** {result_data['status']}"
+            t("**Status:** {status}", status=result_data['status'])
         )
         st.markdown(
-            "**Lösungsmethode:** "
-            f"{result_data['solution_method']}"
+            t("**Lösungsmethode:** {solution_method}", solution_method=result_data['solution_method'])
         )
 
         if result_data["technical_representation"]:
@@ -227,8 +226,7 @@ def render_modular_result_page(
             )
         else:
             st.info(
-                "Für diese Berechnung ist keine technische "
-                "Darstellung verfügbar."
+                t("Für diese Berechnung ist keine technische Darstellung verfügbar.")
             )
 
     return bool(explanation_requested)

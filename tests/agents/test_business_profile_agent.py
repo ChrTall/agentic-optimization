@@ -6,6 +6,7 @@ from langchain_core.messages import AIMessage
 
 from agentic_optimization.agents.business_profile_agent import (
     create_business_profile_agent,
+    recover_missing_product_scope,
 )
 from agentic_optimization.models.problem_profile import (
     create_empty_business_problem_profile,
@@ -14,6 +15,66 @@ from agentic_optimization.models.problem_profile import (
 from agentic_optimization.ui.business_problem_form import (
     get_relevant_business_questions,
 )
+
+
+def test_recovers_product_scope_only_from_exact_evidence() -> None:
+    raw_input = "Wir führen einen Artikel dauerhaft."
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps({
+        "value": "single_product",
+        "excerpt": "einen Artikel",
+    }))
+
+    profile = recover_missing_product_scope(
+        llm,
+        profile=create_empty_business_problem_profile(),
+        raw_input=raw_input,
+        source_id="raw_input",
+    )
+
+    assert profile["product_scope"]["value"] == "single_product"
+    assert profile["product_scope"]["evidence"][0]["excerpt"] == (
+        "einen Artikel"
+    )
+
+
+def test_does_not_recover_product_scope_from_invented_quote() -> None:
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps({
+        "value": "single_product",
+        "excerpt": "genau ein Produkt",
+    }))
+
+    profile = recover_missing_product_scope(
+        llm,
+        profile=create_empty_business_problem_profile(),
+        raw_input="Wir planen den Bestand.",
+        source_id="raw_input",
+    )
+
+    assert profile["product_scope"]["status"] == "missing"
+
+
+@pytest.mark.parametrize("invalid_value", [["single_product"], {"kind": "single_product"}])
+def test_malformed_product_scope_recovery_leaves_question_open(invalid_value) -> None:
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps({
+        "value": invalid_value,
+        "excerpt": "einen Artikel",
+    }))
+
+    profile = recover_missing_product_scope(
+        llm,
+        profile=create_empty_business_problem_profile(),
+        raw_input="Wir führen einen Artikel.",
+        source_id="raw_input",
+    )
+
+    assert profile["product_scope"]["status"] == "missing"
+    assert "product_scope" in [
+        question["question_id"]
+        for question in get_relevant_business_questions(profile)
+    ]
 
 
 def test_infers_business_profile_from_user_description() -> None:
@@ -237,6 +298,63 @@ def test_ignores_excerpt_not_found_in_description() -> None:
     )
 
 
+def test_repairs_goal_excerpt_without_guessing_a_value() -> None:
+    raw_input = (
+        "Wir möchten die Bestellmenge je Bestellung bestimmen "
+        "und die jährlichen Bestell- und Lagerkosten minimieren."
+    )
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content=json.dumps({
+            "inferences": [
+                {
+                    "field_id": "recommendation",
+                    "value": "order_quantity",
+                    "excerpt": "Bestellmenge bestimmen",
+                },
+                {
+                    "field_id": "primary_goal",
+                    "value": "minimize_cost",
+                    "excerpt": "Kosten senken",
+                },
+            ],
+            "ambiguities": [],
+        })),
+        AIMessage(content=json.dumps({
+            "repairs": [
+                {
+                    "group": "inferences",
+                    "field_id": "recommendation",
+                    "excerpt": (
+                        "die Bestellmenge je Bestellung bestimmen"
+                    ),
+                },
+                {
+                    "group": "inferences",
+                    "field_id": "primary_goal",
+                    "excerpt": (
+                        "die jährlichen Bestell- und Lagerkosten "
+                        "minimieren"
+                    ),
+                },
+            ],
+        })),
+    ]
+
+    profile = create_business_profile_agent(llm)(
+        profile=create_empty_business_problem_profile(),
+        raw_input=raw_input,
+        source_id="raw_input",
+    )
+
+    assert profile["recommendation"]["value"] == "order_quantity"
+    assert profile["primary_goal"]["value"] == "minimize_cost"
+    assert profile["primary_goal"]["evidence"][0]["excerpt"] == (
+        "die jährlichen Bestell- und Lagerkosten minimieren"
+    )
+    assert llm.invoke.call_count == 2
+
+
 def test_rejects_unregistered_ambiguity_candidate() -> None:
     raw_input = (
         "Es ist unklar, ob nur einmal oder regelmäßig "
@@ -278,7 +396,7 @@ def test_rejects_unregistered_ambiguity_candidate() -> None:
         )
 
 
-def test_rejects_field_in_inference_and_ambiguity() -> None:
+def test_conflicting_inference_and_ambiguity_remain_open() -> None:
     raw_input = (
         "Das Produkt wird regelmäßig bestellt. "
         "Ob es sich dennoch um eine einmalige Bestellung "
@@ -317,15 +435,94 @@ def test_rejects_field_in_inference_and_ambiguity() -> None:
 
     agent = create_business_profile_agent(llm)
 
-    with pytest.raises(
-        ValueError,
-        match="mehrfach abgeleitet",
-    ):
-        agent(
-            profile=create_empty_business_problem_profile(),
-            raw_input=raw_input,
-            source_id="raw_input",
-        )
+    profile = agent(
+        profile=create_empty_business_problem_profile(),
+        raw_input=raw_input,
+        source_id="raw_input",
+    )
+
+    assert profile["procurement_pattern"]["status"] == "conflict"
+    assert profile["procurement_pattern"]["value"] is None
+    assert set(profile["procurement_pattern"]["candidate_values"]) == {
+        "one_time", "recurring",
+    }
+    assert "procurement_pattern" in {
+        question["question_id"]
+        for question in get_relevant_business_questions(profile)
+    }
+
+
+@pytest.mark.parametrize(
+    ("field_id", "value", "raw_input", "excerpt"),
+    [
+        (
+            "procurement_pattern", "recurring",
+            "Wir bestellen regelmäßig nach.",
+            "Wir bestellen regelmäßig nach",
+        ),
+        (
+            "primary_goal", "minimize_cost",
+            "Wir wollen die Kosten senken.",
+            "die Kosten senken",
+        ),
+    ],
+)
+def test_identical_duplicate_inferences_are_merged(
+    field_id, value, raw_input, excerpt,
+) -> None:
+    inference = {
+        "field_id": field_id, "value": value, "excerpt": excerpt,
+    }
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps({
+        "inferences": [inference, inference], "ambiguities": [],
+    }))
+
+    profile = create_business_profile_agent(llm)(
+        profile=create_empty_business_problem_profile(),
+        raw_input=raw_input,
+        source_id="raw_input",
+    )
+
+    assert profile[field_id]["status"] == "inferred"
+    assert profile[field_id]["value"] == value
+    assert len(profile[field_id]["evidence"]) == 1
+
+
+def test_conflicting_duplicate_inferences_are_not_silently_selected() -> None:
+    raw_input = (
+        "Wir wollen die Kosten senken oder den Gewinn maximieren."
+    )
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps({
+        "inferences": [
+            {
+                "field_id": "primary_goal", "value": "minimize_cost",
+                "excerpt": "die Kosten senken",
+            },
+            {
+                "field_id": "primary_goal", "value": "maximize_profit",
+                "excerpt": "den Gewinn maximieren",
+            },
+        ],
+        "ambiguities": [],
+    }))
+
+    profile = create_business_profile_agent(llm)(
+        profile=create_empty_business_problem_profile(),
+        raw_input=raw_input,
+        source_id="raw_input",
+    )
+
+    assert profile["primary_goal"]["status"] == "conflict"
+    assert profile["primary_goal"]["value"] is None
+    assert set(profile["primary_goal"]["candidate_values"]) == {
+        "minimize_cost", "maximize_profit",
+    }
+    assert "primary_goal" in {
+        question["question_id"]
+        for question in get_relevant_business_questions(profile)
+    }
 
 
 def test_treats_user_instructions_as_description_data() -> None:
@@ -540,3 +737,108 @@ def test_preserves_valid_inferences_when_one_excerpt_is_invalid(
 
     assert profile["primary_goal"]["value"] is None
     assert profile["primary_goal"]["status"] == "missing"
+
+
+def test_profile_agent_retries_once_after_invalid_answer() -> None:
+    raw_input = "Wir bestellen regelmäßig nach."
+    llm = Mock()
+    llm.invoke.side_effect = [
+        AIMessage(content="Das ist kein JSON"),
+        AIMessage(content=json.dumps({
+            "inferences": [{
+                "field_id": "procurement_pattern",
+                "value": "recurring",
+                "excerpt": "Wir bestellen regelmäßig nach",
+            }],
+            "ambiguities": [],
+        })),
+    ]
+
+    profile = create_business_profile_agent(llm)(
+        profile=create_empty_business_problem_profile(),
+        raw_input=raw_input,
+        source_id="raw_input",
+    )
+
+    assert profile["procurement_pattern"]["value"] == "recurring"
+    assert llm.invoke.call_count == 2
+    correction_messages = llm.invoke.call_args_list[1].args[0]
+    assert "ungültig" in correction_messages[-1].content
+
+
+def test_profile_agent_gives_up_after_second_invalid_answer() -> None:
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps({
+        "inferences": [{
+            "field_id": "procurement_pattern",
+            "value": "erfunden",
+            "excerpt": "Wir bestellen",
+        }],
+        "ambiguities": [],
+    }))
+
+    with pytest.raises(ValueError, match="nicht erlaubt"):
+        create_business_profile_agent(llm)(
+            profile=create_empty_business_problem_profile(),
+            raw_input="Wir bestellen regelmäßig nach.",
+            source_id="raw_input",
+        )
+
+    assert llm.invoke.call_count == 2
+
+
+def test_infers_product_name_with_evidence() -> None:
+    from agentic_optimization.agents.business_profile_agent import (
+        infer_product_name,
+    )
+
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps({
+        "name": "Weihnachtsbaum",
+        "excerpt": "weihnachtsbäume",
+    }))
+
+    assert infer_product_name(
+        llm, raw_input="Wir verkaufen Weihnachtsbäume."
+    ) == "Weihnachtsbaum"
+
+
+def test_rejects_product_name_without_evidence() -> None:
+    from agentic_optimization.agents.business_profile_agent import (
+        infer_product_name,
+    )
+
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps({
+        "name": "Fahrrad",
+        "excerpt": "Fahrräder",
+    }))
+
+    assert infer_product_name(
+        llm, raw_input="Wir verkaufen Weihnachtsbäume."
+    ) is None
+
+
+def test_accepts_nearly_verbatim_profile_evidence() -> None:
+    raw_input = "Wir bestellen „regelmäßig“ nach."
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(content=json.dumps({
+        "inferences": [{
+            "field_id": "procurement_pattern",
+            "value": "recurring",
+            "excerpt": 'wir bestellen "regelmäßig" nach.',
+        }],
+        "ambiguities": [],
+    }))
+
+    profile = create_business_profile_agent(llm)(
+        profile=create_empty_business_problem_profile(),
+        raw_input=raw_input,
+        source_id="raw_input",
+    )
+
+    assert profile["procurement_pattern"]["value"] == "recurring"
+    assert profile["procurement_pattern"]["evidence"][0]["excerpt"] == (
+        "Wir bestellen „regelmäßig“ nach"
+    )
+    assert llm.invoke.call_count == 1

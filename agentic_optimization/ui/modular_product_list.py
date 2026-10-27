@@ -13,6 +13,7 @@ from agentic_optimization.ui.field_renderer import (
 from agentic_optimization.ui.modular_input_builder import (
     DynamicProductTableSchema,
 )
+from agentic_optimization.i18n import t
 
 
 class DynamicProductTableResult(TypedDict):
@@ -53,7 +54,7 @@ def parse_dynamic_product_table(
         return {
             "products": [],
             "errors": [
-                "Erfassen Sie mindestens ein Produkt."
+                t("Erfassen Sie mindestens ein Produkt.")
             ],
         }
 
@@ -61,9 +62,7 @@ def parse_dynamic_product_table(
         return {
             "products": [],
             "errors": [
-                "Es können höchstens "
-                f"{maximum_products} Produkte gleichzeitig "
-                "erfasst werden."
+                t("Es können höchstens {maximum_products} Produkte gleichzeitig erfasst werden.", maximum_products=maximum_products)
             ],
         }
 
@@ -84,8 +83,7 @@ def parse_dynamic_product_table(
 
         if not product_id:
             errors.append(
-                f"In Zeile {row_index} fehlt die "
-                "Produktkennung."
+                t("In Zeile {row_index} fehlt die Produktkennung.", row_index=row_index)
             )
             continue
 
@@ -93,8 +91,7 @@ def parse_dynamic_product_table(
 
         if normalized_product_id in normalized_product_ids:
             errors.append(
-                "Produktkennungen dürfen nicht mehrfach "
-                f"vorkommen: {product_id}"
+                t("Produktkennungen dürfen nicht mehrfach vorkommen: {product_id}", product_id=product_id)
             )
             continue
 
@@ -137,9 +134,7 @@ def parse_dynamic_product_table(
                     )
                 ):
                     errors.append(
-                        f"{product_id}: Bitte geben Sie "
-                        f"einen Wert für "
-                        f"„{field['label']}“ ein."
+                        t("{product_id}: Bitte geben Sie einen Wert für „{label}“ ein.", product_id=product_id, label=field['label'])
                     )
                     continue
 

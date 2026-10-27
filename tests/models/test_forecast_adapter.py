@@ -4,6 +4,7 @@ from statistics import NormalDist
 import pytest
 
 from agentic_optimization.models.forecast_adapter import (
+    DEMAND_SCENARIO_COUNT,
     prepare_continuous_review_forecast,
     prepare_demand_forecast,
 )
@@ -39,23 +40,23 @@ def test_prepares_weighted_demand_points() -> None:
     assert result["expected_value"] == 100.0
     assert result["horizon_days"] == 30
 
-    assert result["demand_points"] == [
-        {
-            "value": 70.0,
-            "probability": pytest.approx(0.3),
-        },
-        {
-            "value": 100.0,
-            "probability": pytest.approx(0.4),
-        },
-        {
-            "value": 140.0,
-            "probability": pytest.approx(0.3),
-        },
-    ]
+    points = result["demand_points"]
 
+    assert len(points) == DEMAND_SCENARIO_COUNT
+    assert all(
+        point["probability"] == pytest.approx(0.01)
+        for point in points
+    )
+    assert sum(
+        point["probability"] for point in points
+    ) == pytest.approx(1.0)
+    # Zwischen 0,5 (100) und 0,9 (140) linear interpoliert.
+    assert points[50]["value"] == pytest.approx(100.5)
+    # Ränder mit der Steigung des benachbarten Abschnitts fortgesetzt.
+    assert points[0]["value"] == pytest.approx(62.875)
+    assert points[-1]["value"] == pytest.approx(149.5)
     assert result["approximated_expected_value"] == pytest.approx(
-        103.0
+        103.125
     )
 
 
@@ -65,13 +66,35 @@ def test_sorts_quantiles_by_level() -> None:
 
     result = prepare_demand_forecast(forecast)
 
-    assert [
-        point["value"]
-        for point in result["demand_points"]
-    ] == [
-        70.0,
-        100.0,
-        140.0,
+    assert result == prepare_demand_forecast(create_forecast())
+
+
+def test_extrapolated_tail_never_becomes_negative() -> None:
+    forecast = create_forecast()
+    forecast["quantiles"] = [
+        {"level": 0.2, "value": 0.0},
+        {"level": 0.5, "value": 100.0},
+    ]
+
+    result = prepare_demand_forecast(forecast)
+    lowest_point = result["demand_points"][0]
+
+    assert lowest_point["value"] == 0.0
+    # Alle Szenarien bis zum Niveau 0,2 fallen auf eine Nachfrage von null.
+    assert lowest_point["probability"] == pytest.approx(0.2)
+
+
+def test_identical_quantile_values_are_merged() -> None:
+    forecast = create_forecast()
+    forecast["quantiles"] = [
+        {"level": 0.1, "value": 50.0},
+        {"level": 0.9, "value": 50.0},
+    ]
+
+    result = prepare_demand_forecast(forecast)
+
+    assert result["demand_points"] == [
+        {"value": 50.0, "probability": 1.0}
     ]
 
 

@@ -14,6 +14,7 @@ from agentic_optimization.models.specification import (
     ExcludedRequirement,
     ModelSpecification,
 )
+from agentic_optimization.i18n import t
 
 
 STATUS_LABELS = {
@@ -54,7 +55,41 @@ METRIC_LABELS = {
         "Erwartete Fehlmenge pro Bestellzyklus"
     ),
     "annual_shortage_quantity": "Jährliche Fehlmenge",
+    "forecast_expected_demand": "Angegebene erwartete Nachfrage",
+    "model_expected_demand": (
+        "Im Modell verwendete erwartete Nachfrage (aus den Quantilen)"
+    ),
 }
+
+
+OBJECTIVE_LABELS_BY_CORE = {
+    "single_period_newsvendor": {
+        "maximize": "Erwarteter Gewinn",
+        "minimize": "Erwartete Kosten",
+    },
+    "eoq": {
+        "minimize": "Jährliche Bestell- und Lagerkosten",
+    },
+    "continuous_review_q_r": {
+        "minimize": "Erwartete jährliche Gesamtkosten",
+    },
+}
+
+
+def build_objective_label(specification: dict) -> str:
+    """Verständliche Bezeichnung des optimierten Werts.
+
+    Statt des Fachbegriffs „Zielfunktionswert“ wird benannt, was der
+    Wert für den Nutzer bedeutet (z. B. „Erwarteter Gewinn“).
+    """
+
+    sense = (specification.get("objective") or {}).get("sense", "minimize")
+    labels = OBJECTIVE_LABELS_BY_CORE.get(specification.get("core_id"), {})
+
+    return t(labels.get(
+        sense,
+        "Erwarteter Gewinn" if sense == "maximize" else "Erwartete Kosten",
+    ))
 
 
 class ModularResultValue(TypedDict):
@@ -78,11 +113,13 @@ class ModularResultData(TypedDict):
     solution_method: str
     solution_method_label: str
     objective_value: float | None
+    objective_label: str
     decisions: list[ModularResultValue]
     metrics: list[ModularResultValue]
     excluded_requirements: list[ExcludedRequirement]
     technical_representation: str | None
     errors: list[str]
+    warnings: list[str]
 
 
 def build_default_result_explanation(
@@ -92,29 +129,24 @@ def build_default_result_explanation(
 
     if not result_data["successful"]:
         return (
-            "Für dieses Modell konnte keine erfolgreiche "
-            "Empfehlung berechnet werden. Prüfen Sie den "
-            "Status und die angezeigten Fehlermeldungen."
+            t("Für dieses Modell konnte keine erfolgreiche Empfehlung berechnet werden. Prüfen Sie den Status und die angezeigten Fehlermeldungen.")
         )
 
     decisions = result_data["decisions"]
 
     if not decisions:
         decision_text = (
-            "Es wurde keine konkrete Entscheidungsgröße "
-            "ausgegeben."
+            t("Es wurde keine konkrete Entscheidungsgröße ausgegeben.")
         )
     elif len(decisions) == 1:
         decision = decisions[0]
         product_text = (
-            f" für {decision['product_id']}"
+            t(" für {product_id}", product_id=decision['product_id'])
             if decision["product_id"]
             else ""
         )
         decision_text = (
-            f"Die zentrale Empfehlung lautet{product_text}: "
-            f"{decision['label']} = "
-            f"{float(decision['value']):g}."
+            t("Die zentrale Empfehlung lautet{product_text}: {label} = {value5:g}.", product_text=product_text, label=decision['label'], value5=float(decision['value']))
         )
     else:
         product_ids = {
@@ -125,29 +157,20 @@ def build_default_result_explanation(
 
         if len(product_ids) > 1:
             decision_text = (
-                "Die Berechnung liefert für "
-                f"{len(product_ids)} Produkte jeweils "
-                "eine eigene Empfehlung."
+                t("Die Berechnung liefert für {value1} Produkte jeweils eine eigene Empfehlung.", value1=len(product_ids))
             )
         else:
             decision_text = (
-                "Die Berechnung liefert mehrere "
-                "aufeinander abgestimmte "
-                "Entscheidungswerte."
+                t("Die Berechnung liefert mehrere aufeinander abgestimmte Entscheidungswerte.")
             )
 
     explanation = (
-        f"{result_data['status_label']}. "
-        f"{decision_text} "
-        "Die weiteren Kennzahlen zeigen die "
-        "betrieblichen Auswirkungen dieser Empfehlung."
+        t("{status_label}. {decision_text} Die weiteren Kennzahlen zeigen die betrieblichen Auswirkungen dieser Empfehlung.", status_label=result_data['status_label'], decision_text=decision_text)
     )
 
     if result_data["excluded_requirements"]:
         explanation += (
-            " Die ausgewiesenen, nicht berücksichtigten "
-            "Anforderungen sind nicht Bestandteil der "
-            "Empfehlung."
+            t(" Die ausgewiesenen, nicht berücksichtigten Anforderungen sind nicht Bestandteil der Empfehlung.")
         )
 
     return explanation
@@ -164,7 +187,7 @@ def build_modular_result_data(
 
     if registered_core is None:
         raise ValueError(
-            f"Das Grundmodell '{core_id}' ist nicht registriert."
+            t("Das Grundmodell '{core_id}' ist nicht registriert.", core_id=core_id)
         )
 
     core_definition = registered_core["definition"]
@@ -184,7 +207,7 @@ def build_modular_result_data(
             {
                 "value_id": quantity_id,
                 "label": (
-                    quantity_definition["name"]
+                    t(quantity_definition["name"])
                     if quantity_definition is not None
                     else quantity_id
                 ),
@@ -202,10 +225,10 @@ def build_modular_result_data(
             metric_id
         )
 
-        label = METRIC_LABELS.get(metric_id)
+        label = t(METRIC_LABELS.get(metric_id))
 
         if label is None and quantity_definition is not None:
-            label = quantity_definition["name"]
+            label = t(quantity_definition["name"])
 
         metrics.append(
             {
@@ -222,24 +245,25 @@ def build_modular_result_data(
 
     return {
         "core_id": core_id,
-        "core_name": core_definition["name"],
+        "core_name": t(core_definition["name"]),
         "status": status,
-        "status_label": STATUS_LABELS.get(
+        "status_label": t(STATUS_LABELS.get(
             status,
             status,
-        ),
+        )),
         "successful": (
             status in {"optimal", "feasible"}
             and not result["errors"]
         ),
         "solution_method": solution_method,
         "solution_method_label": (
-            SOLUTION_METHOD_LABELS.get(
+            t(SOLUTION_METHOD_LABELS.get(
                 solution_method,
                 solution_method,
-            )
+            ))
         ),
         "objective_value": result["objective_value"],
+        "objective_label": build_objective_label(specification),
         "decisions": decisions,
         "metrics": metrics,
         "excluded_requirements": deepcopy(
@@ -252,4 +276,5 @@ def build_modular_result_data(
             "technical_representation"
         ],
         "errors": list(result["errors"]),
+        "warnings": list(result.get("warnings", [])),
     }

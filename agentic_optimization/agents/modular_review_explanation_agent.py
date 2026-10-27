@@ -6,6 +6,8 @@ import json
 from collections.abc import Callable
 from typing import Any
 
+from agentic_optimization.llm.json_response import parse_json_object
+from agentic_optimization.i18n import language_instruction
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
     HumanMessage,
@@ -21,9 +23,11 @@ Kenntnisse der mathematischen Optimierung.
 Die Modellwahl, Zielfunktion, Nebenbedingungen und Daten
 wurden bereits festgelegt. Du darfst daran nichts verändern.
 
-Erkläre in klarer deutscher Alltagssprache:
+Erkläre in klarer Alltagssprache (Deutsch, sofern unten keine andere
+Sprache verlangt wird):
 
-1. warum das ausgewählte Grundmodell zur Situation passt,
+1. unter welchen belegten Voraussetzungen das ausgewählte
+   Grundmodell zur Situation passt,
 2. welche Entscheidung berechnet wird,
 3. welches wirtschaftliche Ziel verfolgt wird,
 4. welche zusätzlichen betrieblichen Vorgaben berücksichtigt
@@ -36,6 +40,12 @@ Nebenbedingungen oder fachlichen Behauptungen.
 Wenn Anforderungen ausdrücklich ausgeschlossen wurden,
 weise knapp darauf hin, dass sie nicht Teil der Berechnung
 sind.
+
+Falls "pending_core_assumptions" nicht leer ist, sind diese
+Modellvoraussetzungen noch nicht bestätigt. Beschreibe die
+Modellwahl dann ausdrücklich als vorläufig und behaupte nicht,
+dass alle Voraussetzungen bereits erfüllt sind. Gib die offenen
+Voraussetzungen verständlich wieder.
 
 Die Erklärung soll aus höchstens vier kurzen Sätzen bestehen.
 Verwende keine Formeln, keine Markdown-Überschriften, keine
@@ -60,37 +70,15 @@ def _parse_explanation_response(
 ) -> str:
     """Prüft die strukturierte Antwort des Sprachmodells."""
 
-    if not isinstance(content, str):
-        raise TypeError(
-            "Die Erklärung des Sprachmodells muss "
-            "als Text vorliegen."
-        )
-
-    clean_content = content.strip()
-    lines = clean_content.splitlines()
-
-    if (
-        len(lines) >= 3
-        and lines[0].strip().lower()
-        in {
-            "```",
-            "```json",
-        }
-        and lines[-1].strip() == "```"
-    ):
-        clean_content = "\n".join(
-            lines[1:-1]
-        ).strip()
-
-    parsed_response = json.loads(clean_content)
-
-    if not isinstance(parsed_response, dict):
-        raise TypeError(
+    parsed_response = parse_json_object(
+        content,
+        not_object_message=(
             "Die Erklärung muss als JSON-Objekt "
             "zurückgegeben werden."
-        )
+        ),
+    )
 
-    if set(parsed_response) != {"explanation"}:
+    if not {"explanation"} <= set(parsed_response):
         raise ValueError(
             "Die LLM-Antwort darf ausschließlich das Feld "
             "'explanation' enthalten."
@@ -169,6 +157,11 @@ def create_modular_review_explanation_agent(
             "assumptions": list(
                 review_data["assumptions"]
             ),
+            "pending_core_assumptions": list(
+                review_data.get(
+                    "pending_core_assumptions", []
+                )
+            ),
             "excluded_requirements": [
                 {
                     "description": requirement[
@@ -185,7 +178,7 @@ def create_modular_review_explanation_agent(
         response = llm.invoke(
             [
                 SystemMessage(
-                    content=SYSTEM_PROMPT
+                    content=SYSTEM_PROMPT + language_instruction()
                 ),
                 HumanMessage(
                     content=json.dumps(

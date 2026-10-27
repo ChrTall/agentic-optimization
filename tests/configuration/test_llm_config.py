@@ -96,3 +96,77 @@ def test_load_llm_configuration_raises_for_empty_api_key(monkeypatch):
 
     with pytest.raises(ValueError, match="LLM_API_KEY"):
         load_llm_configuration(load_env_file=False)
+
+
+def test_load_llm_configuration_uses_request_defaults(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4.1-mini")
+    monkeypatch.setenv("LLM_API_KEY", "test-api-key")
+    for name in ("LLM_TIMEOUT_SECONDS", "LLM_MAX_RETRIES", "LLM_TEMPERATURE"):
+        monkeypatch.delenv(name, raising=False)
+
+    config = load_llm_configuration(load_env_file=False)
+
+    assert config.timeout_seconds == 60.0
+    assert config.max_retries == 2
+    assert config.temperature is None
+
+
+def test_load_llm_configuration_reads_request_options(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4.1-mini")
+    monkeypatch.setenv("LLM_API_KEY", "test-api-key")
+    monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "30")
+    monkeypatch.setenv("LLM_MAX_RETRIES", "4")
+    monkeypatch.setenv("LLM_TEMPERATURE", "0")
+
+    config = load_llm_configuration(load_env_file=False)
+
+    assert config.timeout_seconds == 30.0
+    assert config.max_retries == 4
+    assert config.temperature == 0.0
+
+
+def test_load_llm_configuration_rejects_invalid_timeout(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4.1-mini")
+    monkeypatch.setenv("LLM_API_KEY", "test-api-key")
+    monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "abc")
+
+    with pytest.raises(ValueError, match="LLM_TIMEOUT_SECONDS"):
+        load_llm_configuration(load_env_file=False)
+
+
+def test_reasoning_effort_is_read_and_passed_to_openai(monkeypatch):
+    from unittest.mock import patch
+
+    from agentic_optimization.llm import factory
+
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-5.4-mini")
+    monkeypatch.setenv("LLM_API_KEY", "test-api-key")
+    monkeypatch.setenv("LLM_REASONING_EFFORT", " LOW ")
+
+    config = load_llm_configuration(load_env_file=False)
+    assert config.reasoning_effort == "low"
+
+    with patch.object(factory, "init_chat_model") as init:
+        factory.create_chat_model(config)
+    assert init.call_args.kwargs["reasoning_effort"] == "low"
+
+    with patch.object(factory, "init_chat_model") as init:
+        factory.create_chat_model(
+            LLMConfig(provider="anthropic", model="m", api_key="k",
+                      reasoning_effort="low")
+        )
+    assert "reasoning_effort" not in init.call_args.kwargs
+
+
+def test_invalid_reasoning_effort_is_rejected(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-5.4-mini")
+    monkeypatch.setenv("LLM_API_KEY", "test-api-key")
+    monkeypatch.setenv("LLM_REASONING_EFFORT", "turbo")
+
+    with pytest.raises(ValueError, match="LLM_REASONING_EFFORT"):
+        load_llm_configuration(load_env_file=False)

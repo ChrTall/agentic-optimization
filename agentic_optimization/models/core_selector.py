@@ -8,6 +8,7 @@ from agentic_optimization.models.core_selection_catalog import (
 from agentic_optimization.models.problem_profile import (
     BusinessProblemProfile,
 )
+from agentic_optimization.i18n import t
 
 
 CoreSelectionStatus = Literal[
@@ -44,9 +45,7 @@ def select_model_core(
             "selected_core_id": None,
             "candidate_core_ids": [],
             "reason": (
-                "Die bestätigten Geschäftsangaben passen "
-                "zu keinem derzeit unterstützten "
-                "Grundmodell."
+                t("Die bestätigten Geschäftsangaben passen zu keinem derzeit unterstützten Grundmodell.")
             ),
         }
 
@@ -56,9 +55,7 @@ def select_model_core(
             "selected_core_id": None,
             "candidate_core_ids": candidate_core_ids,
             "reason": (
-                "Die vorhandenen Geschäftsangaben reichen "
-                "noch nicht für eine eindeutige Auswahl "
-                "des Grundmodells aus."
+                t("Die vorhandenen Geschäftsangaben reichen noch nicht für eine eindeutige Auswahl des Grundmodells aus.")
             ),
         }
 
@@ -70,8 +67,7 @@ def select_model_core(
             "selected_core_id": None,
             "candidate_core_ids": candidate_core_ids,
             "reason": (
-                "Für das verbleibende Grundmodell sind "
-                "noch Geschäftsangaben zu klären."
+                t("Für das verbleibende Grundmodell sind noch Geschäftsangaben zu klären.")
             ),
         }
 
@@ -80,7 +76,6 @@ def select_model_core(
         "selected_core_id": candidate["core_id"],
         "candidate_core_ids": candidate_core_ids,
         "reason": (
-            "Die bestätigten Geschäftsangaben passen "
-            "eindeutig zu diesem Grundmodell."
+            t("Die bestätigten Geschäftsangaben passen eindeutig zu diesem Grundmodell.")
         ),
     }

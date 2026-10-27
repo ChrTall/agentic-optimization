@@ -21,8 +21,12 @@ from agentic_optimization.models.execution import (
     MetricValue,
     OptimizationExecutionResult,
 )
+from agentic_optimization.i18n import t
 
 _STANDARD_NORMAL = NormalDist()
+
+_MAX_DIRECT_Q_CANDIDATES = 20_000
+"""Bis zu dieser Zahl von Q-Kandidaten wird vollständig durchsucht."""
 
 
 @dataclass(frozen=True)
@@ -87,6 +91,7 @@ CORE_DEFINITION: ModelCoreDefinition = {
         "annual_holding_cost",
         "annual_shortage_cost",
     ],
+    "required_objective_sense": "minimize",
     "required_forecast_fields": [
         {
             "name": "expected_value",
@@ -248,7 +253,7 @@ def evaluate_q_r_candidate(
 
     if order_quantity <= 0:
         raise ValueError(
-            "Die Bestellmenge Q muss größer als null sein."
+            t("Die Bestellmenge Q muss größer als null sein.")
         )
 
     expected_shortage = calculate_expected_shortage(
@@ -383,12 +388,18 @@ def find_optimal_q_r_policy(
     order_multiple: int | None = None,
     minimum_reorder_point: int = 0,
     maximum_reorder_point: int | None = None,
+    maximum_inventory_position: int | None = None,
 ) -> QRPolicyEvaluation:
-    """Findet die kostenminimale ganzzahlige Q,R-Politik."""
+    """Findet die kostenminimale ganzzahlige Q,R-Politik.
+
+    ``maximum_inventory_position`` begrenzt konservativ Q + R (Lagerkapazität).
+    Bei sehr großen Suchbereichen wird zunächst grob und anschließend um das
+    beste grobe Ergebnis fein gesucht.
+    """
 
     if minimum_order_quantity < 1:
         raise ValueError(
-            "Die Mindestbestellmenge muss mindestens 1 sein."
+            t("Die Mindestbestellmenge muss mindestens 1 sein.")
         )
 
     if (
@@ -397,8 +408,7 @@ def find_optimal_q_r_policy(
         < minimum_order_quantity
     ):
         raise ValueError(
-            "Die Mindestbestellmenge darf die "
-            "Höchstbestellmenge nicht überschreiten."
+            t("Die Mindestbestellmenge darf die Höchstbestellmenge nicht überschreiten.")
         )
 
     minimum_allowed_order_quantity = (
@@ -408,8 +418,7 @@ def find_optimal_q_r_policy(
     if order_multiple is not None:
         if order_multiple <= 0:
             raise ValueError(
-                "Das Bestellvielfache muss größer als "
-                "null sein."
+                t("Das Bestellvielfache muss größer als null sein.")
             )
 
         minimum_allowed_order_quantity = (
@@ -425,14 +434,12 @@ def find_optimal_q_r_policy(
             > maximum_order_quantity
         ):
             raise ValueError(
-                "Innerhalb der Bestellmengengrenzen "
-                "existiert kein zulässiges "
-                "Bestellvielfaches."
+                t("Innerhalb der Bestellmengengrenzen existiert kein zulässiges Bestellvielfaches.")
             )
 
     if minimum_reorder_point < 0:
         raise ValueError(
-            "Der Mindestmeldebestand darf nicht negativ sein."
+            t("Der Mindestmeldebestand darf nicht negativ sein.")
         )
 
     if (
@@ -441,8 +448,7 @@ def find_optimal_q_r_policy(
         < minimum_reorder_point
     ):
         raise ValueError(
-            "Der Mindestmeldebestand darf den "
-            "Höchstmeldebestand nicht überschreiten."
+            t("Der Mindestmeldebestand darf den Höchstmeldebestand nicht überschreiten.")
         )
 
     unconstrained_eoq = math.sqrt(
@@ -482,49 +488,82 @@ def find_optimal_q_r_policy(
                 * order_multiple,
             )
 
-    seed_reorder_points = (
-        determine_reorder_point_candidates(
+    if maximum_inventory_position is not None:
+        if (
+            minimum_allowed_order_quantity + minimum_reorder_point
+            > maximum_inventory_position
+        ):
+            raise ValueError(
+                t("Mindestbestellmenge und Mindestmeldebestand überschreiten zusammen die maximale Bestandsposition Q + R.")
+            )
+
+        seed_order_quantity = max(
+            minimum_allowed_order_quantity,
+            min(
+                seed_order_quantity,
+                maximum_inventory_position - minimum_reorder_point,
+            ),
+        )
+
+    def best_for_order_quantity(
+        order_quantity: int,
+    ) -> QRPolicyEvaluation | None:
+        """Bewertet das beste ganzzahlige R für ein festes Q."""
+
+        effective_maximum_reorder_point = maximum_reorder_point
+
+        if maximum_inventory_position is not None:
+            capacity_limit = maximum_inventory_position - order_quantity
+            effective_maximum_reorder_point = (
+                capacity_limit
+                if effective_maximum_reorder_point is None
+                else min(effective_maximum_reorder_point, capacity_limit)
+            )
+
+            if effective_maximum_reorder_point < minimum_reorder_point:
+                return None
+
+        reorder_points = determine_reorder_point_candidates(
             annual_demand=annual_demand,
             holding_cost=holding_cost,
             shortage_cost=shortage_cost,
-            lead_time_demand_mean=(
-                lead_time_demand_mean
-            ),
-            lead_time_demand_std=(
-                lead_time_demand_std
-            ),
-            order_quantity=seed_order_quantity,
-            minimum_reorder_point=(
-                minimum_reorder_point
-            ),
-            maximum_reorder_point=(
-                maximum_reorder_point
-            ),
+            lead_time_demand_mean=lead_time_demand_mean,
+            lead_time_demand_std=lead_time_demand_std,
+            order_quantity=order_quantity,
+            minimum_reorder_point=minimum_reorder_point,
+            maximum_reorder_point=effective_maximum_reorder_point,
         )
-    )
 
-    seed_evaluations = [
-        evaluate_q_r_candidate(
-            annual_demand=annual_demand,
-            ordering_cost=ordering_cost,
-            holding_cost=holding_cost,
-            shortage_cost=shortage_cost,
-            lead_time_demand_mean=(
-                lead_time_demand_mean
-            ),
-            lead_time_demand_std=(
-                lead_time_demand_std
-            ),
-            order_quantity=seed_order_quantity,
-            reorder_point=reorder_point,
+        evaluations = [
+            evaluate_q_r_candidate(
+                annual_demand=annual_demand,
+                ordering_cost=ordering_cost,
+                holding_cost=holding_cost,
+                shortage_cost=shortage_cost,
+                lead_time_demand_mean=lead_time_demand_mean,
+                lead_time_demand_std=lead_time_demand_std,
+                order_quantity=order_quantity,
+                reorder_point=reorder_point,
+            )
+            for reorder_point in reorder_points
+        ]
+
+        if not evaluations:
+            return None
+
+        return min(
+            evaluations,
+            key=lambda evaluation: evaluation.annual_relevant_cost,
         )
-        for reorder_point in seed_reorder_points
-    ]
 
-    seed_cost = min(
-        evaluation.annual_relevant_cost
-        for evaluation in seed_evaluations
-    )
+    seed_evaluation = best_for_order_quantity(seed_order_quantity)
+
+    if seed_evaluation is None:
+        raise ValueError(
+            t("Es konnte keine zulässige Q,R-Politik ermittelt werden.")
+        )
+
+    seed_cost = seed_evaluation.annual_relevant_cost
 
     cost_based_maximum = max(
         seed_order_quantity,
@@ -544,78 +583,73 @@ def find_optimal_q_r_policy(
             search_maximum,
             maximum_order_quantity,
         )
+    if maximum_inventory_position is not None:
+        search_maximum = min(
+            search_maximum,
+            maximum_inventory_position - minimum_reorder_point,
+        )
 
     search_step = order_multiple or 1
+
+    def search(
+        lower: int,
+        upper: int,
+        step: int,
+    ) -> QRPolicyEvaluation | None:
+        best: QRPolicyEvaluation | None = None
+
+        for order_quantity in range(lower, upper + 1, step):
+            evaluation = best_for_order_quantity(order_quantity)
+
+            if evaluation is not None and (
+                best is None
+                or evaluation.annual_relevant_cost
+                < best.annual_relevant_cost
+            ):
+                best = evaluation
+
+        return best
+
     candidate_count = (
-        (
-            search_maximum
-            - minimum_allowed_order_quantity
-        )
+        (search_maximum - minimum_allowed_order_quantity)
         // search_step
         + 1
     )
 
-    if candidate_count > 20_000:
-        raise ValueError(
-            "Der Q,R-Suchbereich ist für eine direkte "
-            "Berechnung zu groß. Bitte engere Grenzen "
-            "für die Bestellmenge angeben."
+    if candidate_count <= _MAX_DIRECT_Q_CANDIDATES:
+        best_evaluation = search(
+            minimum_allowed_order_quantity,
+            search_maximum,
+            search_step,
+        )
+    else:
+        # Grobe Suche über den gesamten Bereich, danach feine Suche um das
+        # beste grobe Q. Die Kosten sind in Q (bei optimalem R) unimodal.
+        coarse_step = search_step * math.ceil(
+            candidate_count / _MAX_DIRECT_Q_CANDIDATES
+        )
+        coarse_best = search(
+            minimum_allowed_order_quantity,
+            search_maximum,
+            coarse_step,
         )
 
-    best_evaluation: QRPolicyEvaluation | None = None
-
-    for order_quantity in range(
-        minimum_allowed_order_quantity,
-        search_maximum + 1,
-        search_step,
-    ):
-
-        reorder_points = determine_reorder_point_candidates(
-            annual_demand=annual_demand,
-            holding_cost=holding_cost,
-            shortage_cost=shortage_cost,
-            lead_time_demand_mean=(
-                lead_time_demand_mean
-            ),
-            lead_time_demand_std=(
-                lead_time_demand_std
-            ),
-            order_quantity=order_quantity,
-            minimum_reorder_point=(
-                minimum_reorder_point
-            ),
-            maximum_reorder_point=(
-                maximum_reorder_point
-            ),
-        )
-
-        for reorder_point in reorder_points:
-            evaluation = evaluate_q_r_candidate(
-                annual_demand=annual_demand,
-                ordering_cost=ordering_cost,
-                holding_cost=holding_cost,
-                shortage_cost=shortage_cost,
-                lead_time_demand_mean=(
-                    lead_time_demand_mean
+        if coarse_best is None:
+            best_evaluation = None
+        else:
+            coarse_q = int(coarse_best.order_quantity)
+            best_evaluation = search(
+                max(
+                    minimum_allowed_order_quantity,
+                    coarse_q - coarse_step,
                 ),
-                lead_time_demand_std=(
-                    lead_time_demand_std
-                ),
-                order_quantity=order_quantity,
-                reorder_point=reorder_point,
+                min(search_maximum, coarse_q + coarse_step),
+                search_step,
             )
-
-            if (
-                best_evaluation is None
-                or evaluation.annual_relevant_cost
-                < best_evaluation.annual_relevant_cost
-            ):
-                best_evaluation = evaluation
 
     if best_evaluation is None:
         raise ValueError(
-            "Es konnte keine zulässige Q,R-Politik "
-            "ermittelt werden."
+            t("Es konnte keine zulässige Q,R-Politik ermittelt werden.")
         )
 
     return best_evaluation
@@ -688,6 +722,25 @@ def get_order_multiple(
     return None
 
 
+def get_maximum_inventory_position(
+    specification: ModelSpecification,
+    product_id: str,
+) -> int | None:
+    """Liest die maximale Bestandsposition Q + R eines Produkts."""
+
+    for constraint in specification["constraints"]:
+        if (
+            constraint.get("product_id") == product_id
+            and constraint["component_id"]
+            == "maximum_inventory_position"
+        ):
+            return math.floor(
+                float(constraint["parameters"]["capacity"])
+            )
+
+    return None
+
+
 def get_minimum_cycle_service_level(
     specification: ModelSpecification,
     product_id: str,
@@ -737,8 +790,7 @@ def validate_q_r_semantics(
 
     if specification["objective"]["sense"] != "minimize":
         errors.append(
-            "Die Q,R-Politik muss die erwarteten "
-            "jährlichen Kosten minimieren."
+            t("Die Q,R-Politik muss die erwarteten jährlichen Kosten minimieren.")
         )
 
     for product in specification["products"]:
@@ -758,9 +810,7 @@ def validate_q_r_semantics(
             )
         except ValueError as error:
             errors.append(
-                f"Der Forecast für Produkt '{product_id}' "
-                f"kann nicht auf die Lieferzeit übertragen "
-                f"werden: {error}"
+                t("Der Forecast für Produkt '{product_id}' kann nicht auf die Lieferzeit übertragen werden: {error}", product_id=product_id, error=error)
             )
 
         (
@@ -807,19 +857,26 @@ def validate_q_r_semantics(
                 > maximum_reorder_point
             ):
                 errors.append(
-                    f"Für Produkt '{product_id}' erfordert "
-                    "das gewählte Servicelevel einen "
-                    "Meldebestand von mindestens "
-                    f"{service_reorder_point}. Dieser "
-                    "überschreitet den "
-                    "Höchstmeldebestand von "
-                    f"{maximum_reorder_point}."
+                    t("Für Produkt '{product_id}' erfordert das gewählte Servicelevel einen Meldebestand von mindestens {service_reorder_point}. Dieser überschreitet den Höchstmeldebestand von {maximum_reorder_point}.", product_id=product_id, service_reorder_point=service_reorder_point, maximum_reorder_point=maximum_reorder_point)
                 )
+
+        maximum_inventory_position = get_maximum_inventory_position(
+            specification,
+            product_id,
+        )
+
+        if (
+            maximum_inventory_position is not None
+            and minimum_order_quantity + minimum_reorder_point
+            > maximum_inventory_position
+        ):
+            errors.append(
+                t("Für Produkt '{product_id}' überschreiten Mindestbestellmenge und Mindestmeldebestand zusammen die maximale Bestandsposition Q + R von {maximum_inventory_position}.", product_id=product_id, maximum_inventory_position=maximum_inventory_position)
+            )
 
         if minimum_order_quantity < 1:
             errors.append(
-                f"Für Produkt '{product_id}' muss die "
-                "Mindestbestellmenge mindestens 1 sein."
+                t("Für Produkt '{product_id}' muss die Mindestbestellmenge mindestens 1 sein.", product_id=product_id)
             )
 
         if (
@@ -828,9 +885,7 @@ def validate_q_r_semantics(
             > maximum_order_quantity
         ):
             errors.append(
-                f"Für Produkt '{product_id}' darf die "
-                "Mindestbestellmenge die "
-                "Höchstbestellmenge nicht überschreiten."
+                t("Für Produkt '{product_id}' darf die Mindestbestellmenge die Höchstbestellmenge nicht überschreiten.", product_id=product_id)
             )
 
         if (
@@ -839,9 +894,7 @@ def validate_q_r_semantics(
             > maximum_reorder_point
         ):
             errors.append(
-                f"Für Produkt '{product_id}' darf der "
-                "Mindestmeldebestand den "
-                "Höchstmeldebestand nicht überschreiten."
+                t("Für Produkt '{product_id}' darf der Mindestmeldebestand den Höchstmeldebestand nicht überschreiten.", product_id=product_id)
             )
 
         if (
@@ -861,9 +914,7 @@ def validate_q_r_semantics(
                 > maximum_order_quantity
             ):
                 errors.append(
-                    f"Für Produkt '{product_id}' existiert "
-                    "innerhalb der Bestellmengengrenzen "
-                    "kein zulässiges Bestellvielfaches."
+                    t("Für Produkt '{product_id}' existiert innerhalb der Bestellmengengrenzen kein zulässiges Bestellvielfaches.", product_id=product_id)
                 )
 
     return errors
@@ -884,19 +935,19 @@ def execute_continuous_review_q_r(
         messages = list(validation["errors"])
 
         messages.extend(
-            "Fehlende Eingabe: "
-            f"{missing_input['field']['name']}"
+            t("Fehlende Eingabe: {name}", name=missing_input['field']['name'])
             for missing_input in validation["missing_inputs"]
         )
 
         raise ValueError(
-            "Die Q,R-Spezifikation ist nicht vollständig: "
+            t("Die Q,R-Spezifikation ist nicht vollständig: ")
             + "; ".join(messages)
         )
 
     decisions: list[DecisionValue] = []
     metrics: list[MetricValue] = []
     representations: list[str] = []
+    warnings: list[str] = []
     total_annual_cost = 0.0
 
     for product in specification["products"]:
@@ -989,6 +1040,12 @@ def execute_continuous_review_q_r(
                 maximum_reorder_point=(
                     maximum_reorder_point
                 ),
+                maximum_inventory_position=(
+                    get_maximum_inventory_position(
+                        specification,
+                        product_id,
+                    )
+                ),
             )
         except ValueError as error:
             return {
@@ -999,11 +1056,16 @@ def execute_continuous_review_q_r(
                 "metrics": [],
                 "technical_representation": None,
                 "errors": [
-                    f"Produkt '{product_id}': {error}"
+                    t("Produkt '{product_id}': {error}", product_id=product_id, error=error)
                 ],
             }
 
         total_annual_cost += result.annual_relevant_cost
+
+        if result.safety_stock < 0:
+            warnings.append(
+                t("Für Produkt '{product_id}' liegt der Meldebestand R = {reorder_point:g} unter der erwarteten Nachfrage während der Lieferzeit ({lead_time_demand_mean:.1f}). Der Sicherheitsbestand ist damit negativ: Fehlmengen sind im Verhältnis zu den Lagerkosten so günstig, dass das Modell bewusst häufige Fehlmengen in Kauf nimmt. Bitte prüfen Sie die Fehlmengenkosten.", product_id=product_id, reorder_point=result.reorder_point, lead_time_demand_mean=prepared_forecast['lead_time_demand_mean'])
+            )
 
         decisions.extend(
             [
@@ -1065,29 +1127,25 @@ def execute_continuous_review_q_r(
         representations.append(
             "\n".join(
                 [
-                    f"Produkt: {product_id}",
+                    t("Produkt: {product_id}", product_id=product_id),
                     (
                         "G(Q,R) = K*D/Q "
                         "+ h*(Q/2 + R - μ_L) "
                         "+ p*D*n(R)/Q"
                     ),
                     (
-                        "Jahresbedarf D = "
-                        f"{prepared_forecast['annual_demand']}"
+                        t("Jahresbedarf D = {annual_demand}", annual_demand=prepared_forecast['annual_demand'])
                     ),
                     (
-                        "Lieferzeitnachfrage μ_L = "
-                        f"{prepared_forecast['lead_time_demand_mean']}"
+                        t("Lieferzeitnachfrage μ_L = {lead_time_demand_mean}", lead_time_demand_mean=prepared_forecast['lead_time_demand_mean'])
                     ),
                     (
-                        "Standardabweichung σ_L = "
-                        f"{prepared_forecast['lead_time_demand_std']}"
+                        t("Standardabweichung σ_L = {lead_time_demand_std}", lead_time_demand_std=prepared_forecast['lead_time_demand_std'])
                     ),
-                    f"Bestellmenge Q = {result.order_quantity}",
-                    f"Meldebestand R = {result.reorder_point}",
+                    t("Bestellmenge Q = {order_quantity}", order_quantity=result.order_quantity),
+                    t("Meldebestand R = {reorder_point}", reorder_point=result.reorder_point),
                     (
-                        "Jährliche relevante Kosten = "
-                        f"{result.annual_relevant_cost}"
+                        t("Jährliche relevante Kosten = {annual_relevant_cost}", annual_relevant_cost=result.annual_relevant_cost)
                     ),
                 ]
             )
@@ -1103,4 +1161,5 @@ def execute_continuous_review_q_r(
             representations
         ),
         "errors": [],
+        "warnings": warnings,
     }

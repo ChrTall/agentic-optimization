@@ -7,9 +7,11 @@ from collections.abc import Callable
 from copy import deepcopy
 from typing import Any, cast
 
+from agentic_optimization.i18n import language_instruction
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from agentic_optimization.llm.json_response import parse_json_object
 from agentic_optimization.models.component_catalog import (
     build_component_catalog,
 )
@@ -31,6 +33,9 @@ Vollständigkeit.
 
 Prüfe jede ausdrücklich genannte betriebliche Anforderung
 aus requirements und evidence.
+Explizite Modellvoraussetzungen in requirements und direkte Antworten
+aus business_answers haben Vorrang vor älteren, widersprüchlichen
+Aussagen in raw_input. Melde überstimmte Aussagen nicht erneut.
 
 Eine Anforderung ist abgedeckt, wenn sie:
 
@@ -139,35 +144,13 @@ ComponentCoverageAgent = Callable[
 def _parse_json_object(content: object) -> dict[str, Any]:
     """Dekodiert die JSON-Antwort des Prüfagenten."""
 
-    if not isinstance(content, str):
-        raise TypeError(
-            "Die Antwort der Vollständigkeitsprüfung "
-            "muss Text enthalten."
-        )
-
-    clean_content = content.strip()
-    lines = clean_content.splitlines()
-
-    if (
-        len(lines) >= 3
-        and lines[0].strip().lower()
-        in {
-            "```",
-            "```json",
-        }
-        and lines[-1].strip() == "```"
-    ):
-        clean_content = "\n".join(
-            lines[1:-1]
-        ).strip()
-
-    parsed = json.loads(clean_content)
-
-    if not isinstance(parsed, dict):
-        raise TypeError(
+    parsed = parse_json_object(
+        content,
+        not_object_message=(
             "Die Vollständigkeitsprüfung muss ein "
             "JSON-Objekt zurückgeben."
-        )
+        ),
+    )
 
     return parsed
 
@@ -271,6 +254,10 @@ def create_component_coverage_agent(
         products: list[ProductSpecification],
         evidence: list[SelectionEvidence],
         proposal: ComponentSelectionProposal,
+        normalize_missing_inputs: (
+            Callable[[ComponentSelectionProposal], ComponentSelectionProposal]
+            | None
+        ) = None,
     ) -> ComponentSelectionProposal:
         payload = {
             "core_id": core_id,
@@ -285,7 +272,7 @@ def create_component_coverage_agent(
 
         response = llm.invoke(
             [
-                SystemMessage(content=SYSTEM_PROMPT),
+                SystemMessage(content=SYSTEM_PROMPT + language_instruction()),
                 HumanMessage(
                     content=json.dumps(
                         payload,
@@ -329,32 +316,41 @@ def create_component_coverage_agent(
             ),
         )
 
+        # First validate every structural and source-independent rule. A
+        # finding about a missing value may still reference its already
+        # selected component; the input audit can remove only that finding.
         errors = validate_component_selection_proposal(
-            updated_proposal
+            updated_proposal,
+            allow_selected_candidate_overlap=True,
         )
-
         if errors:
             raise ValueError(
                 "Ungültige Vollständigkeitsprüfung: "
                 + "; ".join(errors)
             )
-
-        allowed_source_ids = {
-            item["source_id"]
-            for item in evidence
-        }
+        allowed_source_ids = {item["source_id"] for item in evidence}
         unknown_source_ids = {
             source_id
             for requirement in uncovered
             for source_id in requirement["sources"]
             if source_id not in allowed_source_ids
         }
-
         if unknown_source_ids:
             raise ValueError(
                 "Die Vollständigkeitsprüfung hat unbekannte "
                 "Quellen verwendet: "
                 + ", ".join(sorted(unknown_source_ids))
+            )
+        strict_errors = validate_component_selection_proposal(
+            updated_proposal
+        )
+        if strict_errors and normalize_missing_inputs is not None:
+            updated_proposal = normalize_missing_inputs(updated_proposal)
+        errors = validate_component_selection_proposal(updated_proposal)
+        if errors:
+            raise ValueError(
+                "Ungültige Vollständigkeitsprüfung: "
+                + "; ".join(errors)
             )
 
         return cast(

@@ -144,3 +144,29 @@ def test_rejects_empty_review_explanation() -> None:
         agent(
             review_data=create_review_data()
         )
+
+
+def test_passes_pending_assumptions_to_explanation_llm() -> None:
+    llm = Mock()
+    llm.invoke.return_value = AIMessage(
+        content=json.dumps({
+            "explanation": "Die Modellwahl ist vorläufig."
+        })
+    )
+    review_data = create_review_data()
+    review_data["pending_core_assumptions"] = [
+        "Der Bedarf ist ungefähr gleichmäßig."
+    ]
+
+    create_modular_review_explanation_agent(llm)(
+        review_data=review_data
+    )
+
+    messages = llm.invoke.call_args.args[0]
+    payload = json.loads(messages[1].content)
+    assert payload["pending_core_assumptions"] == [
+        "Der Bedarf ist ungefähr gleichmäßig."
+    ]
+    assert "Modellwahl dann ausdrücklich als vorläufig" in (
+        messages[0].content
+    )

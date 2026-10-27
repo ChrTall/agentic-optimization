@@ -21,6 +21,7 @@ from agentic_optimization.models.types import (
     ModelCoreDefinition,
     ModelInputField,
 )
+from agentic_optimization.i18n import t
 
 CORE_DEFINITION: ModelCoreDefinition = {
     "core_id": "single_period_newsvendor",
@@ -53,6 +54,9 @@ CORE_DEFINITION: ModelCoreDefinition = {
     "required_product_facts": [],
     "required_global_facts": [],
     "required_objective_component_ids": [],
+    "required_objective_components_by_goal": {
+        "maximize_profit": ["sales_revenue", "purchase_cost"],
+    },
     "required_forecast_fields": [
         {
             "name": "expected_value",
@@ -135,15 +139,39 @@ CORE_DEFINITION: ModelCoreDefinition = {
 }
 
 
+MAX_EXPECTED_DEMAND_DEVIATION = 0.25
+"""Zulässige relative Abweichung zwischen Erwartungswert und Quantilen."""
+
+
 def validate_single_period_newsvendor_forecast(
     forecast: DemandForecast,
 ) -> list[str]:
-    """Prüft den Forecast für ein Newsvendor-Modell."""
+    """Prüft den Forecast für ein Newsvendor-Modell.
+
+    Optimiert wird mit der aus den Quantilen gebildeten Verteilung. Der
+    angegebene Erwartungswert dient als Plausibilitätsprüfung: Weicht der
+    Mittelwert der Quantilsverteilung stark davon ab, passen die Angaben
+    nicht zusammen (z. B. Quantile für einen anderen Zeitraum).
+    """
 
     try:
-        prepare_demand_forecast(forecast)
+        prepared_forecast = prepare_demand_forecast(forecast)
     except ValueError as error:
         return [str(error)]
+
+    expected_value = prepared_forecast["expected_value"]
+    model_expected_value = prepared_forecast[
+        "approximated_expected_value"
+    ]
+    reference = max(expected_value, model_expected_value, 1.0)
+
+    if (
+        abs(model_expected_value - expected_value) / reference
+        > MAX_EXPECTED_DEMAND_DEVIATION
+    ):
+        return [
+            t("Die erwartete Nachfrage ({expected_value:g}) passt nicht zu den Nachfragequantilen, deren Verteilung einen Mittelwert von etwa {model_expected_value:.1f} ergibt. Bitte prüfen Sie, ob sich beide Angaben auf denselben Prognosezeitraum beziehen.", expected_value=expected_value, model_expected_value=model_expected_value)
+        ]
 
     return []
 
@@ -190,10 +218,7 @@ def validate_single_period_newsvendor_semantics(
 
             if salvage_value >= purchase_cost:
                 errors.append(
-                    f"Für das Produkt '{product_id}' muss "
-                    "der Restwert pro unverkaufter Einheit "
-                    "kleiner als die Einkaufskosten pro "
-                    "Einheit sein."
+                    t("Für das Produkt '{product_id}' muss der Restwert pro unverkaufter Einheit kleiner als die Einkaufskosten pro Einheit sein.", product_id=product_id)
                 )
 
         fulfillment_incentive = (
@@ -204,12 +229,7 @@ def validate_single_period_newsvendor_semantics(
 
         if fulfillment_incentive <= 0:
             errors.append(
-                f"Für das Produkt '{product_id}' bieten die "
-                "ausgewählten Zielfunktionsbausteine keinen "
-                "positiven Anreiz zur Deckung der Nachfrage. "
-                "Die Summe aus Verkaufspreis und "
-                "Fehlmengenkosten muss größer als der "
-                "Restwert sein."
+                t("Für das Produkt '{product_id}' bieten die ausgewählten Zielfunktionsbausteine keinen positiven Anreiz zur Deckung der Nachfrage. Die Summe aus Verkaufspreis und Fehlmengenkosten muss größer als der Restwert sein – bitte prüfen Sie Verkaufspreis und Restwert.", product_id=product_id)
             )
 
     products_by_id = {
@@ -243,11 +263,7 @@ def validate_single_period_newsvendor_semantics(
 
         if not has_sufficient_quantile:
             errors.append(
-                f"Für das Produkt '{product_id}' enthält "
-                "die Nachfrageprognose kein "
-                "Nachfragequantil auf oder oberhalb des "
-                "geforderten Servicelevels von "
-                f"{service_level_percent:g} %."
+                t("Für das Produkt '{product_id}' enthält die Nachfrageprognose kein Nachfragequantil auf oder oberhalb des geforderten Servicelevels von {service_level_percent:g} %.", product_id=product_id, service_level_percent=service_level_percent)
             )
 
     return errors
@@ -284,16 +300,14 @@ class BuiltSinglePeriodNewsvendorCore:
         if quantity_id == "order_quantity":
             if forecast_point_index is not None:
                 raise ValueError(
-                    "Die Bestellmenge ist nicht "
-                    "nach Forecast-Punkten indiziert."
+                    t("Die Bestellmenge ist nicht nach Forecast-Punkten indiziert.")
                 )
 
             return self.order_quantities[product_id]
 
         if forecast_point_index is None:
             raise ValueError(
-                f"Für die Modellgröße '{quantity_id}' "
-                "fehlt der Forecast-Punkt."
+                t("Für die Modellgröße '{quantity_id}' fehlt der Forecast-Punkt.", quantity_id=quantity_id)
             )
 
         key = (
@@ -311,8 +325,7 @@ class BuiltSinglePeriodNewsvendorCore:
 
         if quantity_mapping is None:
             raise KeyError(
-                f"Die Modellgröße '{quantity_id}' "
-                "wird vom Newsvendor-Kern nicht bereitgestellt."
+                t("Die Modellgröße '{quantity_id}' wird vom Newsvendor-Kern nicht bereitgestellt.", quantity_id=quantity_id)
             )
 
         return quantity_mapping[key]
@@ -366,7 +379,7 @@ def build_single_period_newsvendor_core(
         )
         forecasts[product_id] = prepared_forecast
 
-        order_quantity = pulp.LpVariable(
+        order_quantity = model.add_variable(
             f"order_quantity_{product_index}",
             lowBound=0,
         )
@@ -383,15 +396,15 @@ def build_single_period_newsvendor_core(
                 f"{product_index}_{point_index}"
             )
 
-            sold_quantity = pulp.LpVariable(
+            sold_quantity = model.add_variable(
                 f"sold_quantity_{variable_suffix}",
                 lowBound=0,
             )
-            leftover_quantity = pulp.LpVariable(
+            leftover_quantity = model.add_variable(
                 f"leftover_quantity_{variable_suffix}",
                 lowBound=0,
             )
-            shortage_quantity = pulp.LpVariable(
+            shortage_quantity = model.add_variable(
                 f"shortage_quantity_{variable_suffix}",
                 lowBound=0,
             )
@@ -433,6 +446,39 @@ def execute_single_period_newsvendor(
         execute_linear_model_specification,
     )
 
-    return execute_linear_model_specification(
+    result = execute_linear_model_specification(
         specification
     )
+
+    if result["status"] != "optimal":
+        return result
+
+    # Transparenz: Die Optimierung nutzt die Quantilsverteilung, nicht
+    # direkt den eingegebenen Erwartungswert. Beide Werte werden angezeigt.
+    forecast_metrics = []
+
+    for product in specification["products"]:
+        prepared_forecast = prepare_demand_forecast(
+            product["forecast"]
+        )
+        forecast_metrics.extend(
+            [
+                {
+                    "metric_id": "forecast_expected_demand",
+                    "product_id": product["product_id"],
+                    "value": prepared_forecast["expected_value"],
+                },
+                {
+                    "metric_id": "model_expected_demand",
+                    "product_id": product["product_id"],
+                    "value": prepared_forecast[
+                        "approximated_expected_value"
+                    ],
+                },
+            ]
+        )
+
+    return {
+        **result,
+        "metrics": [*forecast_metrics, *result["metrics"]],
+    }

@@ -15,6 +15,17 @@ from agentic_optimization.ui.modular_input_page import (
 )
 
 
+def create_streamlit_mock(*, button: bool = False) -> MagicMock:
+    """Streamlit-Mock, dessen Widgets ihre Ausgangswerte zurückgeben."""
+
+    streamlit = MagicMock()
+    streamlit.button.return_value = button
+    streamlit.checkbox.side_effect = lambda label, value=False, **_: value
+    streamlit.text_input.side_effect = lambda label, value="", **_: value
+    streamlit.columns.side_effect = lambda count: [MagicMock() for _ in range(count)]
+    return streamlit
+
+
 def create_multi_product_specification() -> dict:
     return {
         "core_id": "single_period_newsvendor",
@@ -62,12 +73,12 @@ def test_maps_edited_table_values_to_product_inputs(
         streamlit,
     )
 
-    layout = build_modular_input_layout(
-        create_multi_product_specification()
-    )
+    specification = create_multi_product_specification()
+    layout = build_modular_input_layout(specification)
 
     rendered_inputs = _render_product_input_table(
-        layout
+        layout,
+        specification,
     )
     submissions = parse_modular_input_submissions(
         rendered_inputs
@@ -140,8 +151,7 @@ def test_maps_edited_table_values_to_product_inputs(
 def test_renders_constraint_component_name(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    streamlit = MagicMock()
-    streamlit.button.return_value = False
+    streamlit = create_streamlit_mock()
 
     monkeypatch.setattr(
         modular_input_page,
@@ -194,8 +204,7 @@ def test_renders_constraint_component_name(
 def test_submits_constraint_value_with_one_button_click(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    streamlit = MagicMock()
-    streamlit.button.return_value = True
+    streamlit = create_streamlit_mock(button=True)
 
     monkeypatch.setattr(
         modular_input_page,
@@ -205,7 +214,10 @@ def test_submits_constraint_value_with_one_button_click(
     monkeypatch.setattr(
         modular_input_page,
         "render_input_field",
-        lambda *args, **kwargs: 250.0,
+        # Ausgefüllte Felder behalten ihren Wert, das offene Feld erhält 250.
+        lambda field, existing, **kwargs: (
+            existing if existing is not None else 250.0
+        ),
     )
 
     specification = {
@@ -250,14 +262,92 @@ def test_submits_constraint_value_with_one_button_click(
     result = render_modular_input_page(specification)
 
     assert result is not None
-    assert len(result) == 1
-    assert result[0]["value"] == 250.0
-    assert result[0]["missing_input"][
+    assert result["action"] == "submit"
+    assert result["renames"] == []
+    constraint_submissions = [
+        submission
+        for submission in result["submissions"]
+        if submission["missing_input"]["source"] == "constraint_parameter"
+    ]
+    assert len(constraint_submissions) == 1
+    assert constraint_submissions[0]["value"] == 250.0
+    assert constraint_submissions[0]["missing_input"][
         "component_id"
     ] == "maximum_order_quantity"
-    streamlit.button.assert_called_once_with(
-        "Angaben prüfen",
-        type="primary",
-        use_container_width=True,
-        key="submit_modular_model_inputs",
+
+
+def create_complete_eoq_specification() -> dict:
+    return {
+        "core_id": "eoq",
+        "products": [
+            {
+                "product_id": "Produkt 1",
+                "forecast": {"expected_value": 1200.0, "horizon_days": 365},
+                "facts": {"ordering_cost": 150.0, "holding_cost": 25.0},
+            }
+        ],
+        "global_facts": {},
+        "objective": {
+            "sense": "minimize",
+            "component_ids": ["annual_ordering_cost", "annual_holding_cost"],
+        },
+        "constraints": [],
+    }
+
+
+def test_filled_fields_stay_visible_in_fixed_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    streamlit = create_streamlit_mock()
+    rendered: list[str] = []
+    monkeypatch.setattr(modular_input_page, "st", streamlit)
+    monkeypatch.setattr(
+        modular_input_page,
+        "render_input_field",
+        lambda field, existing, **_: rendered.append(field["name"]) or existing,
     )
+
+    assert render_modular_input_page(create_complete_eoq_specification()) is None
+    assert rendered == [
+        "expected_value",
+        "horizon_days",
+        "ordering_cost",
+        "holding_cost",
+    ]
+    streamlit.success.assert_called_once()
+
+
+def test_returns_product_rename(monkeypatch: pytest.MonkeyPatch) -> None:
+    streamlit = create_streamlit_mock(button=True)
+    streamlit.text_input.side_effect = lambda label, value="", **_: "E-Bike"
+    monkeypatch.setattr(modular_input_page, "st", streamlit)
+    monkeypatch.setattr(
+        modular_input_page,
+        "render_input_field",
+        lambda field, existing, **_: existing,
+    )
+
+    result = render_modular_input_page(create_complete_eoq_specification())
+
+    assert result["renames"] == [("Produkt 1", "E-Bike")]
+
+
+def test_toggling_component_returns_new_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    streamlit = create_streamlit_mock()
+    streamlit.checkbox.side_effect = lambda label, value=False, **_: (
+        True if label == "Höchstbestellmenge" else value
+    )
+    monkeypatch.setattr(modular_input_page, "st", streamlit)
+    monkeypatch.setattr(
+        modular_input_page,
+        "render_input_field",
+        lambda field, existing, **_: existing,
+    )
+
+    result = render_modular_input_page(create_complete_eoq_specification())
+
+    assert result["action"] == "edit"
+    assert "maximum_order_quantity" in result["active_component_ids"]
+    assert "annual_ordering_cost" in result["active_component_ids"]

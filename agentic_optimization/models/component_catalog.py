@@ -18,6 +18,7 @@ from agentic_optimization.models.types import (
     ConstraintParameterDefinition,
     ModelInputField,
 )
+from agentic_optimization.i18n import t
 
 
 class CoreCatalogEntry(TypedDict):
@@ -31,6 +32,7 @@ class CoreCatalogEntry(TypedDict):
     minimum_products: int
     required_forecast_fields: list[ModelInputField]
     required_objective_component_ids: list[str]
+    required_objective_components_by_goal: dict[str, list[str]]
     required_product_facts: list[ModelInputField]
     required_global_facts: list[ModelInputField]
 
@@ -56,6 +58,7 @@ class ConstraintComponentCatalogEntry(TypedDict):
     required_global_facts: list[ModelInputField]
     parameters: list[ConstraintParameterDefinition]
     selection_guidance: str
+    requires_explicit_request: bool
 
 
 class ComponentCatalog(TypedDict):
@@ -75,7 +78,7 @@ def build_component_catalog(
 
     if registered_core is None:
         raise ValueError(
-            f"Das Grundmodell '{core_id}' ist nicht registriert."
+            t("Das Grundmodell '{core_id}' ist nicht registriert.", core_id=core_id)
         )
 
     core_definition = registered_core["definition"]
@@ -123,6 +126,9 @@ def build_component_catalog(
                     "selection_guidance",
                     "",
                 ),
+                "requires_explicit_request": definition.get(
+                    "requires_explicit_request", False
+                ),
                 "required_product_facts": deepcopy(
                     definition["required_product_facts"]
                 ),
@@ -156,6 +162,14 @@ def build_component_catalog(
                 core_definition[
                     "required_objective_component_ids"
                 ]
+            ),
+            "required_objective_components_by_goal": deepcopy(
+                core_definition.get(
+                    "required_objective_components_by_goal", {}
+                )
+            ),
+            "required_objective_sense": core_definition.get(
+                "required_objective_sense"
             ),
             "required_product_facts": deepcopy(
                 core_definition["required_product_facts"]

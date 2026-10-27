@@ -1,3 +1,5 @@
+import logging
+
 import streamlit as st
 
 from agentic_optimization.agents.business_intake import (
@@ -7,7 +9,15 @@ from agentic_optimization.configuration.llm_config import (
     load_llm_configuration,
 )
 from agentic_optimization.graph import build_graph
+from agentic_optimization.llm.errors import (
+    LLM_SERVICE_ERRORS,
+    describe_llm_error,
+    is_llm_service_error,
+)
 from agentic_optimization.llm.factory import create_chat_model
+from agentic_optimization.models.core_applicability import (
+    CORE_ASSUMPTION_CONFIRMATION_PREFIX,
+)
 from agentic_optimization.state import (
     EVENT_BUSINESS_INTAKE_REQUESTED,
     EVENT_MODULAR_INPUTS_SUBMITTED,
@@ -17,6 +27,7 @@ from agentic_optimization.state import (
     EVENT_MODULAR_REQUIREMENT_EXCLUSIONS_CONFIRMED,
     EVENT_MODULAR_RESULT_EXPLANATION_REQUESTED,
     EVENT_MODULAR_REVIEW_EXPLANATION_REQUESTED,
+    EVENT_MODULAR_SPECIFICATION_EDITED,
     WORKFLOW_BUSINESS_CORE_SELECTED,
     WORKFLOW_MODEL_INPUTS_INVALID,
     WORKFLOW_MODEL_PREPARATION_FAILED,
@@ -52,11 +63,19 @@ from agentic_optimization.ui.modular_product_list_page import (
 from agentic_optimization.ui.modular_result_page import (
     render_modular_result_page,
 )
+from agentic_optimization.ui.requirements_panel import (
+    keep_unanswered_questions,
+    render_requirements_panel,
+)
 from agentic_optimization.ui.modular_review_page import (
     render_modular_exclusion_confirmation,
     render_modular_review_page,
     render_modular_selection_issues,
 )
+from agentic_optimization.i18n import DEFAULT_LANGUAGE, set_language, t
+from agentic_optimization.ui.chat_assistant_panel import LANGUAGE_KEY
+
+LOGGER = logging.getLogger(__name__)
 
 STEP_LABELS = [
     "① Situation",
@@ -77,6 +96,21 @@ STEP_INDEX = {
 }
 
 
+# Fehler, die eine Workflow-Aktion abbrechen und dem Nutzer als Meldung
+# statt als Traceback angezeigt werden.
+WORKFLOW_ERRORS = (ValueError, *LLM_SERVICE_ERRORS)
+
+
+def show_workflow_error(error: BaseException) -> None:
+    """Zeigt einen Workflow- oder Anbieterfehler verständlich an."""
+
+    if is_llm_service_error(error):
+        LOGGER.exception("Aufruf des Sprachmodells fehlgeschlagen.")
+        st.error(describe_llm_error(error))
+    else:
+        st.error(str(error))
+
+
 def get_or_create_llm():
     """Lädt das konfigurierte Sprachmodell höchstens einmal."""
 
@@ -88,6 +122,20 @@ def get_or_create_llm():
         st.session_state.llm = llm
 
     return llm
+
+
+def get_workflow():
+    """Baut den Workflow-Graphen höchstens einmal pro Sitzung."""
+
+    llm = get_or_create_llm()
+    workflow = st.session_state.get("workflow")
+
+    if workflow is None or st.session_state.get("workflow_llm") is not llm:
+        workflow = build_graph(llm)
+        st.session_state.workflow = workflow
+        st.session_state.workflow_llm = llm
+
+    return workflow
 
 
 def route_ui_from_graph_state(graph_state: dict) -> str:
@@ -105,7 +153,11 @@ def route_ui_from_graph_state(graph_state: dict) -> str:
         return "model_input_form"
 
     if status == WORKFLOW_READY_FOR_REVIEW:
-        return "review"
+        # Formular 3 bleibt sichtbar, bis der Nutzer die vollständigen
+        # Angaben bestätigt („Weiter zur Überprüfung“).
+        if graph_state.get("modular_model", {}).get("inputs_confirmed"):
+            return "review"
+        return "model_input_form"
 
     if status in {
         WORKFLOW_OPTIMIZATION_COMPLETED,
@@ -142,6 +194,10 @@ def advance_after_business_intake(
     if status != WORKFLOW_BUSINESS_CORE_SELECTED:
         st.session_state.step = "business_intake"
         return
+
+    for key in list(st.session_state):
+        if key.startswith(CORE_ASSUMPTION_CONFIRMATION_PREFIX):
+            st.session_state.pop(key, None)
 
     modular_state = graph_state.get("modular_model", {})
 
@@ -194,7 +250,7 @@ def render_progress() -> None:
                 "<p style='"
                 f"color:{color};font-weight:{weight};"
                 "text-align:center'>"
-                f"{label}{suffix}</p>",
+                f"{t(label)}{suffix}</p>",
                 unsafe_allow_html=True,
             )
 
@@ -209,11 +265,16 @@ def reset_workflow() -> None:
         "graph_state",
         "raw_problem_description",
         "review_sections",
+        "business_intake_documents",
     ]
     keys_to_clear.extend(
         key
         for key in list(st.session_state)
         if key.startswith("modular_")
+        or key.startswith(CORE_ASSUMPTION_CONFIRMATION_PREFIX)
+        or key.startswith("business_question_")
+        or key.startswith("business_clarification_")
+        or key.startswith("requirements_")
     )
 
     for key in keys_to_clear:
@@ -260,7 +321,7 @@ def invoke_event(
         if graph_state is not None
         else st.session_state.graph_state or {}
     )
-    workflow = build_graph(get_or_create_llm())
+    workflow = get_workflow()
     result_state = workflow.invoke(
         {
             **graph_state,
@@ -284,7 +345,17 @@ def run_business_intake(
 
     graph_state = ensure_graph_state()
     intake_state = graph_state["business_intake"]
-    workflow = build_graph(get_or_create_llm())
+    # The retry form does not render questions answered in the failed turn.
+    # Replay those submissions only for the same description; fresh answers
+    # from the form take precedence by question ID.
+    if raw_input == graph_state.get("raw_input"):
+        retained = {
+            answer["question_id"]: answer
+            for answer in intake_state.get("pending_answers", [])
+        }
+        retained.update({answer["question_id"]: answer for answer in answers})
+        answers = list(retained.values())
+    workflow = get_workflow()
     result_state = workflow.invoke(
         {
             **graph_state,
@@ -300,6 +371,36 @@ def run_business_intake(
         }
     )
     st.session_state.raw_problem_description = raw_input
+    advance_after_business_intake(workflow, result_state)
+
+
+def apply_requirement_change(change: dict) -> None:
+    """Bestätigt, ändert oder verwirft eine erkannte Angabe."""
+
+    graph_state = ensure_graph_state()
+    intake_state = graph_state["business_intake"]
+    raw_input = graph_state.get(
+        "raw_input", st.session_state.raw_problem_description
+    )
+    workflow = get_workflow()
+    result_state = workflow.invoke(
+        {
+            **graph_state,
+            "control": {
+                **graph_state.get("control", {}),
+                "event": EVENT_BUSINESS_INTAKE_REQUESTED,
+            },
+            "raw_input": raw_input,
+            "business_intake": {
+                **intake_state,
+                "pending_answers": [],
+                "profile_overrides": [dict(change)],
+            },
+        }
+    )
+    result_state = keep_unanswered_questions(
+        intake_state, result_state, step=st.session_state.step
+    )
     advance_after_business_intake(workflow, result_state)
 
 
@@ -331,24 +432,81 @@ def submit_model_inputs(submissions: list) -> None:
     )
 
 
+def submit_specification_edits(
+    renames: list,
+    active_component_ids: list | None,
+) -> None:
+    """Übernimmt Produktnamen und Bausteinauswahl aus Formular 3."""
+
+    graph_state = st.session_state.graph_state or {}
+    invoke_event(
+        EVENT_MODULAR_SPECIFICATION_EDITED,
+        graph_state=invalidate_optimization_state(
+            {
+                **graph_state,
+                "modular_model": {
+                    **graph_state.get("modular_model", {}),
+                    "pending_specification_edits": {
+                        "renames": [list(item) for item in renames],
+                        "active_component_ids": active_component_ids,
+                    },
+                },
+            }
+        ),
+    )
+
+
+def continue_to_review() -> None:
+    """Bestätigt vollständige Angaben und wechselt zur Überprüfung."""
+
+    graph_state = st.session_state.graph_state or {}
+
+    if get_workflow_status(graph_state) != WORKFLOW_READY_FOR_REVIEW:
+        raise ValueError(
+            t(t("Es fehlen noch Pflichtangaben. Bitte ergänzen Sie zuerst alle markierten Felder."))
+        )
+
+    graph_state = {
+        **graph_state,
+        "modular_model": {
+            **graph_state.get("modular_model", {}),
+            "inputs_confirmed": True,
+        },
+    }
+    st.session_state.graph_state = graph_state
+    st.session_state.step = route_ui_from_graph_state(graph_state)
+
+
 def confirm_exclusions() -> None:
     invoke_event(EVENT_MODULAR_REQUIREMENT_EXCLUSIONS_CONFIRMED)
 
 
 def start_optimization() -> None:
     graph_state = st.session_state.graph_state or {}
+    modular_state = graph_state.get("modular_model", {})
+    pending_assumptions = modular_state.get(
+        "pending_core_assumptions", []
+    )
     invoke_event(
         EVENT_MODULAR_OPTIMIZATION_REQUESTED,
         modular_model={
-            **graph_state.get("modular_model", {}),
+            **modular_state,
             "review_confirmed": True,
+            "core_assumptions_confirmed": all(
+                st.session_state.get(
+                    CORE_ASSUMPTION_CONFIRMATION_PREFIX
+                    + condition_id,
+                    False,
+                )
+                for condition_id in pending_assumptions
+            ),
         },
     )
 
 
 def request_result_explanation() -> None:
     graph_state = st.session_state.graph_state or {}
-    workflow = build_graph(get_or_create_llm())
+    workflow = get_workflow()
     st.session_state.graph_state = workflow.invoke(
         {
             **graph_state,
@@ -364,8 +522,12 @@ def edit_description() -> None:
     st.session_state.step = "business_intake"
 
 
+# Sprache für diesen Durchlauf setzen, bevor irgendein Text erzeugt wird.
+# Der Umschalter im Chat speichert die Wahl unter "ui_language".
+set_language(st.session_state.get(LANGUAGE_KEY, DEFAULT_LANGUAGE))
+
 st.set_page_config(
-    page_title="Agentic Optimization",
+    page_title=t("Agentic Optimization"),
     page_icon="⚙️",
     layout="centered",
     initial_sidebar_state="expanded",
@@ -389,6 +551,8 @@ render_chat_panel(
         submit_products=submit_products,
         submit_model_inputs=submit_model_inputs,
         confirm_exclusions=confirm_exclusions,
+        submit_specification_edits=submit_specification_edits,
+        continue_to_review=continue_to_review,
         start_optimization=start_optimization,
         request_result_explanation=request_result_explanation,
         edit_description=edit_description,
@@ -397,6 +561,32 @@ render_chat_panel(
 )
 
 render_progress()
+
+# Erkannte Anforderungen und Annahmen: bei Situation und Rückfragen
+# aufgeklappt zum Prüfen, danach als aufklappbare Übersicht.
+_business_steps = {"business_intake", "business_clarification"}
+_requirement_change = render_requirements_panel(
+    (st.session_state.graph_state or {}).get("business_intake"),
+    title=(
+        t("Erkannte Anforderungen")
+        if st.session_state.step in _business_steps
+        else t("Bekannte Angaben")
+    ),
+    expanded=st.session_state.step in _business_steps,
+    note=(
+        t("Vom Assistenten aus Ihren Angaben erkannt. Bitte bestätigen, ändern (Auswahlfeld) oder verwerfen (✕).")
+        if st.session_state.step in _business_steps
+        else t("Änderungen hier starten die Modellauswahl neu.")
+    ),
+)
+
+if _requirement_change is not None:
+    try:
+        apply_requirement_change(_requirement_change)
+    except WORKFLOW_ERRORS as error:
+        show_workflow_error(error)
+        st.stop()
+    st.rerun()
 
 
 if st.session_state.step == "business_intake":
@@ -412,8 +602,7 @@ if st.session_state.step == "business_intake":
         st.error(
             preparation_error
             or (
-                "Die automatische Modellzusammenstellung "
-                "konnte nicht zuverlässig abgeschlossen werden."
+                t("Die automatische Modellzusammenstellung konnte nicht zuverlässig abgeschlossen werden.")
             )
         )
 
@@ -435,8 +624,8 @@ if st.session_state.step == "business_intake":
                 submission["raw_input"],
                 submission["answers"],
             )
-        except ValueError as error:
-            st.error(str(error))
+        except WORKFLOW_ERRORS as error:
+            show_workflow_error(error)
             st.stop()
 
         st.rerun()
@@ -447,7 +636,7 @@ elif st.session_state.step == "business_clarification":
     intake_state = graph_state.get("business_intake")
 
     if intake_state is None:
-        st.error("Die offenen Rückfragen konnten nicht geladen werden.")
+        st.error(t("Die offenen Rückfragen konnten nicht geladen werden."))
         st.stop()
 
     answers = render_business_clarification_page(intake_state)
@@ -458,15 +647,15 @@ elif st.session_state.step == "business_clarification":
                 st.session_state.raw_problem_description,
                 answers,
             )
-        except ValueError as error:
-            st.error(str(error))
+        except WORKFLOW_ERRORS as error:
+            show_workflow_error(error)
             st.stop()
 
         st.rerun()
 
     if st.button(
-        "Beschreibung bearbeiten",
-        use_container_width=True,
+        t("Beschreibung bearbeiten"),
+        width="stretch",
     ):
         st.session_state.step = "business_intake"
         st.rerun()
@@ -479,7 +668,7 @@ elif st.session_state.step == "product_table":
     proposal = modular_state.get("preliminary_proposal")
 
     if not core_id or proposal is None:
-        st.error("Die Produkttabelle konnte nicht vorbereitet werden.")
+        st.error(t("Die Produkttabelle konnte nicht vorbereitet werden."))
         st.stop()
 
     chat_rows, chat_rows_version = get_chat_product_rows()
@@ -495,8 +684,8 @@ elif st.session_state.step == "product_table":
 
     try:
         submit_products(products)
-    except ValueError as error:
-        st.error(str(error))
+    except WORKFLOW_ERRORS as error:
+        show_workflow_error(error)
         st.stop()
 
     st.rerun()
@@ -512,14 +701,13 @@ elif st.session_state.step == "model_unsupported":
         and proposal["selection_status"]
         == "needs_clarification"
     ):
-        st.subheader("Offene Anforderung klären")
+        st.subheader(t("Offene Anforderung klären"))
     else:
-        st.subheader("Anforderung derzeit nicht unterstützt")
+        st.subheader(t("Anforderung derzeit nicht unterstützt"))
 
     if proposal is None:
         st.warning(
-            "Für diese Problemstruktur ist derzeit keine "
-            "Berechnungsmethode verfügbar."
+            t("Für diese Problemstruktur ist derzeit keine Berechnungsmethode verfügbar.")
         )
     else:
         render_modular_selection_issues(proposal)
@@ -527,19 +715,19 @@ elif st.session_state.step == "model_unsupported":
         if render_modular_exclusion_confirmation(proposal):
             try:
                 confirm_exclusions()
-            except ValueError as error:
-                st.error(str(error))
+            except WORKFLOW_ERRORS as error:
+                show_workflow_error(error)
                 st.stop()
 
             st.rerun()
 
-    if st.button("Situation bearbeiten", use_container_width=True):
+    if st.button(t("Situation bearbeiten"), width="stretch"):
         st.session_state.step = "business_intake"
         st.rerun()
 
 
 elif st.session_state.step == "model_input_form":
-    st.subheader("Angaben zur Berechnung")
+    st.subheader(t("Angaben zur Berechnung"))
     graph_state = st.session_state.graph_state or {}
     modular_state = graph_state.get("modular_model")
     specification = (
@@ -549,34 +737,47 @@ elif st.session_state.step == "model_input_form":
     )
 
     if modular_state is None or specification is None:
-        st.error("Der modulare Modellzustand ist unvollständig.")
+        st.error(t("Der modulare Modellzustand ist unvollständig."))
         st.stop()
 
     try:
-        submissions = render_modular_input_page(specification)
+        page_result = render_modular_input_page(specification)
     except (TypeError, ValueError) as error:
-        st.error("Bitte korrigieren Sie die Eingaben:")
+        st.error(t("Bitte korrigieren Sie die Eingaben:"))
         st.error(str(error))
         st.stop()
 
-    if submissions is None:
+    if page_result is None:
         st.stop()
 
     try:
-        submit_model_inputs(submissions)
-    except ValueError as error:
-        st.error(str(error))
+        # Erst Werte übernehmen (sie verweisen auf die bisherigen
+        # Produktnamen), danach umbenennen bzw. Bausteine ändern.
+        if page_result["submissions"]:
+            submit_model_inputs(page_result["submissions"])
+
+        if (
+            page_result["renames"]
+            or page_result["active_component_ids"] is not None
+        ):
+            submit_specification_edits(
+                page_result["renames"],
+                page_result["active_component_ids"],
+            )
+
+        if page_result["action"] == "continue":
+            continue_to_review()
+    except WORKFLOW_ERRORS as error:
+        show_workflow_error(error)
         st.stop()
 
     st.rerun()
 
 
 elif st.session_state.step == "review":
-    st.subheader("Angaben prüfen")
+    st.subheader(t("Angaben prüfen"))
     st.write(
-        "Bitte prüfen Sie die Berechnungsgrundlage, "
-        "Modellbausteine und Modellannahmen. Die Berechnung "
-        "kann gestartet werden, sobald alle Angaben bestätigt sind."
+        t("Bitte prüfen Sie die Berechnungsgrundlage, Modellbausteine und Modellannahmen. Die Berechnung kann gestartet werden, sobald alle Angaben bestätigt sind.")
     )
 
     graph_state = st.session_state.graph_state or {}
@@ -593,14 +794,14 @@ elif st.session_state.step == "review":
     )
 
     if modular_state is None or proposal is None or specification is None:
-        st.error("Die modulare Modellprüfung ist unvollständig.")
+        st.error(t("Die modulare Modellprüfung ist unvollständig."))
         st.stop()
 
     explanation = modular_state.get("review_explanation")
 
     if not isinstance(explanation, str) or not explanation.strip():
         try:
-            workflow = build_graph(get_or_create_llm())
+            workflow = get_workflow()
             graph_state = workflow.invoke(
                 {
                     **graph_state,
@@ -612,8 +813,8 @@ elif st.session_state.step == "review":
                     },
                 }
             )
-        except ValueError as error:
-            st.error(str(error))
+        except WORKFLOW_ERRORS as error:
+            show_workflow_error(error)
             st.stop()
 
         st.session_state.graph_state = graph_state
@@ -627,17 +828,23 @@ elif st.session_state.step == "review":
             proposal,
             specification,
             explanation=explanation,
+            pending_core_assumptions=modular_state.get(
+                "pending_core_assumptions", []
+            ),
+            core_assumption_evidence=modular_state.get(
+                "core_assumption_evidence", []
+            ),
         )
     except ValueError as error:
-        st.error("Die modulare Modellprüfung konnte nicht aufgebaut werden.")
+        st.error(t("Die modulare Modellprüfung konnte nicht aufgebaut werden."))
         st.error(str(error))
         st.stop()
 
     if start_optimization_clicked:
         try:
             start_optimization()
-        except ValueError as error:
-            st.error(str(error))
+        except WORKFLOW_ERRORS as error:
+            show_workflow_error(error)
             st.stop()
 
         st.rerun()
@@ -658,7 +865,7 @@ elif st.session_state.step == "result":
     )
 
     if modular_state is None or specification is None or result is None:
-        st.error("Das modulare Optimierungsergebnis ist unvollständig.")
+        st.error(t("Das modulare Optimierungsergebnis ist unvollständig."))
         st.stop()
 
     explanation_requested = render_modular_result_page(
@@ -670,8 +877,8 @@ elif st.session_state.step == "result":
     if explanation_requested:
         try:
             request_result_explanation()
-        except ValueError as error:
-            st.error(str(error))
+        except WORKFLOW_ERRORS as error:
+            show_workflow_error(error)
             st.stop()
 
         st.rerun()
@@ -679,8 +886,8 @@ elif st.session_state.step == "result":
     st.divider()
 
     if st.button(
-        "Neue Optimierung starten",
-        use_container_width=True,
+        t("Neue Optimierung starten"),
+        width="stretch",
     ):
         reset_workflow()
         st.rerun()

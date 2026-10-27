@@ -12,6 +12,9 @@ from agentic_optimization.agents.component_coverage_agent import (
 from agentic_optimization.agents.component_selection_agent import (
     create_component_selection_agent,
 )
+from agentic_optimization.agents.component_selection_integrity import (
+    create_component_selection_integrity_agent,
+)
 from agentic_optimization.agents.modular_fact_extraction_agent import (
     create_modular_fact_extraction_agent,
 )
@@ -39,6 +42,7 @@ from agentic_optimization.models.validator import (
     SpecificationValidationResult,
     validate_model_specification,
 )
+from agentic_optimization.i18n import t
 
 
 class ModularModelDraft(TypedDict):
@@ -61,56 +65,46 @@ PreliminaryComponentSelectionAgent = Callable[
 ]
 
 
-def _build_preliminary_fallback_proposal(
+def _build_preliminary_proposal(
     *,
     core_id: str,
     requirements: dict[str, Any],
-    evidence: list[SelectionEvidence],
 ) -> ComponentSelectionProposal:
-    """Baut nur die für eine Produkttabelle sicheren Pflichtspalten."""
+    """Baut Formularspalten ausschließlich aus registrierten Pflichtteilen."""
 
     registered_core = CORE_REGISTRY.get(core_id)
 
     if registered_core is None:
         raise ValueError(
-            f"Das Grundmodell '{core_id}' ist nicht registriert."
+            t("Das Grundmodell '{core_id}' ist nicht registriert.", core_id=core_id)
         )
 
     objective = requirements.get("objective")
-    objective_sense = "minimize"
+    objective_sense = registered_core["definition"].get(
+        "required_objective_sense"
+    )
     component_ids = list(
         registered_core["definition"][
             "required_objective_component_ids"
         ]
     )
 
-    if (
-        core_id == "single_period_newsvendor"
-        and objective
-        in {
-            "maximize_profit",
-            "Gewinn maximieren",
-        }
-    ):
-        objective_sense = "maximize"
-        component_ids = [
-            "sales_revenue",
-            "purchase_cost",
-        ]
+    components_by_goal = registered_core["definition"].get(
+        "required_objective_components_by_goal", {}
+    )
+    goal_components = components_by_goal.get(objective, [])
+    if goal_components:
+        component_ids.extend(goal_components)
+        component_ids = list(dict.fromkeys(component_ids))
+        if objective_sense is None:
+            objective_sense = (
+                "maximize" if objective == "maximize_profit" else "minimize"
+            )
 
     if not component_ids:
         raise ValueError(
-            "Für die Produkttabelle konnte keine sichere "
-            "Zielfunktionsauswahl abgeleitet werden."
+            t("Für die Produkttabelle konnte keine sichere Zielfunktionsauswahl abgeleitet werden.")
         )
-
-    if not evidence:
-        raise ValueError(
-            "Für die vorläufige Bausteinauswahl fehlt ein "
-            "Quellenbeleg."
-        )
-
-    source_id = evidence[0]["source_id"]
 
     return {
         "core_id": core_id,
@@ -120,10 +114,9 @@ def _build_preliminary_fallback_proposal(
             {
                 "component_id": component_id,
                 "reason": (
-                    "Deterministische Rückfallebene für die "
-                    "Spalten der Produkttabelle."
+                    t("Vom registrierten Grundmodell für die Produkttabelle benötigt.")
                 ),
-                "sources": [source_id],
+                "sources": ["core_definition"],
             }
             for component_id in component_ids
         ],
@@ -136,16 +129,12 @@ def create_preliminary_component_selection_agent(
     llm: BaseChatModel,
 ) -> PreliminaryComponentSelectionAgent:
     """
-    Wählt Bausteine vorläufig aus, bevor Produkte existieren.
+    Ermittelt Pflichtbausteine vor der Produkteingabe deterministisch.
 
     Diese Auswahl dient ausschließlich zur Bestimmung der
     Tabellenspalten. Nach der Produkteingabe wird die vollständige
     Modellvorbereitung erneut ausgeführt.
     """
-
-    component_selection_agent = (
-        create_component_selection_agent(llm)
-    )
 
     def select_preliminary_components(
         *,
@@ -154,20 +143,10 @@ def create_preliminary_component_selection_agent(
         global_facts: dict[str, Any],
         evidence: list[SelectionEvidence],
     ) -> ComponentSelectionProposal:
-        try:
-            return component_selection_agent(
-                core_id=core_id,
-                requirements=requirements,
-                products=[],
-                global_facts=global_facts,
-                evidence=evidence,
-            )
-        except (TypeError, ValueError):
-            return _build_preliminary_fallback_proposal(
-                core_id=core_id,
-                requirements=requirements,
-                evidence=evidence,
-            )
+        return _build_preliminary_proposal(
+            core_id=core_id,
+            requirements=requirements,
+        )
 
     return select_preliminary_components
 
@@ -184,8 +163,12 @@ def create_modular_model_agent(
     )
 
     component_selection_agent = (
-        create_component_selection_agent(llm)
+        create_component_selection_agent(
+            llm,
+            require_explicit_requirement_evidence=True,
+        )
     )
+    integrity_agent = create_component_selection_integrity_agent(llm)
 
     component_coverage_agent = (
         create_component_coverage_agent(llm)
@@ -218,19 +201,39 @@ def create_modular_model_agent(
             products=extracted_products,
             global_facts=extracted_global_facts,
             evidence=evidence,
-            locked_objective_proposal=(
-                preliminary_proposal
-            ),
+            # Die vorläufige Auswahl dient nur den Eingabefeldern.
+            # Nach der Faktenextraktion muss die endgültige Auswahl
+            # fehlende Zielfunktionsbausteine ergänzen dürfen.
+        )
+        proposal = integrity_agent(
+            proposal=proposal,
+            evidence=evidence,
+            objective_goal=requirements.get("objective"),
         )
 
         if enable_coverage_audit:
+            before_coverage = proposal
             proposal = component_coverage_agent(
                 core_id=core_id,
                 requirements=requirements,
                 products=extracted_products,
                 evidence=evidence,
                 proposal=proposal,
+                normalize_missing_inputs=lambda candidate: integrity_agent(
+                    proposal=candidate,
+                    evidence=evidence,
+                    objective_goal=requirements.get("objective"),
+                ),
             )
+            if (
+                proposal["unresolved_requirements"]
+                != before_coverage["unresolved_requirements"]
+            ):
+                proposal = integrity_agent(
+                    proposal=proposal,
+                    evidence=evidence,
+                    objective_goal=requirements.get("objective"),
+                )
 
         if proposal["selection_status"] != "complete":
             return {
@@ -295,8 +298,7 @@ def execute_modular_model_draft(
 
     if not confirmed:
         raise ValueError(
-            "Der Modellentwurf muss vor der Ausführung "
-            "bestätigt werden."
+            t("Der Modellentwurf muss vor der Ausführung bestätigt werden.")
         )
 
     validation = validate_model_specification(
@@ -307,13 +309,12 @@ def execute_modular_model_draft(
         messages = list(validation["errors"])
 
         messages.extend(
-            "Fehlende Eingabe: "
-            f"{missing_input['field']['name']}"
+            t("Fehlende Eingabe: {name}", name=missing_input['field']['name'])
             for missing_input in validation["missing_inputs"]
         )
 
         raise ValueError(
-            "Der Modellentwurf ist nicht vollständig: "
+            t("Der Modellentwurf ist nicht vollständig: ")
             + "; ".join(messages)
         )
 

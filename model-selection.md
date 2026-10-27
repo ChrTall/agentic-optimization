@@ -48,10 +48,12 @@ Modell keinen Einkaufspreis pro Einheit verwendet. Die Kapazitätsgrenze
 nicht der erwartete physische Höchstbestand.
 
 Bestellmenge, Meldebestand und ausgegebener Sicherheitsbestand werden als
-ganze Produkteinheiten empfohlen. Dabei wird \(Q\) auf die nächste Einheit
-gerundet; \(R\) und der Sicherheitsbestand werden vorsichtshalber
-aufgerundet. Statistische Eingaben und erwartete Kosten dürfen weiterhin
-Dezimalwerte enthalten.
+ganze Produkteinheiten empfohlen. Der Solver durchsucht dazu alle zulässigen
+ganzzahligen Bestellmengen \(Q\) und prüft für jede die benachbarten
+ganzzahligen Meldebestände \(R\) um das stetige Optimum. Empfohlen wird die
+Kombination mit den geringsten erwarteten Kosten; es wird also nicht pauschal
+auf- oder abgerundet. Statistische Eingaben und erwartete Kosten dürfen
+weiterhin Dezimalwerte enthalten.
 
 ## Nicht unterstützte Nebenbedingungen
 
@@ -74,18 +76,6 @@ Nebenbedingungen extrahiert werden. Beispielsweise beschreibt „Während der
 Saison kann nicht nachbestellt werden“ beim Newsvendor den
 `single_period`-Planungshorizont und keine zusätzliche Solver-Nebenbedingung.
 
-## (s, S)-Politik
-
-- **Entscheidung:** Bestellmenge
-- **Ziel:** Kosten minimieren
-- **Nachfrage:** Unsicher / saisonal
-- **Planungszeitraum:** Für mehrere aufeinanderfolgende Zeiträume
-- **Bestandsüberprüfung:** Periodisch – Bestand in festen Abständen prüfen
-
-Diese Kombination ist bereits als zukünftige `(s, S)`-Route vorgesehen. Da
-das Modell noch nicht implementiert ist, wird nach der Analyse ein
-entsprechender Platzhalter angezeigt.
-
 # Demobeispiele für das zweite Formular
 
 Das zweite Formular **Problembeschreibung** ist die natürlichsprachliche
@@ -103,98 +93,100 @@ Kontrolle und Korrektur der erkannten Werte.
 > eindeutig erkannte Werte bleiben leer und können dort manuell ergänzt
 > werden.
 
-Für eine vollständige Vorführung eignet sich besonders das folgende
-Newsvendor-Beispiel, weil die Quelldaten und das Soll-Ergebnis kompakt und
-öffentlich dokumentiert sind.
+Für eine vollständige Vorführung eignet sich das folgende Newsvendor-Beispiel
+mit Restwert und begrenzter Bestellmenge.
 
-## Empfohlene End-to-End-Demo: Weihnachtsornamente
+## Empfohlene End-to-End-Demo: Weihnachtsbäume
 
-Das Beispiel basiert auf dem Fall „Theodore's Gift Shop“ aus den
-[MIT-OpenCourseWare-Unterlagen zum Newsvendor-Modell](https://ocw.mit.edu/courses/15-772j-d-lab-supply-chains-fall-2014/6952be57b43aa185119c6f114908bcc5_MIT15_772JF14_Newsboy.pdf).
-Die Quelle verwendet US-Dollar. Für die Demo werden dieselben Zahlen als Euro
-eingegeben. Das ist keine Währungsumrechnung, ändert aber die optimale Menge
-nicht, solange alle Geldbeträge einheitlich behandelt werden.
+### In den Chatbot eingeben
 
-### Formular 1: Grundlegende Angaben
+> Wir verkaufen Weihnachtsbäume in einer einzigen Saison und bestellen sie
+> einmal vor Saisonbeginn. Während der Saison können wir nicht nachbestellen.
+> Die Nachfrage ist unsicher. Ein Baum wird für 25 € verkauft und kostet im
+> Einkauf 10 €. Nicht verkaufte Bäume können nach der Saison noch für 3 € pro
+> Baum verwertet werden. Wir möchten die Bestellmenge finden, mit der wir
+> voraussichtlich den höchsten Gewinn erzielen. Zusätzlich dürfen höchstens
+> 250 Weihnachtsbäume bestellt werden.
 
-- **Entscheidung:** Bestellmenge
-- **Ziel:** Gewinn maximieren
-- **Nachfrage:** Unsicher / saisonal
-- **Planungszeitraum:** Für eine einmalige Entscheidung
+Bei Rückfragen bestätigen, dass **einmal vor der Saison bestellt** wird und
+**während der Saison keine Nachbestellung möglich ist**.
 
-### Formular 2: Problembeschreibung
-
-Folgenden Text vollständig in das Freitextfeld kopieren:
-
-> Ein Geschenkeladen muss bereits im Juli einmalig datierte
-> Weihnachtsornamente für die kommende Saison bestellen. Während der Saison
-> kann nicht nachbestellt werden. Ein Ornament kostet im Einkauf 55 Euro und
-> wird für 80 Euro verkauft. Nicht verkaufte Ornamente können nach Weihnachten
-> für 40 Euro pro Stück verkauft werden. Für die saisonale Nachfrage werden
-> vier Szenarien erwartet: 5 Stück mit 20 Prozent Wahrscheinlichkeit, 6 Stück
-> mit 25 Prozent, 7 Stück mit 30 Prozent und 8 Stück mit 25 Prozent. Gesucht
-> ist die einmalige Bestellmenge mit dem höchsten erwarteten Gewinn. Wegen der
-> begrenzten Ausstellungsfläche dürfen höchstens 7 Ornamente bestellt werden.
-
-Nach **Problem analysieren** sollte die Anwendung das **Newsvendor-Modell –
-Single Product, Single Period** erkennen und zu **Angaben zur Berechnung**
-wechseln. Die fünf Pflichtfelder sollten aus dem Text mit den unten gezeigten
-Werten vorbefüllt werden. Zusätzlich sollte eine **Höchstbestellmenge von 7**
-als vorausgewählte Rahmenbedingung erkannt werden. Vor der Berechnung müssen
-die vorausgefüllten Angaben noch geprüft und bestätigt werden.
-
-### Angaben zur Berechnung
+### Werte für das Formular
 
 | Feld | Eingabe |
 | --- | ---: |
-| Verkaufspreis pro Einheit | 80 |
-| Einkaufskosten pro Einheit | 55 |
-| Restwert pro unverkaufter Einheit | 40 |
-| Mögliche Nachfragewerte | `5, 6, 7, 8` |
-| Wahrscheinlichkeiten | `0.20, 0.25, 0.30, 0.25` |
-| Betriebliche Rahmenbedingungen berücksichtigen? | Ja |
-| Höchstbestellmenge | 7 |
+| Erwartete Nachfrage | 276 |
+| Nachfragequantile | `0.1: 150; 0.5: 300; 0.9: 350` |
+| Prognosezeitraum | 55 Tage |
+| Verkaufspreis pro Baum | 25 € |
+| Einkaufskosten pro Baum | 10 € |
+| Restwert pro unverkauftem Baum | 3 € |
+| Höchstbestellmenge | 250 Bäume |
 
-Die Höchstbestellmenge ist eine realistische Demo-Erweiterung und nicht Teil
-der MIT-Quelle. Sie verändert das Soll-Ergebnis nicht, da die dort bereits
-optimale Bestellmenge 7 beträgt.
+Vor der Berechnung prüfen, ob neben Verkaufserlös und Einkaufskosten auch der
+**Restwerterlös** sowie die **Höchstbestellmenge von 250** berücksichtigt werden.
+Aus den drei Quantilen bildet die Anwendung eine stückweise lineare
+Nachfrageverteilung mit 100 gleich wahrscheinlichen Szenarien (Mittelwert etwa
+268,75). Ohne Höchstbestellmenge läge die optimale Bestellmenge bei etwa 323
+Bäumen (kritisches Verhältnis \((25 - 10) / (25 - 3) \approx 0{,}68\)); mit
+der Grenze von 250 ist sie bindend:
+
+- **Empfohlene Bestellmenge:** 250 Bäume
+- **Erwarteter Gewinn:** 3.195,46 €
+
+Die angegebene erwartete Nachfrage (276) wird mit dem Mittelwert der
+Quantilsverteilung abgeglichen und im Ergebnis neben ihm angezeigt. Weichen
+beide um mehr als 25 % voneinander ab, weist die Validierung auf
+widersprüchliche Angaben hin.
+
+## Alternativdemo: EOQ für E-Bikes bei Bike-World
+
+### In den Chatbot eingeben
+
+> Die Bike-World GmbH verkauft ein E-Bike-Modell dauerhaft und bestellt es
+> regelmäßig nach. Für die kommenden 365 Tage erwarten wir einen Bedarf von
+> 1.200 E-Bikes, ungefähr gleichmäßig über die Zeit. Es gibt keine
+> Mengenrabatte und wir planen keine Fehlbestände. Jede Bestellung verursacht
+> feste Bestellkosten von 150 €. Die Lagerhaltung kostet 25 € pro E-Bike und
+> Jahr. Wir möchten die Bestellmenge bestimmen, bei der die jährlichen
+> Bestell- und Lagerhaltungskosten zusammen am geringsten sind.
+
+Bei Rückfragen die **regelmäßige Nachbestellung** bestätigen. Vor der
+Berechnung die Modellannahmen auf der Prüfseite einzeln bestätigen.
+
+### Werte für das Formular
+
+| Feld | Eingabe |
+| --- | ---: |
+| Erwartete Nachfrage | 1.200 E-Bikes |
+| Prognosezeitraum | 365 Tage |
+| Bestellkosten pro Bestellung | 150 € |
+| Lagerhaltungskosten pro E-Bike und Jahr | 25 € |
 
 ### Erwartetes Ergebnis
 
-- **Empfohlene Bestellmenge:** 7 Einheiten
-- **Erwarteter Gewinn:** 149,00 €
-- **Solverstatus:** Optimal
+- **Grundmodell:** Wirtschaftliche Bestellmenge (EOQ)
+- **Empfohlene Bestellmenge:** 120 E-Bikes pro Bestellung
+- **Jährliche Bestellkosten:** 1.500 €
+- **Jährliche Lagerhaltungskosten:** 1.500 €
+- **Jährliche relevante Gesamtkosten:** 3.000 €
 
-Die Szenariotabelle sollte Folgendes zeigen:
+## Alternativdemo: Q,R für T-Shirts
 
-| Nachfrage | Wahrscheinlichkeit | Verkauft | Restbestand |
-| ---: | ---: | ---: | ---: |
-| 5 | 20 % | 5 | 2 |
-| 6 | 25 % | 6 | 1 |
-| 7 | 30 % | 7 | 0 |
-| 8 | 25 % | 7 | 0 |
+### In den Chatbot eingeben
 
-Das Ergebnis stimmt mit der MIT-Musterrechnung überein: Bei sieben bestellten
-Ornamenten beträgt der erwartete Erlös 534 und nach Abzug der Einkaufskosten
-von \(7 \cdot 55 = 385\) der erwartete Gewinn 149.
+> Wir verkaufen ein T-Shirt-Modell dauerhaft und bestellen regelmäßig nach.
+> Der Lagerbestand wird laufend überwacht. Die Lieferzeit beträgt konstant
+> drei Tage. Die Nachfrage ist unsicher: Für diese drei Tage erwarten wir
+> 60 verkaufte T-Shirts; die Nachfragequantile sind Q10 = 51,12, Q50 = 60
+> und Q90 = 68,88. Wir möchten die Bestellmenge und den Meldebestand
+> bestimmen und die jährlichen Bestell-, Lagerhaltungs- und Fehlmengenkosten
+> minimieren. Jede Bestellung kostet 250 €, die Lagerhaltung 50 € je T-Shirt
+> und Jahr und jede fehlende Einheit 10 €.
 
-## Alternativtext für die Q–R-Politik: T-Shirts im Campusladen
-
-Dieses kleinere Beispiel stammt aus einer Cornell-ORIE-3120-Übung zur
-Q–R-Politik. Eine
-[archivierte Kopie der Übung mit Musterlösung](https://www.studocu.com/en-us/document/cornell-university/industrial-data-and-systems-analysis/orie-3120-rec-4-answers-material/12623299)
-nennt genau die Kosten- und Nachfragegrößen, die unser Modell benötigt.
-Cornell stellt außerdem
-[offizielle Kursunterlagen zur Q–R-Bestandssteuerung](https://people.orie.cornell.edu/pfrazier/orie3120/demos/QR.pdf)
-bereit.
-
-Gegenüber dem bisherigen HP-Druckerfall hat dieses Beispiel drei Vorteile:
-
-- Es verwendet genau die sechs in `REQUIRED_FIELDS` definierten Eingaben.
-- Es benötigt weder Einkaufspreis noch Pipelinekosten oder ein vorgegebenes
-  Servicelevel.
-- Bestellmenge und Meldebestand liegen im zwei- bis dreistelligen Bereich und
-  lassen sich in der WebUI gut lesen.
+Bei Rückfragen die **regelmäßige Nachbestellung** und die **laufende
+Bestandsprüfung** bestätigen. Die konstante Lieferzeit auf der Prüfseite
+ausdrücklich bestätigen.
 
 ### Formular 2: Problembeschreibung
 
@@ -203,12 +195,11 @@ Folgenden Text vollständig in das Freitextfeld kopieren:
 > Ein Campusladen überwacht den Bestand eines T-Shirt-Modells laufend und
 > möchte seine jährlichen Bestell-, Lagerhaltungs- und Fehlmengenkosten
 > minimieren. Sobald die Bestandsposition den Meldebestand erreicht, wird eine
-> feste Menge nachbestellt. Pro Tag werden im Mittel 20 T-Shirts verkauft; die
-> Tagesnachfrage ist unabhängig und normalverteilt mit einer
-> Standardabweichung von 4 T-Shirts. Bei 365 Verkaufstagen beträgt die
-> jährliche Nachfrage 7.300 T-Shirts. Die Lieferzeit beträgt drei Tage. Damit
-> liegt die mittlere Nachfrage während der Lieferzeit bei 60 T-Shirts und ihre
-> Standardabweichung bei 6,928 T-Shirts. Jede Bestellung kostet 250 Euro, die
+> feste Menge nachbestellt. Die Lieferzeit beträgt drei Tage. Für diese drei
+> Tage erwarten wir eine Nachfrage von 60 T-Shirts; die Nachfrageprognose
+> bezieht sich also auf einen Zeitraum von drei Tagen. Für denselben Zeitraum
+> liegen folgende Nachfragequantile vor: 0,1 mit 51,12; 0,5 mit 60; 0,9 mit
+> 68,88 T-Shirts. Jede Bestellung kostet 250 Euro, die
 > Lagerhaltung 50 Euro je T-Shirt und Jahr und eine Fehlmenge 10 Euro je
 > T-Shirt. Der Lieferant akzeptiert Bestellmengen von mindestens 250 und
 > höchstens 300 T-Shirts. Der Meldebestand soll zwischen 60 und 80 T-Shirts
@@ -217,7 +208,7 @@ Folgenden Text vollständig in das Freitextfeld kopieren:
 
 Zusammen mit den oben beschriebenen Q–R-Auswahlen in Formular 1 sollte die
 Anwendung die **Q–R Policy** erkennen und zu **Angaben zur Berechnung**
-wechseln. Die sechs Pflichtfelder sollten aus dem Text mit den folgenden
+wechseln. Die Pflichtfelder sollten aus dem Text mit den folgenden
 Werten vorbefüllt werden. Auch die fünf Rahmenbedingungen sollten
 vorausgewählt und mit ihren Zahlenwerten befüllt sein. Vor der Berechnung
 müssen alle erkannten Angaben noch geprüft und bestätigt werden.
@@ -232,14 +223,21 @@ Tagesnachfragen folgt daraus
 Dollarbeträge der Quelle ohne Wechselkursumrechnung als einheitliche
 Euro-Demowerte behandelt.
 
+Die Anwendung erwartet die Nachfrage als Prognose (Erwartungswert, Quantile,
+Prognosezeitraum). Die Quantile beziehen sich auf denselben Zeitraum wie der
+Erwartungswert, hier also auf die drei Tage der Lieferzeit. Daraus leitet die
+Anwendung den Jahresbedarf \(D = 60 \cdot 365 / 3 = 7300\) und
+\(\sigma_L \approx 6{,}929\) selbst ab.
+
 | Feld | Eingabe |
 | --- | ---: |
-| Jährliche Nachfrage | 7300 |
+| Erwartete Nachfrage | 60 |
+| Nachfragequantile | `0.1: 51.12; 0.5: 60; 0.9: 68.88` |
+| Prognosezeitraum | 3 Tage |
+| Lieferzeit | 3 Tage |
 | Fixe Bestellkosten | 250 |
 | Jährliche Lagerhaltungskosten | 50 |
 | Fehlmengenkosten | 10 |
-| Mittlere Nachfrage während der Lieferzeit | 60 |
-| Standardabweichung der Lieferzeitnachfrage | 6.928 |
 | Betriebliche Rahmenbedingungen berücksichtigen? | Ja |
 | Mindestbestellmenge Q | 250 |
 | Höchstbestellmenge Q | 300 |
@@ -247,40 +245,24 @@ Euro-Demowerte behandelt.
 | Höchstmeldebestand R | 80 |
 | Maximale Bestandsposition Q + R | 400 |
 
-Die Grenzen für \(Q\), \(R\) und \(Q+R\) sind plausible
-**Demo-Erweiterungen**, aber nicht Teil der Cornell-Quelle. Sie bilden alle von
-der WebUI unterstützten Q–R-Nebenbedingungen ab und sind für die unten
-genannten Ergebnisse nicht bindend.
+Erwartet wird das Grundmodell **Kontinuierliche Bestandsüberprüfung (Q,R)**,
+das sowohl eine Bestellmenge als auch einen Meldebestand empfiehlt.
 
 ### Erwartetes Ergebnis
 
-Die Cornell-Musterrechnung liefert vor der operativen Ganzzahlrundung ungefähr
-\(Q = 274{,}012\) und \(R = 66{,}142\) T-Shirts. Nach der in diesem Repository
-beschriebenen Rundungsregel und allen fünf nichtbindenden
-Demo-Nebenbedingungen liefert die WebUI:
+Die Cornell-Musterrechnung liefert vor der Ganzzahlrundung ungefähr
+\(Q = 274{,}012\) und \(R = 66{,}142\) T-Shirts. Mit allen fünf
+nichtbindenden Demo-Nebenbedingungen liefert die WebUI:
 
 - **Empfohlene Bestellmenge Q:** 274 Einheiten
-- **Meldebestand R:** 67 Einheiten
-- **Sicherheitsbestand:** 7 Einheiten
-- **Erwartete jährliche Kosten:** 14.011,35 €
+- **Meldebestand R:** 66 Einheiten
+- **Sicherheitsbestand:** 6 Einheiten
+- **Erwartete jährliche Kosten:** 14.007,86 €
 - **Solverstatus:** Optimal
-- **Iterationen:** 5
 
 Der Solver verwendet wie die Cornell-Musterrechnung
 \(F(R) = 1 - hQ/(pD)\). Dieselbe Näherung wird auch im
 [LINDO-Kapitel zum Q–R-Modell](https://www.lindo.com/downloads/LINGO_text/Chapter17.pdf)
-angegeben. Die Fixpunktiteration rechnet intern mit ungerundeten Werten und
-rundet erst die operative Empfehlung. Dadurch stimmt das WebUI-Ergebnis bis
-auf diese dokumentierte Ganzzahlrundung mit der Referenz überein.
-
-## Alternativtext für die (s, S)-Route
-
-> Eine Apotheke prüft ihren Bestand einmal pro Woche. Die Nachfrage zwischen
-> den Prüfzeitpunkten ist unsicher. Wenn der Bestand bei einer Prüfung zu
-> niedrig ist, soll bis zu einem Zielbestand aufgefüllt werden. Gesucht ist
-> eine kostengünstige Bestellpolitik für mehrere aufeinanderfolgende Wochen.
-
-Zusammen mit den oben beschriebenen `(s, S)`-Auswahlen in Formular 1 sollte
-die Anwendung die periodische Bestandsüberprüfung erkennen. Erwartet wird der
-Hinweis **Problemart noch nicht unterstützt**, weil das `(s, S)`-Modell noch
-nicht implementiert ist.
+angegeben. Weil die ganzzahlige Suche die Kosten von \(R = 66\) und
+\(R = 67\) direkt vergleicht, liegt das Ergebnis etwas unter dem einer
+pauschalen Aufrundung (\(R = 67\): 14.011,42 €).

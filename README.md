@@ -100,7 +100,7 @@ Then edit the `.env` file and provide the required values:
 
 ```env
 LLM_PROVIDER=openai
-LLM_MODEL=gpt-4.1-mini
+LLM_MODEL=gpt-5.4-mini
 LLM_API_KEY=
 ```
 
@@ -110,11 +110,21 @@ The following variables are required:
 * `LLM_MODEL`: The model name for the selected provider.
 * `LLM_API_KEY`: The API key for the selected provider.
 
-Example configurations:
+Optional variables:
+
+* `LLM_TIMEOUT_SECONDS`: Request timeout in seconds (default: `60`).
+* `LLM_MAX_RETRIES`: Automatic retries on rate limits and transient errors (default: `2`).
+* `LLM_TEMPERATURE`: Sampling temperature, e.g. `0` for more reproducible model selection. Leave it unset for
+  reasoning models that do not accept a temperature.
+
+If the provider rejects a request (invalid key, rate limit, timeout), the app shows a message instead of a traceback.
+
+Example configurations (small models such as `llama-3.1-8b-instant` are cheap but return invalid structured
+answers more often; for demos a model like `gpt-5.4-mini` or `claude-haiku-4-5` is more reliable):
 
 ```env
 LLM_PROVIDER=openai
-LLM_MODEL=gpt-4.1-mini
+LLM_MODEL=gpt-5.4-mini
 LLM_API_KEY=your-openai-api-key
 ```
 
@@ -126,7 +136,7 @@ LLM_API_KEY=your-groq-api-key
 
 ```env
 LLM_PROVIDER=anthropic
-LLM_MODEL=claude-3-5-haiku-latest
+LLM_MODEL=claude-haiku-4-5
 LLM_API_KEY=your-anthropic-api-key
 ```
 
@@ -165,6 +175,50 @@ beides lässt sich jederzeit mischen.
   Bestätigung.
 - **Überprüfung / Ergebnis:** Fragen werden beantwortet; die Berechnung startet nur nach ausdrücklicher Bestätigung.
 
+- **Gedächtnis:** Alles, was Sie im Chat schreiben, wird in der Sitzung gespeichert. Bevor der Assistent eine Frage
+  stellt, prüft er Ihre bisherigen Aussagen und übernimmt bereits genannte Werte – mit wörtlichem Zitat als Beleg.
+  Unter „🧠 Das weiß ich schon“ sehen Sie jederzeit, was bekannt ist.
+- **Antwort-Buttons:** Rückfragen lassen sich per Klick beantworten.
+- **Beschreibung nur im Chat:** Formular 1 hat kein Freitextfeld und keinen Dokumentenupload mehr. Was der Assistent
+  erkennt, erscheint als **Erkannte Anforderungen** (aus dem Text, mit Zitat) und gesondert gekennzeichnete
+  **Annahmen**. Jeder Eintrag kann bestätigt, geändert oder verworfen werden. In späteren Schritten bleibt die
+  Übersicht als aufklappbarer Bereich **Bekannte Angaben** sichtbar und bearbeitbar.
+- **Formular 3:** Alle Felder bleiben sichtbar und an ihrer Position, auch nachdem sie ausgefüllt sind. Der
+  Produktname ist änderbar (Fallback „Produkt 1“). Zusätzliche kompatible Bausteine lassen sich im aufklappbaren
+  Bereich **Zusätzliche Bausteine** an- und abwählen – oder im Chat nennen. Sind alle Pflichtangaben vorhanden, weist
+  der Assistent auf diese Bausteine hin; weiter geht es mit **Weiter zur Überprüfung**.
+- **Ergebnis:** Der optimierte Wert heißt so, wie er gemeint ist (z. B. „Erwarteter Gewinn“).
+- **Chatbreite:** oben im Chat zwischen Schmal, Mittel, Breit und halber Fensterbreite umschaltbar.
+- **Sprache:** oben im Chat zwischen **Deutsch** und **English** umschaltbar. Die gesamte Oberfläche (Formulare,
+  Felder, Meldungen, Fehlertexte, Ergebnisse) wird übersetzt; neue Antworten des Assistenten kommen in der gewählten
+  Sprache. Bereits geschriebene Chatnachrichten bleiben in ihrer ursprünglichen Sprache. Übersetzungen liegen in
+  `agentic_optimization/i18n/en.py` (deutscher Text als Schlüssel, `t("…")` im Code); ein Test stellt sicher, dass
+  jeder Text übersetzt ist.
+- **Eine Sprechblase pro Runde:** Antwort, Hinweise und nächste Frage erscheinen zusammen in einer Nachricht;
+  Antwortmöglichkeiten stehen nur noch als Buttons darunter.
+- **Sichere Zuordnung:** Ein Wert wird nicht einem Feld zugeordnet, wenn der Satz ausdrücklich eine andere Größe nennt
+  (z. B. „Verkaufspreis von 25 €“ landet nie bei den Einkaufskosten) – gilt für Chat und Erinnern
+  (`agentic_optimization/ui/chat_mentions.py`).
+- **Bausteine aus dem Gespräch:** Ausdrücklich genannte Vorgaben wie „Höchstbestellmenge von 250“, „Budget 5.000 €“,
+  „10er-Gebinde“ oder „Servicegrad 95 %“ werden in Formular 3 automatisch angewählt und der Wert eingetragen – auch
+  wenn sie schon in der Beschreibung standen. Im Formular abgewählte Bausteine werden nicht erneut hinzugefügt.
+- **Werte per Chat ändern:** Nennt man im Chat einen neuen Wert für ein bereits ausgefülltes Feld (z. B. „Die
+  Höchstbestellmenge beträgt 270“), wird er im Formular ersetzt.
+- **Strenges Erinnern:** Aus früheren Aussagen wird ein Zahlenwert nur übernommen, wenn die Zahl im Zitat steht und
+  Einheit und Begriff passen („Restwert von 3 Euro“ wird nie zur Höchstbestellmenge, „jedes Jahr“ nie zu 365 Tagen).
+  Ein Umbenennen des Produkts löst kein erneutes Erinnern aus.
+- **Rückfragen zuerst:** Eine Bestätigung in „Erkannte Anforderungen“ springt nicht an einer noch offenen Rückfrage
+  vorbei zu Formular 3.
+- **Geschwindigkeit:** Mit `LLM_REASONING_EFFORT=low` (oder `minimal`) in der `.env` antworten Reasoning-Modelle wie
+  `gpt-5.4-mini` deutlich schneller. Frühere Aussagen werden pro offener Angabe nur einmal durchsucht, damit pro
+  Chatnachricht nur ein Modellaufruf nötig ist.
+- **Sofortige Übernahme:** Eingaben in den Formularen (Zahlen, Produktname, Antworten auf Rückfragen) werden ohne
+  Bestätigungsknopf übernommen; der Assistent sieht sie sofort und stellt direkt die nächste Frage.
+- **Ehrliche Grenzen:** Passt eine Situation zu keinem verfügbaren Rechenmodell, sagt der Assistent das klar, statt
+  weiter nachzufragen. Bleibt eine Frage zweimal unbeantwortet, bietet er Auswege an.
+- **Produktname:** Bei einem einzelnen Produkt wird dessen Name aus der Beschreibung übernommen (z. B. „Weihnachtsbaum“),
+  sonst „Produkt 1“.
+
 Alle Werte aus dem Chat laufen durch dieselbe Validierung und dieselben Workflow-Events wie die Formulare.
 Relevante Dateien:
 
@@ -172,3 +226,19 @@ Relevante Dateien:
 - `agentic_optimization/ui/chat_assistant_builder.py` – Fragenreihenfolge, Kontext je Schritt, Zuordnung der
   Chat-Werte (UI-unabhängig)
 - `agentic_optimization/ui/chat_assistant_panel.py` – Streamlit-Darstellung in der Seitenleiste
+
+## 4. Auswertung der Modellauswahl
+
+`evals/model_selection_cases.json` enthält Problembeschreibungen mit den jeweils akzeptierten Ergebnissen
+(Grundmodell, `needs_clarification` oder `unsupported`). Das Skript schickt jeden Fall mehrfach durch denselben
+Geschäftseinstieg wie die App und gibt Trefferquote und Stabilität aus. **Es ruft das konfigurierte Sprachmodell auf
+und verursacht API-Kosten.**
+
+```bash
+uv run python -m agentic_optimization.evaluation.model_selection              # alle Fälle, je 3 Durchläufe
+uv run python -m agentic_optimization.evaluation.model_selection --repeats 5 --output report.json
+uv run python -m agentic_optimization.evaluation.model_selection --case qr_tshirts
+```
+
+Neue Fälle einfach in der JSON-Datei ergänzen. Mit `LLM_TEMPERATURE=0` (sofern das Modell es unterstützt) werden
+die Ergebnisse reproduzierbarer.

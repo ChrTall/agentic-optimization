@@ -118,6 +118,19 @@ class UnresolvedRequirement(TypedDict):
     sources: list[str]
 
 
+class ComponentSelectionDecision(TypedDict):
+    """Fachliche Auswahlentscheidung des LLM."""
+
+    objective_sense: ObjectiveSense
+    objective_components: list[
+        ProposedObjectiveComponent
+    ]
+    constraints: list[ProposedConstraint]
+    unresolved_requirements: list[
+        UnresolvedRequirement
+    ]
+
+
 class ComponentSelectionProposal(TypedDict):
     """Nachvollziehbarer Vorschlag des Component-Selection-Agents."""
 

@@ -1,5 +1,8 @@
+import pytest
+
 from agentic_optimization.agents.business_profile_adapter import (
     build_requirements_from_business_profile,
+    reconcile_profile_with_condition_answers,
 )
 from agentic_optimization.models.problem_profile import (
     create_empty_business_problem_profile,
@@ -18,6 +21,38 @@ def confirmed(value):
             }
         ],
     )
+
+
+@pytest.mark.parametrize(
+    ("core_id", "field_id", "old_value", "condition_id", "expected"),
+    [
+        ("eoq", "procurement_pattern", "one_time", "recurring_orders", "recurring"),
+        (
+            "continuous_review_q_r", "procurement_pattern", "one_time",
+            "recurring_orders", "recurring",
+        ),
+        (
+            "single_period_newsvendor", "replenishment_during_period",
+            "possible", "no_replenishment_within_period", "not_possible",
+        ),
+        (
+            "continuous_review_q_r", "inventory_review", "periodic",
+            "continuous_inventory_review", "continuous",
+        ),
+    ],
+)
+def test_direct_condition_precedes_old_profile_value(
+    core_id, field_id, old_value, condition_id, expected,
+) -> None:
+    profile = create_empty_business_problem_profile()
+    profile[field_id] = confirmed(old_value)
+    reconciled = reconcile_profile_with_condition_answers(
+        profile,
+        core_id=core_id,
+        condition_answers={condition_id: "supported"},
+    )
+    assert reconciled[field_id]["value"] == expected
+    assert profile[field_id]["value"] == old_value
 
 
 def test_maps_recurring_cost_profile() -> None:

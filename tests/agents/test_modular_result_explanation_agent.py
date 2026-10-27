@@ -105,7 +105,7 @@ def test_generates_result_explanation() -> None:
     ] == 264.58
 
 
-def test_rejects_additional_response_fields() -> None:
+def test_ignores_additional_response_fields() -> None:
     llm = Mock()
     llm.invoke.return_value = AIMessage(
         content=json.dumps(
@@ -120,11 +120,8 @@ def test_rejects_additional_response_fields() -> None:
         llm
     )
 
-    with pytest.raises(
-        ValueError,
-        match="ausschließlich das Feld",
-    ):
-        agent(
-            review_data=create_review_data(),
-            result_data=create_result_data(),
-        )
+    # Zusätzliche Felder werden ignoriert, nur die Erklärung zählt.
+    assert agent(
+        review_data=create_review_data(),
+        result_data=create_result_data(),
+    ) == "Eine Erklärung."

@@ -26,6 +26,7 @@ from agentic_optimization.models.core_registry import (
 from agentic_optimization.models.types import (
     ModelInputField,
 )
+from agentic_optimization.i18n import t
 
 ProductDisplayMode = Literal[
     "cards",
@@ -67,6 +68,17 @@ class ModularInputLayout(TypedDict):
     validation_errors: list[str]
 
 
+def input_key(missing_input: MissingInput) -> tuple:
+    """Fachlicher Schlüssel einer Eingabe: Quelle, Produkt/Baustein, Feld."""
+
+    return (
+        missing_input["source"],
+        missing_input.get("product_id"),
+        missing_input.get("constraint_index"),
+        missing_input["field"]["name"],
+    )
+
+
 def _append_unique_fields(
     target: list[ModelInputField],
     fields: list[ModelInputField],
@@ -100,13 +112,12 @@ def build_dynamic_product_table_schema(
 
     if registered_core is None:
         raise ValueError(
-            f"Das Grundmodell '{core_id}' ist nicht registriert."
+            t("Das Grundmodell '{core_id}' ist nicht registriert.", core_id=core_id)
         )
 
     if proposal["core_id"] != core_id:
         raise ValueError(
-            "Grundmodell und Bausteinvorschlag stimmen "
-            "nicht überein."
+            t("Grundmodell und Bausteinvorschlag stimmen nicht überein.")
         )
 
     core_definition = registered_core["definition"]
@@ -203,13 +214,16 @@ def can_render_product_input_table(
 
 def build_product_input_table_rows(
     layout: ModularInputLayout,
+    specification: ModelSpecification | None = None,
 ) -> list[dict[str, Any]]:
-    """Erzeugt eine leere editierbare Zeile je Produkt."""
+    """Erzeugt eine editierbare Zeile je Produkt.
+
+    Mit ``specification`` werden vorhandene Werte vorbelegt.
+    """
 
     if not can_render_product_input_table(layout):
         raise ValueError(
-            "Die offenen Produktfelder können nicht sicher "
-            "in einer gemeinsamen Tabelle dargestellt werden."
+            t("Die offenen Produktfelder können nicht sicher in einer gemeinsamen Tabelle dargestellt werden.")
         )
 
     first_group = layout["product_groups"][0]
@@ -219,12 +233,40 @@ def build_product_input_table_rows(
         in _get_product_group_inputs(first_group)
     ]
 
+    products_by_id = {
+        product["product_id"]: product
+        for product in (specification or {}).get("products", [])
+    }
+
+    def existing(product_id: str, missing_input: MissingInput) -> Any:
+        product = products_by_id.get(product_id) or {}
+        container = (
+            product.get("forecast") or {}
+            if missing_input["source"] == "forecast"
+            else product.get("facts") or {}
+        )
+        value = container.get(missing_input["field"]["name"])
+
+        if missing_input["field"]["type"] == "forecast_quantiles" and value:
+            return "; ".join(
+                f"{entry['level']:g}: {entry['value']:g}"
+                for entry in value
+                if isinstance(entry, dict)
+            )
+
+        if isinstance(value, list):
+            return "; ".join(f"{entry:g}" for entry in value)
+
+        return value
+
     return [
         {
             "product_id": product_group["product_id"],
             **{
-                field_name: None
-                for field_name in field_names
+                missing_input["field"]["name"]: existing(
+                    product_group["product_id"], missing_input
+                )
+                for missing_input in _get_product_group_inputs(product_group)
             },
         }
         for product_group in layout["product_groups"]
@@ -235,8 +277,15 @@ def build_modular_input_layout(
     specification: ModelSpecification,
     *,
     card_limit: int = 3,
+    include_complete: bool = False,
 ) -> ModularInputLayout:
-    """Gruppiert fehlende Eingaben nach UI-Bereich."""
+    """Gruppiert Eingaben nach UI-Bereich.
+
+    Standardmäßig nur fehlende Eingaben (für Chat und Prüfung). Mit
+    ``include_complete`` alle Eingabefelder des Modells in fester
+    Reihenfolge – auch bereits ausgefüllte. So bleiben Felder in
+    Formular 3 sichtbar und behalten ihre Position.
+    """
 
     validation_result = validate_model_specification(
         specification
@@ -261,9 +310,12 @@ def build_modular_input_layout(
         ConstraintInputGroup,
     ] = {}
 
-    editable_inputs = list(validation_result["missing_inputs"])
+    validator_missing_inputs = list(validation_result["missing_inputs"])
+    editable_inputs = [] if include_complete else list(
+        validator_missing_inputs
+    )
 
-    if validation_result["errors"]:
+    if include_complete or validation_result["errors"]:
         registered_core = CORE_REGISTRY.get(
             specification["core_id"]
         )
@@ -316,16 +368,7 @@ def build_modular_input_layout(
 
             def add_if_new(candidate: MissingInput) -> None:
                 if not any(
-                    item["source"] == candidate["source"]
-                    and item.get("product_id")
-                    == candidate.get("product_id")
-                    and (
-                        candidate["source"] != "constraint_parameter"
-                        or item.get("constraint_index")
-                        == candidate.get("constraint_index")
-                    )
-                    and item["field"]["name"]
-                    == candidate["field"]["name"]
+                    input_key(item) == input_key(candidate)
                     for item in editable_inputs
                 ):
                     editable_inputs.append(candidate)
@@ -370,6 +413,13 @@ def build_modular_input_layout(
                         "component_id": component_id,
                         "constraint_index": index,
                     })
+
+    if include_complete:
+        known_keys = {input_key(item) for item in editable_inputs}
+
+        for missing_input in validator_missing_inputs:
+            if input_key(missing_input) not in known_keys:
+                editable_inputs.append(missing_input)
 
     for missing_input in editable_inputs:
         source = missing_input["source"]

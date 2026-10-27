@@ -195,7 +195,9 @@ def test_large_maximum_does_not_expand_q_r_search() -> None:
     }
 
 
-def test_q_r_search_limit_returns_failure() -> None:
+def test_large_q_r_search_range_is_solved() -> None:
+    """Früher brach die Berechnung ab, heute wird grob und fein gesucht."""
+
     specification = create_specification()
     specification["products"][0]["facts"][
         "ordering_cost"
@@ -203,10 +205,88 @@ def test_q_r_search_limit_returns_failure() -> None:
 
     result = execute_model_specification(specification)
 
-    assert result["status"] == "failed"
+    assert result["status"] == "optimal"
+    decisions = decision_values(result)
+    # Klassische EOQ als Größenordnung: sqrt(2 * 1216,67 * 1e8 / 2) ≈ 348.807
+    assert 300_000 < decisions["order_quantity"] < 400_000
+
+
+def test_coarse_search_matches_exhaustive_search(monkeypatch) -> None:
+    from agentic_optimization.models.reorder_point import core
+
+    parameters = {
+        "annual_demand": 7300.0,
+        "ordering_cost": 250.0,
+        "holding_cost": 50.0,
+        "shortage_cost": 10.0,
+        "lead_time_demand_mean": 60.0,
+        "lead_time_demand_std": 6.929,
+    }
+    exhaustive = core.find_optimal_q_r_policy(**parameters)
+
+    monkeypatch.setattr(core, "_MAX_DIRECT_Q_CANDIDATES", 20)
+    coarse = core.find_optimal_q_r_policy(**parameters)
+
+    assert coarse.order_quantity == exhaustive.order_quantity
+    assert coarse.reorder_point == exhaustive.reorder_point
+
+
+def test_maximum_inventory_position_limits_q_plus_r() -> None:
+    specification = create_specification()
+    unconstrained = decision_values(
+        execute_model_specification(specification)
+    )
+    capacity = int(
+        unconstrained["order_quantity"]
+        + unconstrained["reorder_point"]
+        - 20
+    )
+    specification["constraints"] = [
+        {
+            "component_id": "maximum_inventory_position",
+            "product_id": "product_1",
+            "parameters": {"capacity": capacity},
+        }
+    ]
+
+    validation = validate_model_specification(specification)
+    result = execute_model_specification(specification)
+    decisions = decision_values(result)
+
+    assert validation["is_valid"] is True
+    assert result["status"] == "optimal"
+    assert (
+        decisions["order_quantity"] + decisions["reorder_point"]
+        <= capacity
+    )
+
+
+def test_rejects_capacity_below_minimum_q_and_r() -> None:
+    specification = create_specification()
+    specification["constraints"] = [
+        {
+            "component_id": "minimum_order_quantity",
+            "product_id": "product_1",
+            "parameters": {"quantity": 100},
+        },
+        {
+            "component_id": "minimum_reorder_point",
+            "product_id": "product_1",
+            "parameters": {"reorder_point": 50},
+        },
+        {
+            "component_id": "maximum_inventory_position",
+            "product_id": "product_1",
+            "parameters": {"capacity": 120},
+        },
+    ]
+
+    validation = validate_model_specification(specification)
+
+    assert validation["is_valid"] is False
     assert any(
-        "Suchbereich" in error
-        for error in result["errors"]
+        "Bestandsposition" in error
+        for error in validation["errors"]
     )
 
 
@@ -377,3 +457,70 @@ def test_rejects_service_level_above_maximum_reorder_point() -> None:
         and "Höchstmeldebestand" in error
         for error in validation["errors"]
     )
+
+
+def test_campus_t_shirt_demo_matches_documentation() -> None:
+    """Hält die Werte aus model-selection.md mit dem Solver synchron."""
+
+    specification = create_specification()
+    product = specification["products"][0]
+    product["forecast"] = {
+        "expected_value": 60.0,
+        "quantiles": [
+            {"level": 0.1, "value": 51.12},
+            {"level": 0.5, "value": 60.0},
+            {"level": 0.9, "value": 68.88},
+        ],
+        "horizon_days": 3,
+    }
+    product["facts"] = {
+        "lead_time_days": 3,
+        "ordering_cost": 250.0,
+        "holding_cost": 50.0,
+        "shortage_cost": 10.0,
+    }
+    specification["constraints"] = [
+        {
+            "component_id": component_id,
+            "product_id": "product_1",
+            "parameters": parameters,
+        }
+        for component_id, parameters in [
+            ("minimum_order_quantity", {"quantity": 250}),
+            ("maximum_order_quantity", {"quantity": 300}),
+            ("minimum_reorder_point", {"reorder_point": 60}),
+            ("maximum_reorder_point", {"reorder_point": 80}),
+            ("maximum_inventory_position", {"capacity": 400}),
+        ]
+    ]
+
+    result = execute_model_specification(specification)
+    metrics = {
+        metric["metric_id"]: metric["value"]
+        for metric in result["metrics"]
+    }
+
+    assert result["status"] == "optimal"
+    assert decision_values(result) == {
+        "order_quantity": 274,
+        "reorder_point": 66,
+    }
+    assert metrics["safety_stock"] == pytest.approx(6.0)
+    assert result["objective_value"] == pytest.approx(14007.86, abs=0.01)
+
+
+def test_warns_about_negative_safety_stock() -> None:
+    specification = create_specification()
+    specification["products"][0]["facts"]["shortage_cost"] = 0.01
+
+    result = execute_model_specification(specification)
+
+    assert result["status"] == "optimal"
+    assert len(result["warnings"]) == 1
+    assert "negativ" in result["warnings"][0]
+
+
+def test_no_warning_for_regular_safety_stock() -> None:
+    result = execute_model_specification(create_specification())
+
+    assert result["warnings"] == []

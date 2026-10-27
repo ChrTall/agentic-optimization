@@ -17,6 +17,17 @@ from agentic_optimization.models.validator import (
 from agentic_optimization.models.core_selector import (
     CoreSelectionDecision,
 )
+from agentic_optimization.models.core_applicability import (
+    ApplicabilityPlan,
+    Finding,
+    UserConditionAnswer,
+)
+from agentic_optimization.models.core_candidate_selection import (
+    CoreCandidateProposal,
+)
+from agentic_optimization.models.core_question_planner import (
+    CoreQuestionPlan,
+)
 from agentic_optimization.models.problem_profile import (
     BusinessProblemProfile,
 )
@@ -61,6 +72,7 @@ EVENT_MODULAR_INPUTS_SUBMITTED: Final = "modular_inputs_submitted"
 EVENT_MODULAR_OPTIMIZATION_REQUESTED: Final = "modular_optimization_requested"
 EVENT_BUSINESS_INTAKE_REQUESTED: Final = "business_intake_requested"
 EVENT_MODULAR_REQUIREMENT_EXCLUSIONS_CONFIRMED: Final = "modular_requirement_exclusions_confirmed"
+EVENT_MODULAR_SPECIFICATION_EDITED: Final = "modular_specification_edited"
 
 
 
@@ -99,6 +111,7 @@ WorkflowEvent = Literal[
     "modular_optimization_requested",
     "business_intake_requested",
     "modular_requirement_exclusions_confirmed",
+    "modular_specification_edited",
 ]
 
 DecisionType = Literal[
@@ -145,6 +158,7 @@ class Requirements(TypedDict, total=False):
     review_type: ReviewType | None
     constraints: list[str]
     raw_description: str
+    explicit_model_conditions: dict[str, str]
 
 
 class ControlState(TypedDict, total=False):
@@ -179,6 +193,20 @@ class BusinessIntakeState(TypedDict, total=False):
     analysis_error: str | None
     pending_answers: list[BusinessQuestionAnswer]
     analyzed_raw_input: str
+    applicability_plan: ApplicabilityPlan
+    applicability_text_findings: dict[str, Finding]
+    applicability_text_evidence: list[dict[str, str]]
+    applicability_analyzed_raw_input: str
+    applicability_core_id: str
+    applicability_user_answers: dict[str, UserConditionAnswer]
+    candidate_proposal: CoreCandidateProposal
+    candidate_analyzed_raw_input: str | None
+    candidate_analyzed_answer_context: str
+    chosen_core_id: str | None
+    core_question_plan: CoreQuestionPlan | None
+    product_name: str | None
+    profile_overrides: list[dict[str, Any]]
+    product_name_analyzed_raw_input: str | None
 
 
 class ModularInputSubmission(TypedDict):
@@ -192,6 +220,9 @@ class ModularModelState(TypedDict, total=False):
     """Zustand der neuen modularen Modellpipeline."""
 
     core_id: str
+    pending_core_assumptions: list[str]
+    core_assumption_evidence: list[dict[str, str]]
+    core_assumptions_confirmed: bool
     products: list[ProductSpecification]
     global_facts: dict[str, Any]
     evidence: list[SelectionEvidence]
@@ -202,6 +233,8 @@ class ModularModelState(TypedDict, total=False):
     review_confirmed: bool
     optimization_result: OptimizationExecutionResult | None
     pending_input_submissions: list[ModularInputSubmission]
+    pending_specification_edits: dict[str, Any]
+    inputs_confirmed: bool
     preparation_error: str | None
     excluded_requirements: list[ExcludedRequirement]
     review_explanation: str
@@ -302,6 +335,7 @@ def invalidate_optimization_state(
         updated_state["modular_model"] = {
             **state["modular_model"],
             "review_confirmed": False,
+            "inputs_confirmed": False,
             "optimization_result": None,
             "review_explanation": "",
             "review_explanation_source": "",

@@ -3,7 +3,7 @@
 """
 
 from copy import deepcopy
-from typing import Any
+from typing import Any, cast
 
 from agentic_optimization.models.specification import (
     ComponentSelectionProposal,
@@ -11,6 +11,9 @@ from agentic_optimization.models.specification import (
     ModelSpecification,
     ProductSpecification,
     ExcludedRequirement,
+    ComponentSelectionDecision,
+    SelectionStatus,
+    UnresolvedRequirement,
 )
 from agentic_optimization.models.component_registry import (
     CONSTRAINT_COMPONENTS,
@@ -19,6 +22,13 @@ from agentic_optimization.models.component_registry import (
 from agentic_optimization.models.core_registry import (
     CORE_REGISTRY,
 )
+from agentic_optimization.i18n import t
+
+
+OBJECTIVE_SENSE_BY_GOAL = {
+    "maximize_profit": "maximize",
+    "minimize_cost": "minimize",
+}
 
 
 def _has_text(value: object) -> bool:
@@ -33,14 +43,124 @@ def _has_valid_sources(value: object) -> bool:
     )
 
 
+def _derive_selection_status(
+    unresolved_requirements: object,
+) -> SelectionStatus:
+    """Leitet den Status aus offenen Anforderungen ab."""
+
+    if not isinstance(unresolved_requirements, list):
+        return "complete"
+
+    resolutions = {
+        requirement.get("resolution")
+        for requirement in unresolved_requirements
+        if isinstance(requirement, dict)
+    }
+
+    if "unsupported" in resolutions:
+        return "unsupported"
+
+    if "clarification" in resolutions:
+        return "needs_clarification"
+
+    return "complete"
+
+
+def build_component_selection_proposal(
+    *,
+    core_id: str,
+    decision: ComponentSelectionDecision,
+    objective_goal: str | None = None,
+) -> ComponentSelectionProposal:
+    """Ergänzt technische Felder einer fachlichen Auswahl."""
+
+    unresolved_requirements = deepcopy(
+        decision.get("unresolved_requirements")
+    )
+
+    objective_components = deepcopy(
+        decision.get("objective_components")
+    )
+
+    registered_core = CORE_REGISTRY.get(core_id)
+    core_definition = (
+        registered_core["definition"]
+        if registered_core is not None else {}
+    )
+
+    if (
+        isinstance(objective_components, list)
+        and registered_core is not None
+    ):
+        selected_component_ids = {
+            component.get("component_id")
+            for component in objective_components
+            if isinstance(component, dict)
+        }
+
+        required_component_ids = [
+            *core_definition["required_objective_component_ids"],
+            *core_definition.get(
+                "required_objective_components_by_goal", {}
+            ).get(objective_goal or "", []),
+        ]
+
+        for component_id in required_component_ids:
+            if component_id in selected_component_ids:
+                continue
+
+            objective_components.append(
+                {
+                    "component_id": component_id,
+                    "reason": (
+                        t("Vom ausgewählten Grundmodell verpflichtend benötigt.")
+                    ),
+                    "sources": ["core_definition"],
+                }
+            )
+
+    objective_sense = core_definition.get("required_objective_sense")
+    if objective_sense is None:
+        goal_components = core_definition.get(
+            "required_objective_components_by_goal", {}
+        )
+        objective_sense = (
+            OBJECTIVE_SENSE_BY_GOAL.get(objective_goal)
+            if objective_goal in goal_components
+            else decision.get("objective_sense")
+        )
+
+    proposal = {
+        "core_id": core_id,
+        "selection_status": _derive_selection_status(
+            unresolved_requirements
+        ),
+        "objective_sense": objective_sense,
+        "objective_components": objective_components,
+        "constraints": deepcopy(
+            decision.get("constraints")
+        ),
+        "unresolved_requirements": (
+            unresolved_requirements
+        ),
+    }
+
+    return cast(
+        ComponentSelectionProposal,
+        proposal,
+    )
+
+
 def validate_component_selection_proposal(
     proposal: object,
+    *,
+    allow_selected_candidate_overlap: bool = False,
 ) -> list[str]:
     """Prüft die Struktur eines untrusted Agentenvorschlags."""
 
     if not isinstance(proposal, dict):
         return [
-            "Der Bausteinvorschlag muss als Objekt vorliegen."
+            t("Der Bausteinvorschlag muss als Objekt vorliegen.")
         ]
 
     errors: list[str] = []
@@ -55,9 +175,7 @@ def validate_component_selection_proposal(
         "unsupported",
     }:
         errors.append(
-            "Der Auswahlstatus muss 'complete', "
-            "'needs_clarification' oder "
-            "'unsupported' sein."
+            t("Der Auswahlstatus muss 'complete', 'needs_clarification' oder 'unsupported' sein.")
         )
 
     unresolved_requirements = proposal.get(
@@ -66,8 +184,7 @@ def validate_component_selection_proposal(
 
     if not isinstance(unresolved_requirements, list):
         errors.append(
-            "Die ungelösten Anforderungen müssen als "
-            "Liste vorliegen."
+            t("Die ungelösten Anforderungen müssen als Liste vorliegen.")
         )
     else:
         resolutions: set[str] = set()
@@ -77,9 +194,7 @@ def validate_component_selection_proposal(
         ):
             if not isinstance(requirement, dict):
                 errors.append(
-                    f"Die ungelöste Anforderung an "
-                    f"Position {index} muss als Objekt "
-                    "vorliegen."
+                    t("Die ungelöste Anforderung an Position {index} muss als Objekt vorliegen.", index=index)
                 )
                 continue
 
@@ -87,9 +202,7 @@ def validate_component_selection_proposal(
                 requirement.get("description")
             ):
                 errors.append(
-                    f"Für die ungelöste Anforderung an "
-                    f"Position {index} fehlt eine "
-                    "Beschreibung."
+                    t("Für die ungelöste Anforderung an Position {index} fehlt eine Beschreibung.", index=index)
                 )
 
             resolution = requirement.get("resolution")
@@ -99,10 +212,7 @@ def validate_component_selection_proposal(
                 "unsupported",
             }:
                 errors.append(
-                    f"Die Auflösungsart der ungelösten "
-                    f"Anforderung an Position {index} "
-                    "muss 'clarification' oder "
-                    "'unsupported' sein."
+                    t("Die Auflösungsart der ungelösten Anforderung an Position {index} muss 'clarification' oder 'unsupported' sein.", index=index)
                 )
             else:
                 resolutions.add(resolution)
@@ -123,43 +233,33 @@ def validate_component_selection_proposal(
                 )
             ):
                 errors.append(
-                    f"Die ungelöste Anforderung an "
-                    f"Position {index} benötigt eine Liste "
-                    "gültiger Kandidaten-Bausteine."
+                    t("Die ungelöste Anforderung an Position {index} benötigt eine Liste gültiger Kandidaten-Bausteine.", index=index)
                 )
             elif (
                 resolution == "clarification"
                 and not candidate_component_ids
             ):
                 errors.append(
-                    f"Für die fachliche Rückfrage an "
-                    f"Position {index} fehlt mindestens "
-                    "ein möglicher Baustein."
+                    t("Für die fachliche Rückfrage an Position {index} fehlt mindestens ein möglicher Baustein.", index=index)
                 )
             elif (
                 resolution == "unsupported"
                 and candidate_component_ids
             ):
                 errors.append(
-                    f"Die nicht unterstützte Anforderung "
-                    f"an Position {index} darf keine "
-                    "Kandidaten-Bausteine enthalten."
+                    t("Die nicht unterstützte Anforderung an Position {index} darf keine Kandidaten-Bausteine enthalten.", index=index)
                 )
 
             if not _has_text(requirement.get("reason")):
                 errors.append(
-                    f"Für die ungelöste Anforderung an "
-                    f"Position {index} fehlt eine "
-                    "Begründung."
+                    t("Für die ungelöste Anforderung an Position {index} fehlt eine Begründung.", index=index)
                 )
 
             if not _has_valid_sources(
                 requirement.get("sources")
             ):
                 errors.append(
-                    f"Für die ungelöste Anforderung an "
-                    f"Position {index} fehlt eine "
-                    "gültige Quelle."
+                    t("Für die ungelöste Anforderung an Position {index} fehlt eine gültige Quelle.", index=index)
                 )
 
         if "unsupported" in resolutions:
@@ -179,21 +279,18 @@ def validate_component_selection_proposal(
             and selection_status != expected_status
         ):
             errors.append(
-                f"Der Auswahlstatus "
-                f"'{selection_status}' passt nicht zu "
-                "den ungelösten Anforderungen; erwartet "
-                f"wird '{expected_status}'."
+                t("Der Auswahlstatus '{selection_status}' passt nicht zu den ungelösten Anforderungen; erwartet wird '{expected_status}'.", selection_status=selection_status, expected_status=expected_status)
             )
 
     core_id = proposal.get("core_id")
 
     if not _has_text(core_id):
         errors.append(
-            "Der Bausteinvorschlag enthält kein gültiges Grundmodell."
+            t("Der Bausteinvorschlag enthält kein gültiges Grundmodell.")
         )
     elif core_id not in CORE_REGISTRY:
         errors.append(
-            f"Das Grundmodell '{core_id}' ist nicht registriert."
+            t("Das Grundmodell '{core_id}' ist nicht registriert.", core_id=core_id)
         )
 
     if proposal.get("objective_sense") not in {
@@ -201,7 +298,20 @@ def validate_component_selection_proposal(
         "minimize",
     }:
         errors.append(
-            "Die Zielrichtung muss 'maximize' oder 'minimize' sein."
+            t("Die Zielrichtung muss 'maximize' oder 'minimize' sein.")
+        )
+    elif (
+        _has_text(core_id)
+        and core_id in CORE_REGISTRY
+        and (
+            required_sense := CORE_REGISTRY[core_id][
+                "definition"
+            ].get("required_objective_sense")
+        ) is not None
+        and proposal["objective_sense"] != required_sense
+    ):
+        errors.append(
+            t("Das Grundmodell '{core_id}' erfordert die Zielrichtung '{required_sense}'.", core_id=core_id, required_sense=required_sense)
         )
 
     objective_components = proposal.get(
@@ -210,11 +320,11 @@ def validate_component_selection_proposal(
 
     if not isinstance(objective_components, list):
         errors.append(
-            "Die Zielfunktionsbausteine müssen als Liste vorliegen."
+            t("Die Zielfunktionsbausteine müssen als Liste vorliegen.")
         )
     elif not objective_components:
         errors.append(
-            "Es wurde kein Zielfunktionsbaustein vorgeschlagen."
+            t("Es wurde kein Zielfunktionsbaustein vorgeschlagen.")
         )
     else:
         for index, component in enumerate(
@@ -222,8 +332,7 @@ def validate_component_selection_proposal(
         ):
             if not isinstance(component, dict):
                 errors.append(
-                    f"Der Zielfunktionsbaustein an Position "
-                    f"{index} muss als Objekt vorliegen."
+                    t("Der Zielfunktionsbaustein an Position {index} muss als Objekt vorliegen.", index=index)
                 )
                 continue
 
@@ -231,13 +340,11 @@ def validate_component_selection_proposal(
 
             if not _has_text(component_id):
                 errors.append(
-                    f"Der Zielfunktionsbaustein an Position "
-                    f"{index} enthält keine gültige ID."
+                    t("Der Zielfunktionsbaustein an Position {index} enthält keine gültige ID.", index=index)
                 )
             elif component_id not in OBJECTIVE_COMPONENTS:
                 errors.append(
-                    f"Der Zielfunktionsbaustein "
-                    f"'{component_id}' ist nicht registriert."
+                    t("Der Zielfunktionsbaustein '{component_id}' ist nicht registriert.", component_id=component_id)
                 )
 
             elif (
@@ -249,23 +356,19 @@ def validate_component_selection_proposal(
                 ]["compatible_core_ids"]
             ):
                 errors.append(
-                    f"Der Zielfunktionsbaustein "
-                    f"'{component_id}' ist nicht mit "
-                    f"'{core_id}' kompatibel."
+                    t("Der Zielfunktionsbaustein '{component_id}' ist nicht mit '{core_id}' kompatibel.", component_id=component_id, core_id=core_id)
                 )
 
             if not _has_text(component.get("reason")):
                 errors.append(
-                    f"Für den Zielfunktionsbaustein an "
-                    f"Position {index} fehlt eine Begründung."
+                    t("Für den Zielfunktionsbaustein an Position {index} fehlt eine Begründung.", index=index)
                 )
 
             if not _has_valid_sources(
                 component.get("sources")
             ):
                 errors.append(
-                    f"Für den Zielfunktionsbaustein an "
-                    f"Position {index} fehlt eine gültige Quelle."
+                    t("Für den Zielfunktionsbaustein an Position {index} fehlt eine gültige Quelle.", index=index)
                 )
     if (
         _has_text(core_id)
@@ -278,11 +381,25 @@ def validate_component_selection_proposal(
             if isinstance(component, dict)
         }
 
-        required_component_ids = CORE_REGISTRY[
-            core_id
-        ]["definition"][
-            "required_objective_component_ids"
-        ]
+        core_definition = CORE_REGISTRY[core_id]["definition"]
+        required_component_ids = list(
+            core_definition["required_objective_component_ids"]
+        )
+        goal_components = core_definition.get(
+            "required_objective_components_by_goal", {}
+        )
+        if goal_components:
+            matching_goals = [
+                goal for goal in goal_components
+                if OBJECTIVE_SENSE_BY_GOAL.get(goal)
+                == proposal.get("objective_sense")
+            ]
+            if not matching_goals:
+                errors.append(
+                    t("Das Grundmodell '{core_id}' unterstützt die angegebene Zielrichtung nicht.", core_id=core_id)
+                )
+            for goal in matching_goals:
+                required_component_ids.extend(goal_components[goal])
 
         for required_component_id in (
             required_component_ids
@@ -292,9 +409,7 @@ def validate_component_selection_proposal(
                 not in selected_component_ids
             ):
                 errors.append(
-                    f"Das Grundmodell '{core_id}' benötigt "
-                    "den Zielfunktionsbaustein "
-                    f"'{required_component_id}'."
+                    t("Das Grundmodell '{core_id}' benötigt den Zielfunktionsbaustein '{required_component_id}'.", core_id=core_id, required_component_id=required_component_id)
                 )
 
 
@@ -302,14 +417,13 @@ def validate_component_selection_proposal(
 
     if not isinstance(constraints, list):
         errors.append(
-            "Die Nebenbedingungen müssen als Liste vorliegen."
+            t("Die Nebenbedingungen müssen als Liste vorliegen.")
         )
     else:
         for index, constraint in enumerate(constraints):
             if not isinstance(constraint, dict):
                 errors.append(
-                    f"Die Nebenbedingung an Position "
-                    f"{index} muss als Objekt vorliegen."
+                    t("Die Nebenbedingung an Position {index} muss als Objekt vorliegen.", index=index)
                 )
                 continue
 
@@ -317,13 +431,11 @@ def validate_component_selection_proposal(
 
             if not _has_text(component_id):
                 errors.append(
-                    f"Die Nebenbedingung an Position "
-                    f"{index} enthält keine gültige ID."
+                    t("Die Nebenbedingung an Position {index} enthält keine gültige ID.", index=index)
                 )
             elif component_id not in CONSTRAINT_COMPONENTS:
                 errors.append(
-                    f"Die Nebenbedingung "
-                    f"'{component_id}' ist nicht registriert."
+                    t("Die Nebenbedingung '{component_id}' ist nicht registriert.", component_id=component_id)
                 )
 
             elif (
@@ -335,9 +447,7 @@ def validate_component_selection_proposal(
                 ]["compatible_core_ids"]
             ):
                 errors.append(
-                    f"Die Nebenbedingung "
-                    f"'{component_id}' ist nicht mit "
-                    f"'{core_id}' kompatibel."
+                    t("Die Nebenbedingung '{component_id}' ist nicht mit '{core_id}' kompatibel.", component_id=component_id, core_id=core_id)
                 )
 
             if not isinstance(
@@ -345,8 +455,7 @@ def validate_component_selection_proposal(
                 dict,
             ):
                 errors.append(
-                    f"Die Parameter der Nebenbedingung an "
-                    f"Position {index} müssen als Objekt vorliegen."
+                    t("Die Parameter der Nebenbedingung an Position {index} müssen als Objekt vorliegen.", index=index)
                 )
 
             product_id = constraint.get("product_id")
@@ -356,22 +465,19 @@ def validate_component_selection_proposal(
                 and not _has_text(product_id)
             ):
                 errors.append(
-                    f"Die Produkt-ID der Nebenbedingung an "
-                    f"Position {index} ist ungültig."
+                    t("Die Produkt-ID der Nebenbedingung an Position {index} ist ungültig.", index=index)
                 )
 
             if not _has_text(constraint.get("reason")):
                 errors.append(
-                    f"Für die Nebenbedingung an Position "
-                    f"{index} fehlt eine Begründung."
+                    t("Für die Nebenbedingung an Position {index} fehlt eine Begründung.", index=index)
                 )
 
             if not _has_valid_sources(
                 constraint.get("sources")
             ):
                 errors.append(
-                    f"Für die Nebenbedingung an Position "
-                    f"{index} fehlt eine gültige Quelle."
+                    t("Für die Nebenbedingung an Position {index} fehlt eine gültige Quelle.", index=index)
                 )
 
     selected_component_ids: set[str] = set()
@@ -438,10 +544,7 @@ def validate_component_selection_proposal(
 
                 if component_definition is None:
                     errors.append(
-                        f"Der Kandidaten-Baustein "
-                        f"'{candidate_component_id}' der "
-                        "fachlichen Rückfrage an Position "
-                        f"{index} ist nicht registriert."
+                        t("Der Kandidaten-Baustein '{candidate_component_id}' der fachlichen Rückfrage an Position {index} ist nicht registriert.", candidate_component_id=candidate_component_id, index=index)
                     )
                     continue
 
@@ -454,22 +557,16 @@ def validate_component_selection_proposal(
                     ]
                 ):
                     errors.append(
-                        f"Der Kandidaten-Baustein "
-                        f"'{candidate_component_id}' der "
-                        "fachlichen Rückfrage an Position "
-                        f"{index} ist nicht mit "
-                        f"'{core_id}' kompatibel."
+                        t("Der Kandidaten-Baustein '{candidate_component_id}' der fachlichen Rückfrage an Position {index} ist nicht mit '{core_id}' kompatibel.", candidate_component_id=candidate_component_id, index=index, core_id=core_id)
                     )
 
                 if (
                     candidate_component_id
                     in selected_component_ids
+                    and not allow_selected_candidate_overlap
                 ):
                     errors.append(
-                        f"Der Kandidaten-Baustein "
-                        f"'{candidate_component_id}' der "
-                        "fachlichen Rückfrage an Position "
-                        f"{index} wurde bereits ausgewählt."
+                        t("Der Kandidaten-Baustein '{candidate_component_id}' der fachlichen Rückfrage an Position {index} wurde bereits ausgewählt.", candidate_component_id=candidate_component_id, index=index)
                     )
 
     return list(dict.fromkeys(errors))
@@ -490,8 +587,7 @@ def exclude_unsupported_requirements(
 
     if not _has_text(confirmation_source):
         raise ValueError(
-            "Für den Ausschluss wird eine gültige "
-            "Bestätigungsquelle benötigt."
+            t("Für den Ausschluss wird eine gültige Bestätigungsquelle benötigt.")
         )
 
     proposal_errors = (
@@ -500,15 +596,13 @@ def exclude_unsupported_requirements(
 
     if proposal_errors:
         raise ValueError(
-            "Ungültiger Bausteinvorschlag: "
+            t("Ungültiger Bausteinvorschlag: ")
             + "; ".join(proposal_errors)
         )
 
     if proposal["selection_status"] != "unsupported":
         raise ValueError(
-            "Nur ein nicht unterstützter "
-            "Bausteinvorschlag kann auf diese Weise "
-            "fortgesetzt werden."
+            t("Nur ein nicht unterstützter Bausteinvorschlag kann auf diese Weise fortgesetzt werden.")
         )
 
     unsupported_requirements = [
@@ -521,8 +615,7 @@ def exclude_unsupported_requirements(
 
     if not unsupported_requirements:
         raise ValueError(
-            "Der Vorschlag enthält keine nicht "
-            "unterstützten Anforderungen."
+            t("Der Vorschlag enthält keine nicht unterstützten Anforderungen.")
         )
 
     remaining_requirements = [
@@ -563,8 +656,7 @@ def exclude_unsupported_requirements(
 
     if updated_errors:
         raise ValueError(
-            "Der bereinigte Bausteinvorschlag ist "
-            "ungültig: "
+            t("Der bereinigte Bausteinvorschlag ist ungültig: ")
             + "; ".join(updated_errors)
         )
 
@@ -588,7 +680,7 @@ def build_specification_from_proposal(
 
     if proposal_errors:
         raise ValueError(
-            "Ungültiger Bausteinvorschlag: "
+            t("Ungültiger Bausteinvorschlag: ")
             + "; ".join(proposal_errors)
         )
 
@@ -601,11 +693,7 @@ def build_specification_from_proposal(
         )
 
         raise ValueError(
-            "Aus einem nicht vollständigen "
-            "Bausteinvorschlag darf keine "
-            "Modellspezifikation erzeugt werden. "
-            "Ungelöste Anforderungen: "
-            f"{unresolved_descriptions}."
+            t("Aus einem nicht vollständigen Bausteinvorschlag darf keine Modellspezifikation erzeugt werden. Ungelöste Anforderungen: {unresolved_descriptions}.", unresolved_descriptions=unresolved_descriptions)
         )
 
     constraints: list[ConstraintSpecification] = []

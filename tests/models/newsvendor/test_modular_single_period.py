@@ -1,4 +1,9 @@
 import pulp
+import pytest
+
+from agentic_optimization.models.forecast_adapter import (
+    DEMAND_SCENARIO_COUNT,
+)
 
 from agentic_optimization.models.newsvendor.single_period import (
     build_single_period_newsvendor_core,
@@ -74,11 +79,11 @@ def test_builds_core_for_single_product() -> None:
         "product_1",
     }
 
-    assert len(result.sold_quantities) == 3
-    assert len(result.leftover_quantities) == 3
-    assert len(result.shortage_quantities) == 3
+    assert len(result.sold_quantities) == DEMAND_SCENARIO_COUNT
+    assert len(result.leftover_quantities) == DEMAND_SCENARIO_COUNT
+    assert len(result.shortage_quantities) == DEMAND_SCENARIO_COUNT
 
-    assert len(result.model.constraints) == 6
+    assert len(result.model.constraints()) == 2 * DEMAND_SCENARIO_COUNT
 
     order_quantity = result.get_quantity(
         "order_quantity",
@@ -116,11 +121,11 @@ def test_builds_same_core_for_multiple_products() -> None:
         "product_2",
     }
 
-    assert len(result.sold_quantities) == 6
-    assert len(result.leftover_quantities) == 6
-    assert len(result.shortage_quantities) == 6
+    assert len(result.sold_quantities) == 2 * DEMAND_SCENARIO_COUNT
+    assert len(result.leftover_quantities) == 2 * DEMAND_SCENARIO_COUNT
+    assert len(result.shortage_quantities) == 2 * DEMAND_SCENARIO_COUNT
 
-    assert len(result.model.constraints) == 12
+    assert len(result.model.constraints()) == 4 * DEMAND_SCENARIO_COUNT
 
 
 def test_uses_prepared_forecast_for_each_product() -> None:
@@ -137,9 +142,34 @@ def test_uses_prepared_forecast_for_each_product() -> None:
 
     first_forecast = result.forecasts["product_1"]
 
-    assert len(first_forecast["demand_points"]) == 3
+    assert len(first_forecast["demand_points"]) == DEMAND_SCENARIO_COUNT
 
     assert sum(
         point["probability"]
         for point in first_forecast["demand_points"]
-    ) == 1.0
+    ) == pytest.approx(1.0)
+
+
+def test_rejects_expected_demand_that_contradicts_quantiles() -> None:
+    from agentic_optimization.models.newsvendor.single_period import (
+        validate_single_period_newsvendor_forecast,
+    )
+
+    forecast = {
+        "expected_value": 7300.0,
+        "quantiles": [
+            {"level": 0.1, "value": 70.0},
+            {"level": 0.5, "value": 100.0},
+            {"level": 0.9, "value": 140.0},
+        ],
+        "horizon_days": 30,
+    }
+
+    errors = validate_single_period_newsvendor_forecast(forecast)
+
+    assert len(errors) == 1
+    assert "denselben Prognosezeitraum" in errors[0]
+
+    forecast["expected_value"] = 105.0
+
+    assert validate_single_period_newsvendor_forecast(forecast) == []

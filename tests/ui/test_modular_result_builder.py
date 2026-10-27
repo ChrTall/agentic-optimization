@@ -178,3 +178,25 @@ def test_rejects_unknown_core() -> None:
             specification,
             result,
         )
+
+
+def test_objective_label_names_what_the_value_means() -> None:
+    from agentic_optimization.ui.modular_result_builder import (
+        build_objective_label,
+    )
+
+    def spec(core_id: str, sense: str) -> dict:
+        return {"core_id": core_id, "objective": {"sense": sense}}
+
+    assert build_objective_label(
+        spec("single_period_newsvendor", "maximize")
+    ) == "Erwarteter Gewinn"
+    assert build_objective_label(spec("eoq", "minimize")) == (
+        "Jährliche Bestell- und Lagerkosten"
+    )
+    assert build_objective_label(
+        spec("continuous_review_q_r", "minimize")
+    ) == "Erwartete jährliche Gesamtkosten"
+    assert build_objective_label(spec("unknown", "minimize")) == (
+        "Erwartete Kosten"
+    )

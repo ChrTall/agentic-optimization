@@ -14,6 +14,7 @@ from agentic_optimization.ui.business_intake_view_builder import (
 from agentic_optimization.ui.business_problem_form import (
     BusinessQuestionOption,
 )
+from agentic_optimization.i18n import t
 
 
 class BusinessIntakePageSubmission(TypedDict):
@@ -28,8 +29,8 @@ def format_business_question_option(
 ) -> str:
     """Formatiert eine Antwortoption verständlich."""
 
-    label = option["label"]
-    help_text = option.get("help")
+    label = t(option["label"])
+    help_text = t(option.get("help"))
 
     if help_text:
         return f"{label} — {help_text}"
@@ -58,108 +59,103 @@ def render_business_intake_page(
         else []
     )
 
-    st.subheader("Ihre Bestellsituation")
+    st.subheader(t("Ihre Bestellsituation"))
     st.write(
-        "Beschreiben Sie kurz, wobei Sie Unterstützung "
-        "benötigen. Offene Angaben fragen wir anschließend "
-        "in verständlicher Form ab."
+        t("Beschreiben Sie Ihre Situation einfach **im Chat** – in eigenen Worten. Was der Assistent daraus erkennt, erscheint oben zur Bestätigung. Offene Punkte können Sie auch hier direkt beantworten.")
     )
 
     if view["message_type"] == "error":
         st.error(view["message"])
+    elif view["message_type"] == "warning":
+        st.warning(view["message"])
     elif view["message_type"] == "success":
         st.success(view["message"])
 
-    rendered_answers: list[
-        tuple[str, str | None]
-    ] = []
+    if not questions:
+        # Nach einer fehlgeschlagenen Analyse kann sie hier wiederholt
+        # werden; die Beschreibung stammt aus dem Chat.
+        if intake_state.get("analysis_error") and raw_input_value.strip():
+            if st.button(
+                t("Erneut auswerten"),
+                type="primary",
+                width="stretch",
+                key="business_intake_retry",
+            ):
+                return {"raw_input": raw_input_value, "answers": []}
 
-    with st.form("business_intake_form"):
-        raw_input = st.text_area(
-            "Kurze Beschreibung",
-            value=raw_input_value,
-            placeholder=(
-                "Zum Beispiel: Wir bestellen diesen Artikel "
-                "regelmäßig nach und möchten wissen, wie viel "
-                "wir jeweils bestellen sollen."
-            ),
-            help=(
-                "Sie können normale Alltagssprache verwenden. "
-                "Technische Modellbegriffe sind nicht notwendig."
-            ),
-        )
+        return None
 
-        st.file_uploader(
-            "Dokumente hinzufügen (optional)",
-            type=[
-                "pdf",
-                "xlsx",
-                "xls",
-                "csv",
-            ],
-            accept_multiple_files=True,
-            key="business_intake_documents",
-            help=(
-                "Zum Beispiel Prognosen, Artikellisten oder "
-                "Lieferantenunterlagen."
-            ),
-        )
-        st.caption(
-            "Die automatische Auswertung der Dokumentinhalte "
-            "wird separat angebunden."
-        )
+    raw_input = raw_input_value
 
-        if questions:
-            st.markdown("### Kurze Rückfragen")
+    st.markdown(t("### Kurze Rückfragen"))
+    answers = render_business_questions(
+        questions,
+        key_prefix="business_question_",
+        source_id="business_intake_form",
+    )
 
-        for question in questions:
-            options_by_id = {
-                option["option_id"]: option
-                for option in question["options"]
-            }
+    if answers is None:
+        return None
 
-            selected_option_id = st.radio(
-                question["prompt"],
-                options=list(options_by_id),
-                index=None,
-                format_func=(
-                    lambda option_id, options=options_by_id: (
-                        format_business_question_option(options[option_id])
-                    )
-                ),
-                key=(
-                    "business_question_"
-                    f"{question['question_id']}"
-                ),
-            )
+    return {
+        "raw_input": raw_input,
+        "answers": answers,
+    }
 
-            rendered_answers.append(
-                (
-                    question["question_id"],
-                    selected_option_id,
+
+def _mark_answer_changed(changed_key: str) -> None:
+    st.session_state[changed_key] = True
+
+
+def render_business_questions(
+    questions: list,
+    *,
+    key_prefix: str,
+    source_id: str,
+) -> list[BusinessQuestionAnswer] | None:
+    """Rendert Rückfragen; eine Auswahl wird sofort übernommen.
+
+    Liefert die Antworten nur in dem Durchlauf, in dem der Nutzer eine
+    Auswahl geändert hat. So stellt der Chat direkt die nächste Frage,
+    ohne dass ein Button geklickt werden muss.
+    """
+
+    changed_key = f"{key_prefix}_changed"
+    rendered_answers: list[tuple[str, str | None]] = []
+
+    for question in questions:
+        options_by_id = {
+            option["option_id"]: option
+            for option in question["options"]
+        }
+
+        selected_option_id = st.radio(
+            t(question["prompt"]),
+            options=list(options_by_id),
+            index=None,
+            format_func=(
+                lambda option_id, options=options_by_id: (
+                    format_business_question_option(options[option_id])
                 )
-            )
-
-        submitted = st.form_submit_button(
-            "Angaben auswerten",
-            type="primary",
-            use_container_width=True,
+            ),
+            key=f"{key_prefix}{question['question_id']}",
+            on_change=_mark_answer_changed,
+            args=(changed_key,),
         )
 
-    if not submitted:
+        rendered_answers.append((question["question_id"], selected_option_id))
+
+    if not st.session_state.pop(changed_key, False):
         return None
 
     answers: list[BusinessQuestionAnswer] = [
         {
             "question_id": question_id,
             "option_id": option_id,
-            "source_id": "business_intake_form",
+            "source_id": source_id,
         }
         for question_id, option_id in rendered_answers
         if option_id is not None
     ]
 
-    return {
-        "raw_input": raw_input,
-        "answers": answers,
-    }
+    return answers or None

@@ -10,6 +10,7 @@ from agentic_optimization.models.problem_profile import (
     BusinessProblemProfile,
     BusinessProfileFieldId,
 )
+from agentic_optimization.i18n import t
 
 
 class CoreSelectionRule(TypedDict):
@@ -155,8 +156,7 @@ def build_core_selection_catalog(
 
         if registered_core is None:
             raise ValueError(
-                f"Das Grundmodell '{rule['core_id']}' "
-                "ist nicht registriert."
+                t("Das Grundmodell '{core_id}' ist nicht registriert.", core_id=rule['core_id'])
             )
 
         if not _is_compatible_with_resolved_profile(
