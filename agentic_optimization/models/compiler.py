@@ -21,6 +21,7 @@ from agentic_optimization.models.specification import (
 from agentic_optimization.models.validator import (
     validate_model_specification,
 )
+from agentic_optimization.i18n import t
 
 def compile_model_specification(
     specification: ModelSpecification,
@@ -31,7 +32,7 @@ def compile_model_specification(
 
     if registry_errors:
         raise RuntimeError(
-            "Die Optimierungs-Registry ist ungültig: "
+            t("Die Optimierungs-Registry ist ungültig: ")
             + "; ".join(registry_errors)
         )
 
@@ -44,15 +45,14 @@ def compile_model_specification(
 
         messages.extend(
             (
-                "Fehlende Eingabe: "
-                f"{missing_input['field']['name']}"
+                t("Fehlende Eingabe: {name}", name=missing_input['field']['name'])
             )
             for missing_input
             in validation_result["missing_inputs"]
         )
 
         raise ValueError(
-            "Die Modellspezifikation ist nicht vollständig: "
+            t("Die Modellspezifikation ist nicht vollständig: ")
             + "; ".join(messages)
         )
 
@@ -61,14 +61,13 @@ def compile_model_specification(
 
     if registered_core is None:
         raise ValueError(
-            f"Für das Grundmodell '{core_id}' "
-            "ist kein Builder registriert."
+            t("Für das Grundmodell '{core_id}' ist kein Builder registriert.", core_id=core_id)
         )
 
     core_builder = registered_core.get("builder")
 
     if not callable(core_builder):
-        raise RuntimeError(f"Für das lineare Grundmodell '{core_id}' ist kein linearer Builder registriert.")
+        raise RuntimeError(t("Für das lineare Grundmodell '{core_id}' ist kein linearer Builder registriert.", core_id=core_id))
 
     context = core_builder(specification)
 
@@ -86,9 +85,7 @@ def compile_model_specification(
 
         if not callable(linear_builder):
             raise RuntimeError(
-                f"Für den Zielfunktionsbaustein "
-                f"'{component_id}' ist kein linearer "
-                "Builder registriert."
+                t("Für den Zielfunktionsbaustein '{component_id}' ist kein linearer Builder registriert.", component_id=component_id)
             )
 
         component_expression = linear_builder(
@@ -131,9 +128,7 @@ def compile_model_specification(
 
         if not callable(linear_builder):
             raise RuntimeError(
-                f"Für den Constraint-Baustein "
-                f"'{constraint['component_id']}' ist kein "
-                "linearer Builder registriert."
+                t("Für den Constraint-Baustein '{component_id}' ist kein linearer Builder registriert.", component_id=constraint['component_id'])
             )
 
         linear_builder(

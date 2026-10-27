@@ -7,6 +7,10 @@ from collections.abc import Callable
 
 from langchain_core.language_models import BaseChatModel
 
+from agentic_optimization.models.specification_updates import (
+    rename_product,
+    update_specification_components,
+)
 from agentic_optimization.agents.modular_model_agent import (
     ModularModelDraft,
     create_modular_model_agent,
@@ -45,6 +49,7 @@ from agentic_optimization.state import (
 )
 from agentic_optimization.ui.modular_input_builder import (
     build_modular_input_layout,
+    input_key,
 )
 from agentic_optimization.ui.modular_result_builder import (
     build_default_result_explanation,
@@ -54,6 +59,7 @@ from agentic_optimization.ui.modular_review_builder import (
     build_default_review_explanation,
     build_modular_review_data,
 )
+from agentic_optimization.i18n import t
 
 LOGGER = logging.getLogger(__name__)
 
@@ -76,14 +82,14 @@ def create_modular_product_schema_node(
 
         if modular_state is None:
             raise ValueError(
-                "Der modulare Modellzustand fehlt."
+                t("Der modulare Modellzustand fehlt.")
             )
 
         core_id = modular_state.get("core_id")
 
         if not core_id:
             raise ValueError(
-                "Das ausgewählte Grundmodell fehlt."
+                t("Das ausgewählte Grundmodell fehlt.")
             )
 
         try:
@@ -114,10 +120,7 @@ def create_modular_product_schema_node(
                     "modular_model": {
                         **modular_state,
                         "preparation_error": (
-                            "Die benötigten Tabellenspalten "
-                            "konnten nicht zuverlässig bestimmt "
-                            "werden. Bitte starten Sie die "
-                            "Analyse erneut."
+                            t("Die benötigten Tabellenspalten konnten nicht zuverlässig bestimmt werden. Bitte starten Sie die Analyse erneut.")
                         ),
                     },
                 },
@@ -164,7 +167,7 @@ def create_modular_review_explanation_node(
 
         if modular_state is None:
             raise ValueError(
-                "Der modulare Modellzustand fehlt."
+                t("Der modulare Modellzustand fehlt.")
             )
 
         existing_explanation = modular_state.get(
@@ -188,8 +191,7 @@ def create_modular_review_explanation_node(
 
         if proposal is None or specification is None:
             raise ValueError(
-                "Für die Erklärung fehlt der vollständige "
-                "modulare Modellentwurf."
+                t("Für die Erklärung fehlt der vollständige modulare Modellentwurf.")
             )
 
         review_data = build_modular_review_data(
@@ -268,7 +270,7 @@ def create_modular_result_explanation_node(
 
         if modular_state is None:
             raise ValueError(
-                "Der modulare Modellzustand fehlt."
+                t("Der modulare Modellzustand fehlt.")
             )
 
         existing_explanation = modular_state.get(
@@ -298,8 +300,7 @@ def create_modular_result_explanation_node(
             or optimization_result is None
         ):
             raise ValueError(
-                "Für die Ergebnis-Erklärung fehlen "
-                "Modell oder Optimierungsergebnis."
+                t("Für die Ergebnis-Erklärung fehlen Modell oder Optimierungsergebnis.")
             )
 
         review_data = build_modular_review_data(
@@ -366,7 +367,7 @@ def create_modular_model_preparation_node(
 
         if modular_state is None:
             raise ValueError(
-                "Der modulare Modellzustand fehlt."
+                t("Der modulare Modellzustand fehlt.")
             )
 
         core_id = modular_state.get("core_id")
@@ -374,13 +375,12 @@ def create_modular_model_preparation_node(
 
         if not core_id:
             raise ValueError(
-                "Das ausgewählte Grundmodell fehlt."
+                t("Das ausgewählte Grundmodell fehlt.")
             )
 
         if products is None:
             raise ValueError(
-                "Die Produktdaten für das modulare "
-                "Modell fehlen."
+                t("Die Produktdaten für das modulare Modell fehlen.")
             )
 
         try:
@@ -411,10 +411,7 @@ def create_modular_model_preparation_node(
                 error,
             )
             preparation_error = (
-                "Die automatische Modellzusammenstellung "
-                "konnte nicht zuverlässig abgeschlossen "
-                "werden. Bitte starten Sie die Analyse "
-                "erneut."
+                t("Die automatische Modellzusammenstellung konnte nicht zuverlässig abgeschlossen werden. Bitte starten Sie die Analyse erneut.")
             )
 
             updated_modular_state = {
@@ -521,6 +518,7 @@ def create_modular_model_preparation_node(
                 "specification": draft["specification"],
                 "validation": validation,
                 "review_confirmed": False,
+                "inputs_confirmed": False,
                 "optimization_result": None,
                 "review_explanation": "",
                 "review_explanation_source": "",
@@ -549,14 +547,14 @@ def confirm_modular_requirement_exclusions_node(
 
     if modular_state is None:
         raise ValueError(
-            "Der modulare Modellzustand fehlt."
+            t("Der modulare Modellzustand fehlt.")
         )
 
     proposal = modular_state.get("proposal")
 
     if proposal is None:
         raise ValueError(
-            "Der zu prüfende Bausteinvorschlag fehlt."
+            t("Der zu prüfende Bausteinvorschlag fehlt.")
         )
 
     updated_proposal, new_exclusions = (
@@ -663,7 +661,7 @@ def apply_modular_model_inputs_node(
 
     if modular_state is None:
         raise ValueError(
-            "Der modulare Modellzustand fehlt."
+            t("Der modulare Modellzustand fehlt.")
         )
 
     proposal = modular_state.get("proposal")
@@ -671,7 +669,7 @@ def apply_modular_model_inputs_node(
 
     if proposal is None or specification is None:
         raise ValueError(
-            "Es liegt noch kein modularer Modellentwurf vor."
+            t("Es liegt noch kein modularer Modellentwurf vor.")
         )
 
     draft: ModularModelDraft = {
@@ -687,7 +685,11 @@ def apply_modular_model_inputs_node(
         [],
     )
 
-    input_layout = build_modular_input_layout(specification)
+    # Auch bereits ausgefüllte Felder dürfen geändert werden.
+    input_layout = build_modular_input_layout(
+        specification,
+        include_complete=True,
+    )
     allowed_inputs = [
         *(
             item
@@ -715,7 +717,7 @@ def apply_modular_model_inputs_node(
                 candidate
                 for candidate
                 in allowed_inputs
-                if candidate == submitted_missing_input
+                if input_key(candidate) == input_key(submitted_missing_input)
             ),
             None,
         )
@@ -726,9 +728,7 @@ def apply_modular_model_inputs_node(
             ]["name"]
 
             raise ValueError(
-                f"Die Eingabe für '{field_name}' ist "
-                "nicht mehr offen oder gehört nicht zum "
-                "aktuellen Modellentwurf."
+                t("Die Eingabe für '{field_name}' ist nicht mehr offen oder gehört nicht zum aktuellen Modellentwurf.", field_name=field_name)
             )
 
         draft = update_modular_model_draft(
@@ -759,6 +759,7 @@ def apply_modular_model_inputs_node(
             "validation": validation,
             "pending_input_submissions": [],
             "review_confirmed": False,
+            "inputs_confirmed": False,
             "optimization_result": None,
             "review_explanation": "",
             "review_explanation_source": "",
@@ -767,6 +768,67 @@ def apply_modular_model_inputs_node(
 
     return with_control(
         updated_state,
+        event=None,
+        workflow_status=workflow_status,
+    )
+
+
+def apply_modular_specification_edits_node(
+    state: GraphState,
+) -> GraphState:
+    """Übernimmt Produktnamen und Bausteinauswahl aus Formular 3."""
+
+    modular_state = state.get("modular_model")
+
+    if modular_state is None or modular_state.get("specification") is None:
+        raise ValueError(
+            t("Es liegt noch kein modularer Modellentwurf vor.")
+        )
+
+    edits = modular_state.get("pending_specification_edits") or {}
+    updated_modular_state = dict(modular_state)
+
+    for old_name, new_name in edits.get("renames", []):
+        updated_modular_state = rename_product(
+            updated_modular_state, old_name, new_name
+        )
+
+    active_component_ids = edits.get("active_component_ids")
+
+    if active_component_ids is not None:
+        specification, proposal = update_specification_components(
+            updated_modular_state["specification"],
+            updated_modular_state["proposal"],
+            active_component_ids=set(active_component_ids),
+        )
+        updated_modular_state["specification"] = specification
+        updated_modular_state["proposal"] = proposal
+
+    validation = validate_model_specification(
+        updated_modular_state["specification"]
+    )
+
+    if validation["is_valid"]:
+        workflow_status = WORKFLOW_READY_FOR_REVIEW
+    elif validation["missing_inputs"] and not validation["errors"]:
+        workflow_status = WORKFLOW_NEEDS_MODEL_SPECIFIC_INPUTS
+    else:
+        workflow_status = WORKFLOW_MODEL_INPUTS_INVALID
+
+    return with_control(
+        {
+            **state,
+            "modular_model": {
+                **updated_modular_state,
+                "validation": validation,
+                "pending_specification_edits": {},
+                "review_confirmed": False,
+                "inputs_confirmed": False,
+                "optimization_result": None,
+                "review_explanation": "",
+                "review_explanation_source": "",
+            },
+        },
         event=None,
         workflow_status=workflow_status,
     )
@@ -781,7 +843,7 @@ def execute_modular_model_node(
 
     if modular_state is None:
         raise ValueError(
-            "Der modulare Modellzustand fehlt."
+            t("Der modulare Modellzustand fehlt.")
         )
 
     proposal = modular_state.get("proposal")
@@ -789,7 +851,7 @@ def execute_modular_model_node(
 
     if proposal is None or specification is None:
         raise ValueError(
-            "Es liegt noch kein modularer Modellentwurf vor."
+            t("Es liegt noch kein modularer Modellentwurf vor.")
         )
 
     if (
@@ -797,8 +859,7 @@ def execute_modular_model_node(
         and not modular_state.get("core_assumptions_confirmed", False)
     ):
         raise ValueError(
-            "Offene Voraussetzungen des Grundmodells müssen "
-            "vor der Berechnung ausdrücklich bestätigt werden."
+            t("Offene Voraussetzungen des Grundmodells müssen vor der Berechnung ausdrücklich bestätigt werden.")
         )
 
     validation = validate_model_specification(

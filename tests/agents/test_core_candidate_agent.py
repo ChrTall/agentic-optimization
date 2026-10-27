@@ -40,7 +40,6 @@ def test_validates_grounded_registered_candidate() -> None:
     ({"source_id": "invented"}, "source_id 'invented' ist unbekannt"),
     ({"excerpt": "nicht in der Quelle"}, "nicht wörtlich vor"),
     ({"excerpt": ""}, "nicht leerer Textbeleg"),
-    ({"open_condition_ids": ["steady_demand"]}, "genau core_id"),
 ])
 def test_rejects_invalid_candidate(change: dict, message: str) -> None:
     response = proposal()
@@ -50,6 +49,25 @@ def test_rejects_invalid_candidate(change: dict, message: str) -> None:
         validate_core_candidate_proposal(
             json.dumps(response), evidence=EVIDENCE
         )
+
+
+def test_tolerates_extra_fields_and_near_verbatim_excerpts() -> None:
+    response = proposal()
+    response["candidates"][0].update({
+        "open_condition_ids": ["steady_demand"],
+        "excerpt": "„wir bestellen  regelmäßig nach.“",
+    })
+    response["confidence"] = "hoch"
+
+    result = validate_core_candidate_proposal(
+        json.dumps(response), evidence=EVIDENCE
+    )
+
+    assert result["candidates"] == [{
+        "core_id": "eoq",
+        "source_id": "raw_input",
+        "excerpt": "Wir bestellen regelmäßig nach",
+    }]
 
 
 def test_rejects_duplicate_candidate_with_specific_feedback() -> None:

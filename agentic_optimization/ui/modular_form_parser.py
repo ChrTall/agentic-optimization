@@ -13,6 +13,7 @@ from agentic_optimization.state import (
 from agentic_optimization.ui.field_renderer import (
     parse_input_value,
 )
+from agentic_optimization.i18n import t
 
 
 class RenderedModularInput(TypedDict):
@@ -28,8 +29,14 @@ def _is_empty_input(value: Any) -> bool:
 
 def parse_modular_input_submissions(
     rendered_inputs: list[RenderedModularInput],
+    *,
+    require_all: bool = True,
 ) -> list[ModularInputSubmission]:
-    """Prüft und konvertiert die modularen Formulareingaben."""
+    """Prüft und konvertiert die modularen Formulareingaben.
+
+    Mit ``require_all=False`` werden leere Felder übersprungen, damit
+    Angaben auch schrittweise übernommen werden können.
+    """
 
     submissions: list[ModularInputSubmission] = []
 
@@ -43,12 +50,12 @@ def parse_modular_input_submissions(
         )
 
         if (
-            field["required"]
+            require_all
+            and field["required"]
             and _is_empty_input(parsed_value)
         ):
             raise ValueError(
-                "Bitte geben Sie einen Wert für "
-                f"„{field['label']}“ ein."
+                t("Bitte geben Sie einen Wert für „{label}“ ein.", label=field['label'])
             )
 
         if _is_empty_input(parsed_value):

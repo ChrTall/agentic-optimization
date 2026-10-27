@@ -2,6 +2,7 @@
 Rendert Registry-definierte Eingabefelder und konvertiert ihre Widgetwerte.
 """
 import math
+import re
 
 from typing import Any, TypeAlias
 
@@ -12,6 +13,7 @@ from agentic_optimization.models.types import (
     ConstraintParameterDefinition,
     ModelInputField,
 )
+from agentic_optimization.i18n import t
 
 FieldDefinition: TypeAlias = (
     ModelInputField | ConstraintParameterDefinition
@@ -21,8 +23,8 @@ FieldDefinition: TypeAlias = (
 def _build_field_label(
     field_definition: FieldDefinition,
 ) -> str:
-    label = field_definition["label"]
-    unit = field_definition.get("unit")
+    label = t(field_definition["label"])
+    unit = t(field_definition.get("unit"))
 
     if unit:
         return f"{label} ({unit})"
@@ -89,7 +91,7 @@ def render_input_field(
     label = _build_field_label(field_definition)
     widget_key = f"{key_prefix}_{field_name}"
 
-    help_text = field_definition.get("help")
+    help_text = t(field_definition.get("help"))
     placeholder = field_definition.get("placeholder")
 
     if field_type in {"number", "integer"}:
@@ -182,7 +184,7 @@ def render_input_field(
         )
 
     raise ValueError(
-        f"Der Feldtyp '{field_type}' wird noch nicht unterstützt."
+        t("Der Feldtyp '{field_type}' wird noch nicht unterstützt.", field_type=field_type)
     )
 
 
@@ -195,22 +197,23 @@ def _validate_numeric_bounds(
 
     min_value = field_definition.get("min_value")
     max_value = field_definition.get("max_value")
-    label = field_definition["label"]
+    label = t(field_definition["label"])
+
+    def _plain(number: float) -> str:
+        return f"{number:g}"
 
     if min_value is not None:
         for value in values:
             if value < min_value:
                 raise ValueError(
-                    f"'{label}' darf keine Werte kleiner als "
-                    f"{min_value} enthalten."
+                    t("'{label}' darf keine Werte kleiner als {min_value} enthalten.", label=label, min_value=_plain(min_value))
                 )
 
     if max_value is not None:
         for value in values:
             if value > max_value:
                 raise ValueError(
-                    f"'{label}' darf keine Werte größer als "
-                    f"{max_value} enthalten."
+                    t("'{label}' darf keine Werte größer als {max_value} enthalten.", label=label, max_value=_plain(max_value))
                 )
 
 
@@ -225,9 +228,14 @@ def _parse_forecast_quantiles(
     raw_quantiles: list[tuple[Any, Any]] = []
 
     if isinstance(raw_value, str):
+        # Trennzeichen: Semikolon, Zeilenumbruch oder Komma vor dem
+        # nächsten „Niveau:“ (z. B. „0.1: 70, 0.5: 100“).
         entries = [
             entry.strip()
-            for entry in raw_value.split(";")
+            for entry in re.split(
+                r";|\n|,\s+(?=\d+(?:[.,]\d+)?\s*%?\s*:)",
+                raw_value,
+            )
             if entry.strip()
         ]
 
@@ -238,8 +246,7 @@ def _parse_forecast_quantiles(
 
             if not separator:
                 raise ValueError(
-                    "Jedes Nachfragequantil muss im Format "
-                    "'Niveau: Wert' angegeben werden."
+                    t("Jedes Nachfragequantil muss im Format 'Niveau: Wert' angegeben werden, z. B. „0.1: 150; 0.5: 300; 0.9: 350“ (10 %, 50 %, 90 %).")
                 )
 
             raw_quantiles.append(
@@ -256,8 +263,7 @@ def _parse_forecast_quantiles(
         for quantile in raw_value:
             if not isinstance(quantile, dict):
                 raise TypeError(
-                    "Jedes Nachfragequantil muss ein "
-                    "Objekt sein."
+                    t("Jedes Nachfragequantil muss ein Objekt sein.")
                 )
 
             if (
@@ -265,8 +271,7 @@ def _parse_forecast_quantiles(
                 or "value" not in quantile
             ):
                 raise ValueError(
-                    "Jedes Nachfragequantil benötigt "
-                    "'level' und 'value'."
+                    t("Jedes Nachfragequantil benötigt 'level' und 'value'.")
                 )
 
             raw_quantiles.append(
@@ -278,8 +283,7 @@ def _parse_forecast_quantiles(
 
     else:
         raise TypeError(
-            "Nachfragequantile müssen als Text oder "
-            "Liste angegeben werden."
+            t("Nachfragequantile müssen als Text oder Liste angegeben werden.")
         )
 
     parsed_quantiles: list[ForecastQuantile] = []
@@ -290,17 +294,26 @@ def _parse_forecast_quantiles(
             or isinstance(raw_forecast_value, bool)
         ):
             raise TypeError(
-                "Quantilniveau und Nachfragewert "
-                "müssen Zahlen sein."
+                t("Quantilniveau und Nachfragewert müssen Zahlen sein.")
             )
+
+        # Prozentangaben („10 %“ oder „10“) als Anteil lesen.
+        is_percent = isinstance(raw_level, str) and raw_level.strip().endswith("%")
+        if is_percent:
+            raw_level = raw_level.strip().rstrip("%").strip()
 
         try:
             level = float(raw_level)
             forecast_value = float(raw_forecast_value)
+            if is_percent or (
+                isinstance(raw_level, str)
+                and re.fullmatch(r"\d+", raw_level.strip())
+                and 1.0 < level < 100.0
+            ):
+                level /= 100.0
         except (TypeError, ValueError) as error:
             raise ValueError(
-                "Quantilniveau und Nachfragewert "
-                "müssen Zahlen sein."
+                t("Quantilniveau und Nachfragewert müssen Zahlen sein.")
             ) from error
 
         if not (
@@ -308,19 +321,17 @@ def _parse_forecast_quantiles(
             and math.isfinite(forecast_value)
         ):
             raise ValueError(
-                "Quantilniveau und Nachfragewert "
-                "müssen endliche Zahlen sein."
+                t("Quantilniveau und Nachfragewert müssen endliche Zahlen sein.")
             )
 
         if not 0.0 < level < 1.0:
             raise ValueError(
-                "Das Quantilniveau muss zwischen "
-                "0 und 1 liegen."
+                t("Das Quantilniveau muss zwischen 0 und 1 liegen.")
             )
 
         if forecast_value < 0.0:
             raise ValueError(
-                "Der Nachfragewert darf nicht negativ sein."
+                t("Der Nachfragewert darf nicht negativ sein.")
             )
 
         parsed_quantiles.append(
@@ -329,6 +340,21 @@ def _parse_forecast_quantiles(
                 "value": forecast_value,
             }
         )
+
+    # Sofort prüfen statt erst bei der Berechnung: aufsteigend sortieren,
+    # jedes Niveau nur einmal, Werte dürfen nicht fallen.
+    parsed_quantiles.sort(key=lambda quantile: quantile["level"])
+
+    for previous, current in zip(parsed_quantiles, parsed_quantiles[1:]):
+        if current["level"] == previous["level"]:
+            raise ValueError(
+                t("Jedes Quantilsniveau darf nur einmal vorkommen.")
+            )
+
+        if current["value"] < previous["value"]:
+            raise ValueError(
+                t("Quantilswerte müssen mit steigendem Quantilsniveau monoton steigen – der Wert bei 90 % muss mindestens so hoch sein wie bei 50 %, dieser mindestens so hoch wie bei 10 % (z. B. 0.1: 150; 0.5: 300; 0.9: 350).")
+            )
 
     return parsed_quantiles
 
@@ -355,7 +381,7 @@ def parse_input_value(
             or isinstance(raw_value, bool)
         ):
             raise TypeError(
-                f"'{field_definition['label']}' muss eine Zahl sein."
+                t("'{label}' muss eine Zahl sein.", label=field_definition['label'])
             )
 
         parsed_value = float(raw_value)
@@ -368,8 +394,7 @@ def parse_input_value(
         if field_type == "integer":
             if not parsed_value.is_integer():
                 raise ValueError(
-                    f"'{field_definition['label']}' muss in "
-                    "ganzen Einheiten angegeben werden."
+                    t("'{label}' muss in ganzen Einheiten angegeben werden.", label=field_definition['label'])
                 )
 
             return int(parsed_value)
@@ -390,8 +415,7 @@ def parse_input_value(
             ]
         else:
             raise TypeError(
-                f"'{field_definition['label']}' muss eine "
-                "kommagetrennte Zahlenliste sein."
+                t("'{label}' muss eine kommagetrennte Zahlenliste sein.", label=field_definition['label'])
             )
 
         parsed_values: list[float] = []
@@ -402,16 +426,14 @@ def parse_input_value(
                 or isinstance(raw_item, bool)
             ):
                 raise TypeError(
-                    f"'{field_definition['label']}' enthält "
-                    "einen Wert mit ungültigem Datentyp."
+                    t("'{label}' enthält einen Wert mit ungültigem Datentyp.", label=field_definition['label'])
                 )
 
             try:
                 parsed_values.append(float(raw_item))
             except ValueError as error:
                 raise ValueError(
-                    f"'{field_definition['label']}' muss "
-                    "ausschließlich Zahlen enthalten."
+                    t("'{label}' muss ausschließlich Zahlen enthalten.", label=field_definition['label'])
                 ) from error
 
         _validate_numeric_bounds(
@@ -425,5 +447,5 @@ def parse_input_value(
         return _parse_forecast_quantiles(raw_value)
 
     raise ValueError(
-        f"Der Feldtyp '{field_type}' wird noch nicht unterstützt."
+        t("Der Feldtyp '{field_type}' wird noch nicht unterstützt.", field_type=field_type)
     )

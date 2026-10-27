@@ -24,6 +24,7 @@ from agentic_optimization.ui.modular_review_builder import (
     build_modular_review_data,
     build_modular_selection_issue_data,
 )
+from agentic_optimization.i18n import t
 
 
 def _format_value(value: Any) -> str:
@@ -102,7 +103,7 @@ def _build_constraint_overview_rows(
             "Nebenbedingung": constraint["name"],
             "Produkt": (
                 constraint["product_id"]
-                or "Gesamtmodell"
+                or t("Gesamtmodell")
             ),
         }
         labels = parameter_labels.get(
@@ -134,7 +135,7 @@ def _render_product_details(
     forecast_column, facts_column = st.columns(2)
 
     with forecast_column:
-        st.markdown("#### Nachfrageprognose")
+        st.markdown(t("#### Nachfrageprognose"))
 
         if product["forecast"]:
             for field_name, value in product[
@@ -149,11 +150,11 @@ def _render_product_details(
                 )
         else:
             st.caption(
-                "Keine Nachfrageangaben vorhanden."
+                t("Keine Nachfrageangaben vorhanden.")
             )
 
     with facts_column:
-        st.markdown("#### Wirtschaftliche Angaben")
+        st.markdown(t("#### Wirtschaftliche Angaben"))
 
         if product["facts"]:
             for field_name, value in product[
@@ -168,7 +169,7 @@ def _render_product_details(
                 )
         else:
             st.caption(
-                "Keine wirtschaftlichen Angaben vorhanden."
+                t("Keine wirtschaftlichen Angaben vorhanden.")
             )
 
 
@@ -193,7 +194,7 @@ def _build_field_labels(
         fields.extend(constraint["required_global_facts"])
 
     return {
-        field["name"]: field["label"]
+        field["name"]: t(field["label"])
         for field in fields
     }
 
@@ -207,7 +208,7 @@ def _build_constraint_parameter_labels(
 
     return {
         constraint["component_id"]: {
-            field["name"]: field["label"]
+            field["name"]: t(field["label"])
             for field in constraint["parameters"]
         }
         for constraint in catalog["constraint_components"]
@@ -228,24 +229,20 @@ def render_modular_selection_issues(
         == "needs_clarification"
     ):
         st.warning(
-            "Für die Modellzusammenstellung werden "
-            "noch zusätzliche Angaben benötigt."
+            t("Für die Modellzusammenstellung werden noch zusätzliche Angaben benötigt.")
         )
     elif (
         issue_data["selection_status"]
         == "unsupported"
     ):
         st.error(
-            "Mindestens eine Anforderung kann mit den "
-            "verfügbaren Modellbausteinen derzeit nicht "
-            "abgebildet werden."
+            t("Mindestens eine Anforderung kann mit den verfügbaren Modellbausteinen derzeit nicht abgebildet werden.")
         )
     else:
         return
 
     st.caption(
-        "Erkanntes Grundmodell: "
-        f"{issue_data['core_name']}"
+        t("Erkanntes Grundmodell: {core_name}", core_name=issue_data['core_name'])
     )
 
     for requirement in issue_data[
@@ -256,7 +253,7 @@ def render_modular_selection_issues(
         )
         st.write(requirement["reason"])
         st.caption(
-            "Quelle: "
+            t("Quelle: ")
             + ", ".join(requirement["sources"])
         )
 
@@ -277,22 +274,16 @@ def render_modular_exclusion_confirmation(
         return False
 
     st.warning(
-        "Sie können die Berechnung ohne die oben "
-        "genannten Anforderungen fortsetzen. Diese "
-        "Vorgaben werden dann nicht in der Empfehlung "
-        "berücksichtigt und später deutlich als "
-        "Ausschlüsse ausgewiesen."
+        t("Sie können die Berechnung ohne die oben genannten Anforderungen fortsetzen. Diese Vorgaben werden dann nicht in der Empfehlung berücksichtigt und später deutlich als Ausschlüsse ausgewiesen.")
     )
 
     confirmed = st.checkbox(
-        "Ich bestätige, dass die genannten Anforderungen "
-        "für diese Berechnung nicht berücksichtigt werden "
-        "sollen.",
+        t("Ich bestätige, dass die genannten Anforderungen für diese Berechnung nicht berücksichtigt werden sollen."),
         key="confirm_modular_requirement_exclusions",
     )
 
     continue_without_requirements = st.button(
-        "Ohne diese Anforderungen fortfahren",
+        t("Ohne diese Anforderungen fortfahren"),
         width="stretch",
         disabled=not confirmed,
         key="continue_without_unsupported_requirements",
@@ -333,7 +324,7 @@ def render_modular_review_page(
         else build_default_review_explanation(
             review,
             pending_core_assumptions=[
-                CONDITION_LABELS[condition_id]
+                t(CONDITION_LABELS[condition_id])
                 for condition_id in (
                     pending_core_assumptions or []
                 )
@@ -353,26 +344,24 @@ def render_modular_review_page(
 
     if review["missing_inputs"]:
         st.warning(
-            "Das Modell enthält noch fehlende Eingaben."
+            t("Das Modell enthält noch fehlende Eingaben.")
         )
 
     with st.container(border=True):
-        st.markdown("### 1. Was wird berechnet?")
+        st.markdown(t("### 1. Was wird berechnet?"))
 
         st.markdown(f"**{review['core_name']}**")
         st.write(review["core_description"])
 
-        st.markdown("#### Kurz erklärt")
+        st.markdown(t("#### Kurz erklärt"))
         if pending_core_assumptions:
             st.warning(
-                "Die Modellwahl ist vorläufig: Nicht alle "
-                "Voraussetzungen des Grundmodells sind bereits "
-                "bestätigt."
+                t("Die Modellwahl ist vorläufig: Nicht alle Voraussetzungen des Grundmodells sind bereits bestätigt.")
             )
         st.info(explanation_text)
 
     with st.container(border=True):
-        st.markdown("### 2. Berechnungsgrundlage")
+        st.markdown(t("### 2. Berechnungsgrundlage"))
 
         products = review["products"]
 
@@ -380,7 +369,7 @@ def render_modular_review_page(
             product = products[0]
 
             with st.expander(
-                f"Produkt: {product['product_id']}",
+                t("Produkt: {product_id}", product_id=product['product_id']),
                 expanded=True,
             ):
                 _render_product_details(
@@ -389,8 +378,7 @@ def render_modular_review_page(
                 )
         else:
             st.caption(
-                f"{len(products)} Produkte werden in "
-                "dieser Berechnung berücksichtigt."
+                t("{value0} Produkte werden in dieser Berechnung berücksichtigt.", value0=len(products))
             )
 
             st.dataframe(
@@ -408,7 +396,7 @@ def render_modular_review_page(
             ]
 
             selected_product_id = st.selectbox(
-                "Produktdetails anzeigen",
+                t("Produktdetails anzeigen"),
                 product_ids,
                 key="modular_review_product_details",
             )
@@ -421,7 +409,7 @@ def render_modular_review_page(
             )
 
             with st.expander(
-                f"Details: {selected_product_id}",
+                t("Details: {selected_product_id}", selected_product_id=selected_product_id),
                 expanded=True,
             ):
                 _render_product_details(
@@ -430,7 +418,7 @@ def render_modular_review_page(
                 )
 
         if review["global_facts"]:
-            st.markdown("#### Modellübergreifende Angaben")
+            st.markdown(t("#### Modellübergreifende Angaben"))
 
             for field_name, value in review[
                 "global_facts"
@@ -445,7 +433,7 @@ def render_modular_review_page(
 
     with st.container(border=True):
         st.markdown(
-            "### 3. Berücksichtigte Modellbausteine"
+            t("### 3. Berücksichtigte Modellbausteine")
         )
 
         core_column, objective_column, constraint_column = (
@@ -453,15 +441,15 @@ def render_modular_review_page(
         )
 
         with core_column:
-            st.markdown("**Grundmodell**")
+            st.markdown(t("**Grundmodell**"))
             st.write(review["core_name"])
 
         with objective_column:
-            st.markdown("**Optimierungsziel**")
+            st.markdown(t("**Optimierungsziel**"))
             st.write(review["objective_summary"])
 
         with constraint_column:
-            st.markdown("**Nebenbedingungen**")
+            st.markdown(t("**Nebenbedingungen**"))
 
             if review["constraints"]:
                 for constraint in review["constraints"]:
@@ -469,10 +457,10 @@ def render_modular_review_page(
                         f"- {constraint['name']}"
                     )
             else:
-                st.write("Keine zusätzlichen Vorgaben")
+                st.write(t("Keine zusätzlichen Vorgaben"))
 
         st.markdown(
-            "#### Betriebliche Rahmenbedingungen"
+            t("#### Betriebliche Rahmenbedingungen")
         )
 
         if review["constraints"]:
@@ -500,8 +488,7 @@ def render_modular_review_page(
 
                         if constraint["product_id"]:
                             st.write(
-                                "Produkt: "
-                                f"{constraint['product_id']}"
+                                t("Produkt: {product_id}", product_id=constraint['product_id'])
                             )
 
                         for (
@@ -526,25 +513,23 @@ def render_modular_review_page(
                             )
         else:
             st.info(
-                "Es wurden keine zusätzlichen "
-                "betrieblichen Rahmenbedingungen "
-                "berücksichtigt."
+                t("Es wurden keine zusätzlichen betrieblichen Rahmenbedingungen berücksichtigt.")
             )
 
         with st.expander(
-            "Warum wurden diese Bausteine ausgewählt?"
+            t("Warum wurden diese Bausteine ausgewählt?")
         ):
             st.markdown(
-                "**Kosten- und Erlösbausteine**"
+                t("**Kosten- und Erlösbausteine**")
             )
 
             for component in review[
                 "objective_components"
             ]:
                 effect = (
-                    "wirkt positiv"
+                    t("wirkt positiv")
                     if component["effect"] == "benefit"
-                    else "wirkt als Kosten"
+                    else t("wirkt als Kosten")
                 )
 
                 st.markdown(
@@ -553,7 +538,7 @@ def render_modular_review_page(
                 st.caption(component["reason"])
 
             if review["constraints"]:
-                st.markdown("**Nebenbedingungen**")
+                st.markdown(t("**Nebenbedingungen**"))
 
                 for constraint in review["constraints"]:
                     st.markdown(
@@ -563,11 +548,10 @@ def render_modular_review_page(
 
     with st.container(border=True):
         st.markdown(
-            "### 4. Modellannahmen und Hinweise"
+            t("### 4. Modellannahmen und Hinweise")
         )
         st.write(
-            "Die Berechnung basiert auf folgenden "
-            "fachlichen Annahmen:"
+            t("Die Berechnung basiert auf folgenden fachlichen Annahmen:")
         )
 
         for assumption in review["assumptions"]:
@@ -575,24 +559,20 @@ def render_modular_review_page(
 
         if review["excluded_requirements"]:
             st.warning(
-                "Die folgenden Anforderungen werden in "
-                "dieser Berechnung nicht berücksichtigt. "
-                "Die Ergebnisse gelten daher nur ohne "
-                "diese Vorgaben."
+                t("Die folgenden Anforderungen werden in dieser Berechnung nicht berücksichtigt. Die Ergebnisse gelten daher nur ohne diese Vorgaben.")
             )
 
             for requirement in review[
                 "excluded_requirements"
             ]:
                 st.markdown(
-                    f"**Nicht berücksichtigt:** "
-                    f"{requirement['description']}"
+                    t("**Nicht berücksichtigt:** {description}", description=requirement['description'])
                 )
                 st.caption(requirement["reason"])
 
     if not review["ready_for_confirmation"]:
         st.error(
-            "Das Modell kann noch nicht bestätigt werden."
+            t("Das Modell kann noch nicht bestätigt werden.")
         )
         return False
 
@@ -602,13 +582,12 @@ def render_modular_review_page(
     )
 
     confirmed = st.checkbox(
-        "Ich habe Grundmodell, Eingabedaten und "
-        "Modellbausteine geprüft.",
+        t("Ich habe Grundmodell, Eingabedaten und Modellbausteine geprüft."),
         key="confirm_modular_review",
     )
 
     return st.button(
-        "Optimierung starten",
+        t("Optimierung starten"),
         type="primary",
         width="stretch",
         disabled=not (confirmed and assumptions_confirmed),
@@ -631,17 +610,15 @@ def _render_core_assumption_confirmations(
         and item["excerpt"].strip()
     ]
     if supported_evidence:
-        st.markdown("#### Aus Ihrer Beschreibung abgeleitet")
+        st.markdown(t("#### Aus Ihrer Beschreibung abgeleitet"))
         st.caption(
-            "Diese Einschätzungen stammen vom Sprachmodell. "
-            "Bitte prüfen Sie, ob der jeweilige Textbeleg die "
-            "Voraussetzung tatsächlich stützt."
+            t("Diese Einschätzungen stammen vom Sprachmodell. Bitte prüfen Sie, ob der jeweilige Textbeleg die Voraussetzung tatsächlich stützt.")
         )
         for item in supported_evidence:
             st.markdown(
-                f"**{CONDITION_LABELS[item['condition_id']]}**"
+                f"**{t(CONDITION_LABELS[item['condition_id']])}**"
             )
-            st.write(f"Ihre Angabe: „{item['excerpt']}“")
+            st.write(t("Ihre Angabe: „{excerpt}“", excerpt=item['excerpt']))
     contrary_evidence = [
         item for item in core_assumption_evidence
         if item.get("status") == "contradicted"
@@ -652,24 +629,19 @@ def _render_core_assumption_confirmations(
     ]
     if contrary_evidence:
         st.warning(
-            "Möglicher Widerspruch zu einer Modellannahme: Bitte prüfen "
-            "Sie die folgenden Textstellen besonders sorgfältig. "
-            "Bestätigen Sie die Annahme nur, wenn sie für Ihre Situation "
-            "tatsächlich zutrifft."
+            t("Möglicher Widerspruch zu einer Modellannahme: Bitte prüfen Sie die folgenden Textstellen besonders sorgfältig. Bestätigen Sie die Annahme nur, wenn sie für Ihre Situation tatsächlich zutrifft.")
         )
         for item in contrary_evidence:
-            st.markdown(f"**{CONDITION_LABELS[item['condition_id']]}**")
-            st.write(f"Ihre Angabe: „{item['excerpt']}“")
+            st.markdown(f"**{t(CONDITION_LABELS[item['condition_id']])}**")
+            st.write(t("Ihre Angabe: „{excerpt}“", excerpt=item['excerpt']))
     assumptions_confirmed = True
     if pending_core_assumptions:
         st.warning(
-            "Bitte bestätigen Sie jede dieser Voraussetzungen "
-            "einzeln. Eine automatische Einschätzung ist noch "
-            "keine Bestätigung:"
+            t("Bitte bestätigen Sie jede dieser Voraussetzungen einzeln. Eine automatische Einschätzung ist noch keine Bestätigung:")
         )
         for condition_id in pending_core_assumptions:
             condition_confirmed = st.checkbox(
-                CONDITION_LABELS[condition_id],
+                t(CONDITION_LABELS[condition_id]),
                 key=(
                     CORE_ASSUMPTION_CONFIRMATION_PREFIX
                     + condition_id

@@ -51,15 +51,13 @@ def test_validates_and_executes_eoq() -> None:
     assert result["status"] == "optimal"
     assert result["solution_method"] == "analytical"
     assert result["objective_value"] == pytest.approx(
-        3174.9015732775088
+        3174.9056603773583
     )
     assert result["decisions"] == [
         {
             "quantity_id": "order_quantity",
             "product_id": "product_1",
-            "value": pytest.approx(
-                264.5751311064591
-            ),
+            "value": 265.0,
         }
     ]
 

@@ -135,3 +135,38 @@ def test_load_llm_configuration_rejects_invalid_timeout(monkeypatch):
 
     with pytest.raises(ValueError, match="LLM_TIMEOUT_SECONDS"):
         load_llm_configuration(load_env_file=False)
+
+
+def test_reasoning_effort_is_read_and_passed_to_openai(monkeypatch):
+    from unittest.mock import patch
+
+    from agentic_optimization.llm import factory
+
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-5.4-mini")
+    monkeypatch.setenv("LLM_API_KEY", "test-api-key")
+    monkeypatch.setenv("LLM_REASONING_EFFORT", " LOW ")
+
+    config = load_llm_configuration(load_env_file=False)
+    assert config.reasoning_effort == "low"
+
+    with patch.object(factory, "init_chat_model") as init:
+        factory.create_chat_model(config)
+    assert init.call_args.kwargs["reasoning_effort"] == "low"
+
+    with patch.object(factory, "init_chat_model") as init:
+        factory.create_chat_model(
+            LLMConfig(provider="anthropic", model="m", api_key="k",
+                      reasoning_effort="low")
+        )
+    assert "reasoning_effort" not in init.call_args.kwargs
+
+
+def test_invalid_reasoning_effort_is_rejected(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-5.4-mini")
+    monkeypatch.setenv("LLM_API_KEY", "test-api-key")
+    monkeypatch.setenv("LLM_REASONING_EFFORT", "turbo")
+
+    with pytest.raises(ValueError, match="LLM_REASONING_EFFORT"):
+        load_llm_configuration(load_env_file=False)

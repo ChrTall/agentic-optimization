@@ -8,6 +8,8 @@ Traceback in der Oberfläche landen.
 
 import importlib
 
+from agentic_optimization.i18n import t
+
 _ERROR_KINDS = (
     ("RateLimitError", "rate_limit"),
     ("AuthenticationError", "authentication"),
@@ -90,4 +92,4 @@ def classify_llm_error(error: BaseException) -> str:
 def describe_llm_error(error: BaseException) -> str:
     """Liefert eine verständliche deutsche Fehlermeldung."""
 
-    return _MESSAGES[classify_llm_error(error)]
+    return t(_MESSAGES[classify_llm_error(error)])

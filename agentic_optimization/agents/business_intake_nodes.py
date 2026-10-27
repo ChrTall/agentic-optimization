@@ -31,6 +31,7 @@ from agentic_optimization.models.core_applicability import (
 from agentic_optimization.models.problem_profile import (
     BusinessProblemProfile,
     PROFILE_FIELD_ALLOWED_VALUES,
+    create_profile_field,
 )
 from agentic_optimization.models.core_candidate_selection import (
     compatible_registered_core_ids,
@@ -59,8 +60,15 @@ from agentic_optimization.agents.business_profile_adapter import (
     build_requirements_from_business_profile,
     reconcile_profile_with_condition_answers,
 )
+from agentic_optimization.i18n import t
 
 LOGGER = logging.getLogger(__name__)
+
+DEFAULT_SINGLE_PRODUCT_ID = "Produkt 1"
+"""Produkt-ID, wenn aus der Beschreibung kein Produktname hervorgeht."""
+
+REQUIREMENTS_PANEL_SOURCE = "requirements_panel"
+"""Quelle für Bestätigungen und Korrekturen erkannter Angaben."""
 
 
 def _answer_evidence(
@@ -130,8 +138,14 @@ def _profile_question_covers_core_condition(
 
 def create_business_intake_node(
     llm: BaseChatModel,
+    *,
+    product_name_agent: Callable[[str], str | None] | None = None,
 ) -> Callable[[GraphState], GraphState]:
-    """Erzeugt den Knoten für den adaptiven Geschäftseinstieg."""
+    """Erzeugt den Knoten für den adaptiven Geschäftseinstieg.
+
+    ``product_name_agent`` ermittelt optional den Produktnamen aus der
+    Beschreibung, sobald ein Grundmodell feststeht.
+    """
 
     profile_agent = create_business_profile_agent(llm)
     applicability_agent = create_core_applicability_agent(llm)
@@ -144,14 +158,14 @@ def create_business_intake_node(
 
         if intake_state is None:
             raise ValueError(
-                "Der Zustand des Geschäftseinstiegs fehlt."
+                t("Der Zustand des Geschäftseinstiegs fehlt.")
             )
 
         profile = intake_state.get("profile")
 
         if profile is None:
             raise ValueError(
-                "Das Geschäftsprofil fehlt."
+                t("Das Geschäftsprofil fehlt.")
             )
 
         asked_question_ids = list(
@@ -181,9 +195,7 @@ def create_business_intake_node(
 
             if question_id not in pending_question_ids:
                 raise ValueError(
-                    f"Die Geschäftsfrage '{question_id}' "
-                    "ist nicht mehr offen oder gehört "
-                    "nicht zum aktuellen Einstieg."
+                    t("Die Geschäftsfrage '{question_id}' ist nicht mehr offen oder gehört nicht zum aktuellen Einstieg.", question_id=question_id)
                 )
 
             if question_id == "core_choice":
@@ -193,7 +205,7 @@ def create_business_intake_node(
                     for item in proposal["candidates"]
                 } if proposal else set()
                 if answer["option_id"] not in allowed:
-                    raise ValueError("Ungültige Grundmodell-Auswahl.")
+                    raise ValueError(t("Ungültige Grundmodell-Auswahl."))
                 chosen_core_id = answer["option_id"]
                 submitted_chosen_core_id = chosen_core_id
             elif question_id.startswith("core_condition:"):
@@ -201,7 +213,7 @@ def create_business_intake_node(
                 if answer["option_id"] not in {
                     "yes", "no", "user_unknown"
                 }:
-                    raise ValueError("Ungültige Antwort zur Modellvoraussetzung.")
+                    raise ValueError(t("Ungültige Antwort zur Modellvoraussetzung."))
                 applicability_answers[condition_id] = (
                     "supported" if answer["option_id"] == "yes"
                     else "contradicted" if answer["option_id"] == "no"
@@ -240,6 +252,80 @@ def create_business_intake_node(
 
             if question_id not in asked_question_ids:
                 asked_question_ids.append(question_id)
+
+        # Korrekturen an bereits erkannten Angaben (bestätigen, ändern,
+        # verwerfen). Anders als Antworten betreffen sie keine offene Frage.
+        for override in intake_state.get("profile_overrides", []):
+            target_id = override["target_id"]
+            action = override["action"]
+
+            if target_id.startswith("condition:"):
+                condition_id = target_id.split(":", 1)[1]
+                condition_answer = (
+                    "supported" if action == "confirm"
+                    else "contradicted" if action == "discard"
+                    else override.get("value")
+                )
+                if condition_answer not in {
+                    "supported", "contradicted", "unknown"
+                }:
+                    raise ValueError(t("Ungültige Korrektur einer Annahme."))
+                applicability_answers[condition_id] = condition_answer
+                submitted_condition_answers[condition_id] = condition_answer
+                continue
+
+            field_id = target_id.split(":", 1)[1]
+
+            if field_id not in profile:
+                raise ValueError(t("Unbekannte Angabe '{field_id}'.", field_id=field_id))
+
+            if action == "discard":
+                profile = {
+                    **profile,
+                    field_id: create_profile_field(status="missing"),
+                }
+                asked_question_ids = [
+                    question_id
+                    for question_id in asked_question_ids
+                    if question_id != field_id
+                ]
+                continue
+
+            if action == "confirm":
+                option_id = next(
+                    (
+                        option["option_id"]
+                        for option in BUSINESS_QUESTIONS[field_id]["options"]
+                        if option.get("profile_value", option["option_id"])
+                        == profile[field_id]["value"]
+                    ),
+                    None,
+                )
+                if option_id is None:
+                    raise ValueError(
+                        t("Die Angabe '{field_id}' kann nicht bestätigt werden.", field_id=field_id)
+                    )
+            else:
+                option_id = override.get("value")
+            profile = apply_business_question_answer(
+                profile,
+                question_id=field_id,
+                option_id=option_id,
+                source_id=REQUIREMENTS_PANEL_SOURCE,
+            )
+            field = profile[field_id]
+            for mappings in PROFILE_CONDITIONS.values():
+                for mapped_field, expected, condition_id in mappings:
+                    if mapped_field != field_id:
+                        continue
+                    condition_answer = (
+                        "supported" if field["value"] == expected
+                        else "contradicted"
+                    )
+                    applicability_answers[condition_id] = condition_answer
+                    submitted_condition_answers[condition_id] = (
+                        condition_answer
+                    )
 
         raw_input = state.get("raw_input", "")
         analyzed_raw_input = intake_state.get(
@@ -307,9 +393,7 @@ def create_business_intake_node(
                     intake_state.get("pending_answers", [])
                 ),
                 "analysis_error": (
-                    "Die Beschreibung konnte nicht "
-                    "zuverlässig ausgewertet werden. "
-                    "Bitte starten Sie die Analyse erneut."
+                    t("Die Beschreibung konnte nicht zuverlässig ausgewertet werden. Bitte starten Sie die Analyse erneut.")
                 ),
                 "pending_question_ids": list(
                     intake_state.get(
@@ -371,9 +455,7 @@ def create_business_intake_node(
                             **intake_state,
                             "profile": preparation["profile"],
                             "analysis_error": (
-                                "Die Modellkandidaten konnten nicht "
-                                "zuverlässig geprüft werden. Bitte "
-                                "versuchen Sie es erneut."
+                                t("Die Modellkandidaten konnten nicht zuverlässig geprüft werden. Bitte versuchen Sie es erneut.")
                             ),
                             # The submitted answers have only been applied to
                             # local variables. Replay them on the next attempt.
@@ -471,9 +553,7 @@ def create_business_intake_node(
                                 intake_state.get("pending_answers", [])
                             ),
                             "analysis_error": (
-                                "Die Modellkandidaten konnten nicht "
-                                "zuverlässig geprüft werden. Bitte versuchen "
-                                "Sie es erneut."
+                                t("Die Modellkandidaten konnten nicht zuverlässig geprüft werden. Bitte versuchen Sie es erneut.")
                             ),
                         },
                     }, event=None,
@@ -538,8 +618,7 @@ def create_business_intake_node(
                         **core_selection,
                         "status": "needs_clarification",
                         "reason": (
-                            "Für eine zuverlässige Modellauswahl fehlen "
-                            "noch Angaben zur Bestellsituation."
+                            t("Für eine zuverlässige Modellauswahl fehlen noch Angaben zur Bestellsituation.")
                         ),
                     }
         if (
@@ -552,8 +631,7 @@ def create_business_intake_node(
                 "status": "needs_clarification",
                 "selected_core_id": None,
                 "reason": (
-                    "Das Optimierungsziel ist noch nicht bekannt. "
-                    "Ohne Ziel kann keine Berechnung gestartet werden."
+                    t("Das Optimierungsziel ist noch nicht bekannt. Ohne Ziel kann keine Berechnung gestartet werden.")
                 ),
             }
         applicability_plan = None
@@ -611,9 +689,7 @@ def create_business_intake_node(
                                     ),
                                     "core_selection": core_selection,
                                     "analysis_error": (
-                                        "Die Modellvoraussetzungen konnten "
-                                        "nicht zuverlässig geprüft werden. "
-                                        "Bitte versuchen Sie es erneut."
+                                        t("Die Modellvoraussetzungen konnten nicht zuverlässig geprüft werden. Bitte versuchen Sie es erneut.")
                                     ),
                                     "pending_answers": [],
                                     "pending_question_ids": question_ids,
@@ -645,8 +721,7 @@ def create_business_intake_node(
                     "status": "unsupported",
                     "selected_core_id": None,
                     "reason": (
-                        "Eine Voraussetzung des Grundmodells ist "
-                        "ausdrücklich nicht erfüllt: "
+                        t("Eine Voraussetzung des Grundmodells ist ausdrücklich nicht erfüllt: ")
                         + " ".join(
                             CONDITION_GUIDANCE[condition_id]
                             for condition_id in applicability_plan[
@@ -660,7 +735,7 @@ def create_business_intake_node(
                     **core_selection,
                     "status": "needs_clarification",
                     "selected_core_id": None,
-                    "reason": "Eine Voraussetzung des Grundmodells ist offen.",
+                    "reason": t("Eine Voraussetzung des Grundmodells ist offen."),
                 }
 
         core_question_plan = (
@@ -710,12 +785,29 @@ def create_business_intake_node(
                 WORKFLOW_BUSINESS_CORE_SELECTED
             )
 
+        product_name = intake_state.get("product_name")
+        product_name_input = intake_state.get(
+            "product_name_analyzed_raw_input"
+        )
+
+        if (
+            product_name_agent is not None
+            and workflow_status == WORKFLOW_BUSINESS_CORE_SELECTED
+            and product_name_input != raw_input
+            and raw_input.strip()
+        ):
+            # Der Produktname dient bei einem einzelnen Produkt als
+            # Produkt-ID, damit die Oberfläche nicht "product_1" zeigt.
+            product_name = product_name_agent(raw_input)
+            product_name_input = raw_input
+
         updated_intake_state = {
             **intake_state,
             "profile": preparation["profile"],
             "asked_question_ids": asked_question_ids,
             "pending_question_ids": question_ids,
             "pending_answers": [],
+            "profile_overrides": [],
             "analyzed_raw_input": raw_input,
             "core_selection": core_selection,
             "applicability_plan": applicability_plan,
@@ -732,6 +824,8 @@ def create_business_intake_node(
             "chosen_core_id": chosen_core_id,
             "core_question_plan": core_question_plan,
             "analysis_error": None,
+            "product_name": product_name,
+            "product_name_analyzed_raw_input": product_name_input,
         }
 
         return with_control(
@@ -755,14 +849,14 @@ def initialize_modular_core_node(
 
     if intake_state is None:
         raise ValueError(
-            "Der Zustand des Geschäftseinstiegs fehlt."
+            t("Der Zustand des Geschäftseinstiegs fehlt.")
         )
 
     profile = intake_state.get("profile")
 
     if profile is None:
         raise ValueError(
-            "Das Geschäftsprofil fehlt."
+            t("Das Geschäftsprofil fehlt.")
         )
 
     core_selection = intake_state.get(
@@ -775,8 +869,7 @@ def initialize_modular_core_node(
         or core_selection["selected_core_id"] is None
     ):
         raise ValueError(
-            "Es wurde noch kein Grundmodell eindeutig "
-            "ausgewählt."
+            t("Es wurde noch kein Grundmodell eindeutig ausgewählt.")
         )
 
     condition_answers = dict(
@@ -814,7 +907,10 @@ def initialize_modular_core_node(
     ):
         products = [
             {
-                "product_id": "product_1",
+                "product_id": (
+                    intake_state.get("product_name")
+                    or t(DEFAULT_SINGLE_PRODUCT_ID)
+                ),
                 "forecast": {},
                 "facts": {},
             }

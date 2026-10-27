@@ -13,6 +13,7 @@ from agentic_optimization.ui.business_problem_form import (
     BusinessQuestion,
     build_applicability_question,
 )
+from agentic_optimization.i18n import t
 
 
 BusinessIntakeMessageType = Literal[
@@ -42,7 +43,7 @@ def build_business_intake_view_data(
 
     if profile is None:
         raise ValueError(
-            "Das Geschäftsprofil für die Darstellung fehlt."
+            t("Das Geschäftsprofil für die Darstellung fehlt.")
         )
 
     questions: list[BusinessQuestion] = []
@@ -62,8 +63,7 @@ def build_business_intake_view_data(
             question = {
                 "question_id": "core_choice",
                 "prompt": (
-                    "Welche Beschreibung passt zu Ihrer "
-                    "Bestellsituation?"
+                    t("Welche Beschreibung passt zu Ihrer Bestellsituation?")
                 ),
                 "options": [
                     {
@@ -95,30 +95,28 @@ def build_business_intake_view_data(
                     question["options"] = [
                         {
                             "option_id": "yes",
-                            "label": "Ja — " + CONDITION_LABELS[condition_id],
+                            "label": t("Ja — ") + t(CONDITION_LABELS[condition_id]),
                         },
                         {
                             "option_id": "no",
                             "label": (
-                                "Nein — diese Voraussetzung trifft "
-                                "nicht zu."
+                                t("Nein — diese Voraussetzung trifft nicht zu.")
                             ),
                         },
                         {
                             "option_id": "user_unknown",
-                            "label": "Noch nicht bekannt",
+                            "label": t("Noch nicht bekannt"),
                         },
                     ]
                 if plan["reason"] == "conflict":
                     question["prompt"] = (
-                        "Ihre Angaben dazu widersprechen sich. "
-                        + question["prompt"]
+                        t("Ihre Angaben dazu widersprechen sich. ")
+                        + t(question["prompt"])
                     )
 
         if question is None:
             raise ValueError(
-                f"Die Geschäftsfrage '{question_id}' "
-                "ist nicht registriert."
+                t("Die Geschäftsfrage '{question_id}' ist nicht registriert.", question_id=question_id)
             )
 
         questions.append(deepcopy(question))
@@ -159,9 +157,7 @@ def build_business_intake_view_data(
     ):
         message_type = "error"
         message = (
-            "Diese betriebliche Situation kann mit den "
-            "derzeit verfügbaren Grundmodellen noch nicht "
-            "zuverlässig abgebildet werden."
+            t("Diese betriebliche Situation kann mit den derzeit verfügbaren Grundmodellen noch nicht zuverlässig abgebildet werden.")
         )
         if (
             intake_state.get("applicability_plan")
@@ -175,8 +171,7 @@ def build_business_intake_view_data(
     ):
         message_type = "success"
         message = (
-            "Die betriebliche Ausgangssituation wurde "
-            "vollständig erfasst."
+            t("Die betriebliche Ausgangssituation wurde vollständig erfasst.")
         )
     elif (
         core_selection is not None
@@ -191,21 +186,20 @@ def build_business_intake_view_data(
     ):
         message_type = "warning"
         message = (
-            "Für eine Berechnung fehlen noch entscheidende Angaben: "
+            t("Für eine Berechnung fehlen noch entscheidende Angaben: ")
             + (
-                "Das Optimierungsziel ist nicht bekannt. "
+                t("Das Optimierungsziel ist nicht bekannt. ")
                 if profile["primary_goal"]["status"] == "user_unknown"
                 else ""
             )
             + (
-                "Mindestens eine Modellvoraussetzung ist nicht bekannt. "
+                t("Mindestens eine Modellvoraussetzung ist nicht bekannt. ")
                 if "unknown" in intake_state.get(
                     "applicability_user_answers", {}
                 ).values()
                 else ""
             )
-            + "Es wird keine Annahme stillschweigend gesetzt. "
-            "Sie können die Beschreibung später ergänzen."
+            + t("Es wird keine Annahme stillschweigend gesetzt. Sie können die Beschreibung später ergänzen.")
         )
     else:
         message_type = "none"

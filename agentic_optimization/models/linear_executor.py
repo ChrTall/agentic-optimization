@@ -19,6 +19,7 @@ from agentic_optimization.models.execution import (
     MetricValue,
     OptimizationExecutionResult,
 )
+from agentic_optimization.i18n import t
 
 
 _PULP_STATUS_MAPPING: dict[str, ExecutionStatus] = {
@@ -221,8 +222,7 @@ def execute_linear_model_specification(
 
     if status != "optimal":
         errors.append(
-            f"Die lineare Optimierung endete mit "
-            f"dem Status '{pulp_status}'."
+            t("Die lineare Optimierung endete mit dem Status '{pulp_status}'.", pulp_status=pulp_status)
         )
 
     return {

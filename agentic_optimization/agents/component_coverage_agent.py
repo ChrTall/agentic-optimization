@@ -7,9 +7,11 @@ from collections.abc import Callable
 from copy import deepcopy
 from typing import Any, cast
 
+from agentic_optimization.i18n import language_instruction
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from agentic_optimization.llm.json_response import parse_json_object
 from agentic_optimization.models.component_catalog import (
     build_component_catalog,
 )
@@ -142,35 +144,13 @@ ComponentCoverageAgent = Callable[
 def _parse_json_object(content: object) -> dict[str, Any]:
     """Dekodiert die JSON-Antwort des Prüfagenten."""
 
-    if not isinstance(content, str):
-        raise TypeError(
-            "Die Antwort der Vollständigkeitsprüfung "
-            "muss Text enthalten."
-        )
-
-    clean_content = content.strip()
-    lines = clean_content.splitlines()
-
-    if (
-        len(lines) >= 3
-        and lines[0].strip().lower()
-        in {
-            "```",
-            "```json",
-        }
-        and lines[-1].strip() == "```"
-    ):
-        clean_content = "\n".join(
-            lines[1:-1]
-        ).strip()
-
-    parsed = json.loads(clean_content)
-
-    if not isinstance(parsed, dict):
-        raise TypeError(
+    parsed = parse_json_object(
+        content,
+        not_object_message=(
             "Die Vollständigkeitsprüfung muss ein "
             "JSON-Objekt zurückgeben."
-        )
+        ),
+    )
 
     return parsed
 
@@ -292,7 +272,7 @@ def create_component_coverage_agent(
 
         response = llm.invoke(
             [
-                SystemMessage(content=SYSTEM_PROMPT),
+                SystemMessage(content=SYSTEM_PROMPT + language_instruction()),
                 HumanMessage(
                     content=json.dumps(
                         payload,

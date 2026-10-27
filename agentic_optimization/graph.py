@@ -6,6 +6,7 @@ from agentic_optimization.agents.modular_workflow_nodes import (
     confirm_modular_requirement_exclusions_node,
     create_modular_model_preparation_node,
     execute_modular_model_node,
+    apply_modular_specification_edits_node,
     create_modular_product_schema_node,
     create_modular_review_explanation_node,
     create_modular_result_explanation_node,
@@ -19,6 +20,7 @@ from agentic_optimization.state import (
     EVENT_MODULAR_RESULT_EXPLANATION_REQUESTED,
     EVENT_BUSINESS_INTAKE_REQUESTED,
     EVENT_MODULAR_REQUIREMENT_EXCLUSIONS_CONFIRMED,
+    EVENT_MODULAR_SPECIFICATION_EDITED,
     WORKFLOW_BUSINESS_CASE_UNSUPPORTED,
     WORKFLOW_BUSINESS_CORE_SELECTED,
     WORKFLOW_BUSINESS_PROFILE_ANALYSIS_FAILED,
@@ -26,6 +28,9 @@ from agentic_optimization.state import (
     GraphState,
     get_event,
     get_workflow_status,
+)
+from agentic_optimization.agents.business_profile_agent import (
+    infer_product_name,
 )
 from agentic_optimization.agents.business_intake_nodes import (
     create_business_intake_node,
@@ -61,6 +66,9 @@ def route_workflow(state: GraphState) -> str:
 
     if event == EVENT_MODULAR_OPTIMIZATION_REQUESTED:
         return "execute_modular_model"
+
+    if event == EVENT_MODULAR_SPECIFICATION_EDITED:
+        return "apply_modular_specification_edits"
 
     raise ValueError(f"Unexpected workflow event: {event}")
 
@@ -104,7 +112,12 @@ def build_graph(llm: BaseChatModel):
 
     graph.add_node(
         "business_intake",
-        create_business_intake_node(llm),
+        create_business_intake_node(
+            llm,
+            product_name_agent=lambda raw_input: infer_product_name(
+                llm, raw_input=raw_input
+            ),
+        ),
     )
     graph.add_node(
         "initialize_business_modular_core",
@@ -138,6 +151,10 @@ def build_graph(llm: BaseChatModel):
         "execute_modular_model",
         execute_modular_model_node,
     )
+    graph.add_node(
+        "apply_modular_specification_edits",
+        apply_modular_specification_edits_node,
+    )
     # Einstiegspunkt: abhängig vom Event an der richtigen Stelle starten.
     graph.add_conditional_edges(
         START,
@@ -161,6 +178,9 @@ def build_graph(llm: BaseChatModel):
             ),
             "execute_modular_model": (
                 "execute_modular_model"
+            ),
+            "apply_modular_specification_edits": (
+                "apply_modular_specification_edits"
             ),
             "confirm_modular_requirement_exclusions": (
                 "confirm_modular_requirement_exclusions"
@@ -203,5 +223,6 @@ def build_graph(llm: BaseChatModel):
     )
     graph.add_edge("apply_modular_model_inputs", END)
     graph.add_edge("execute_modular_model", END)
+    graph.add_edge("apply_modular_specification_edits", END)
 
     return graph.compile()

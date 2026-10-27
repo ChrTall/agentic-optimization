@@ -507,3 +507,20 @@ def test_campus_t_shirt_demo_matches_documentation() -> None:
     }
     assert metrics["safety_stock"] == pytest.approx(6.0)
     assert result["objective_value"] == pytest.approx(14007.86, abs=0.01)
+
+
+def test_warns_about_negative_safety_stock() -> None:
+    specification = create_specification()
+    specification["products"][0]["facts"]["shortage_cost"] = 0.01
+
+    result = execute_model_specification(specification)
+
+    assert result["status"] == "optimal"
+    assert len(result["warnings"]) == 1
+    assert "negativ" in result["warnings"][0]
+
+
+def test_no_warning_for_regular_safety_stock() -> None:
+    result = execute_model_specification(create_specification())
+
+    assert result["warnings"] == []

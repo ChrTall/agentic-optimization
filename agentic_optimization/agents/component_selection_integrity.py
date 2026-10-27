@@ -163,16 +163,16 @@ def _apply_audit(
     field_labels: dict[str, str],
     objective_goal: str | None,
 ) -> ComponentSelectionProposal:
-    if set(answer) != {
+    if not {
         "rejected_constraints", "input_only_requirements"
-    } or not all(isinstance(answer[key], list) for key in answer):
+    } <= set(answer) or not all(isinstance(answer[key], list) for key in answer):
         raise ValueError("Ungültige Struktur der Bausteinprüfung.")
 
     rejected: set[int] = set()
     for item in answer["rejected_constraints"]:
         if (
             not isinstance(item, dict)
-            or set(item) != {"index", "reason"}
+            or not {"index", "reason"} <= set(item)
             or type(item["index"]) is not int
             or item["index"] not in allowed_constraint_indices
             or not isinstance(item["reason"], str)
@@ -186,7 +186,7 @@ def _apply_audit(
     for item in answer["input_only_requirements"]:
         if (
             not isinstance(item, dict)
-            or set(item) != {"index", "field_names"}
+            or not {"index", "field_names"} <= set(item)
             or type(item["index"]) is not int
             or not 0 <= item["index"] < len(
                 proposal["unresolved_requirements"]

@@ -11,6 +11,7 @@ from agentic_optimization.models.problem_profile import (
 from collections.abc import Collection
 from copy import deepcopy
 from agentic_optimization.models.core_applicability import CORE_CONDITIONS
+from agentic_optimization.i18n import t
 
 
 BusinessQuestionId = Literal[
@@ -78,14 +79,14 @@ def build_applicability_question(
     """Erzeugt eine konkrete Rückfrage zu einer Modellvoraussetzung."""
 
     if condition_id not in CORE_CONDITIONS.get(core_id, ()):
-        raise ValueError("Unbekannte Modellvoraussetzung.")
+        raise ValueError(t("Unbekannte Modellvoraussetzung."))
     return {
         "question_id": f"core_condition:{condition_id}",
         "prompt": APPLICABILITY_QUESTION_PROMPTS[condition_id],
         "options": [
-            {"option_id": "yes", "label": "Ja"},
-            {"option_id": "no", "label": "Nein"},
-            {"option_id": "user_unknown", "label": "Noch nicht bekannt"},
+            {"option_id": "yes", "label": t("Ja")},
+            {"option_id": "no", "label": t("Nein")},
+            {"option_id": "user_unknown", "label": t("Noch nicht bekannt")},
         ],
     }
 
@@ -381,8 +382,7 @@ def apply_business_question_answer(
 
     if question is None:
         raise ValueError(
-            f"Die Geschäftsfrage '{question_id}' ist "
-            "nicht registriert."
+            t("Die Geschäftsfrage '{question_id}' ist nicht registriert.", question_id=question_id)
         )
 
     selected_option = next(
@@ -396,14 +396,12 @@ def apply_business_question_answer(
 
     if selected_option is None:
         raise ValueError(
-            f"Die Antwortoption '{option_id}' gehört "
-            f"nicht zur Geschäftsfrage '{question_id}'."
+            t("Die Antwortoption '{option_id}' gehört nicht zur Geschäftsfrage '{question_id}'.", option_id=option_id, question_id=question_id)
         )
 
     if not source_id.strip():
         raise ValueError(
-            "Für eine Geschäftsantwort wird eine "
-            "gültige Quellen-ID benötigt."
+            t("Für eine Geschäftsantwort wird eine gültige Quellen-ID benötigt.")
         )
 
     evidence = [
@@ -426,8 +424,7 @@ def apply_business_question_answer(
 
         if profile_value is None:
             raise ValueError(
-                f"Die Antwortoption '{option_id}' besitzt "
-                "keinen fachlichen Profilwert."
+                t("Die Antwortoption '{option_id}' besitzt keinen fachlichen Profilwert.", option_id=option_id)
             )
 
         updated_field = create_profile_field(

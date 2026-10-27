@@ -1,0 +1,102 @@
+[
+  {
+    "id": "nv_christmas_trees",
+    "accepted": ["single_period_newsvendor"],
+    "description": "Wir verkaufen Weihnachtsbäume in einer einzigen Saison und bestellen sie einmal vor Saisonbeginn. Während der Saison können wir nicht nachbestellen. Die Nachfrage ist unsicher. Ein Baum wird für 25 € verkauft und kostet im Einkauf 10 €. Nicht verkaufte Bäume können nach der Saison noch für 3 € pro Baum verwertet werden. Wir möchten die Bestellmenge finden, mit der wir voraussichtlich den höchsten Gewinn erzielen."
+  },
+  {
+    "id": "nv_newspapers",
+    "accepted": ["single_period_newsvendor"],
+    "description": "Ein Kiosk bestellt jeden Morgen einmalig Tageszeitungen für genau diesen Tag. Nicht verkaufte Zeitungen sind am Abend wertlos, nachbestellen ist tagsüber nicht möglich. Die Nachfrage schwankt. Eine Zeitung kostet im Einkauf 1,20 € und wird für 2,50 € verkauft. Wie viele Zeitungen sollen bestellt werden, um den erwarteten Gewinn zu maximieren?"
+  },
+  {
+    "id": "nv_festival_merch",
+    "accepted": ["single_period_newsvendor"],
+    "description": "Für ein dreitägiges Festival lassen wir einmalig Fan-Shirts drucken. Eine zweite Produktion während des Festivals ist nicht möglich. Wie viele Shirts verkauft werden, ist unsicher. Ein Shirt kostet 8 € in der Herstellung und wird für 30 € verkauft, übrig gebliebene Shirts verkaufen wir danach für 5 € an einen Restpostenhändler. Ziel ist der höchste erwartete Gewinn."
+  },
+  {
+    "id": "nv_winter_jackets",
+    "accepted": ["single_period_newsvendor"],
+    "description": "Unsere Modekette ordert Winterjacken für die kommende Saison mit einer einzigen Vorbestellung beim Hersteller. Nachbestellungen sind wegen langer Lieferzeiten aus Asien ausgeschlossen. Die Nachfrage ist ungewiss. Einkaufspreis 60 €, Verkaufspreis 150 €, Reste gehen am Saisonende für 40 € in den Outlet. Welche Bestellmenge maximiert den erwarteten Gewinn?"
+  },
+  {
+    "id": "nv_bakery_cakes",
+    "accepted": ["single_period_newsvendor"],
+    "description": "Eine Konditorei backt Torten für den Muttertag einmalig am Vortag. Am Muttertag selbst kann nicht nachgebacken werden, und nicht verkaufte Torten müssen entsorgt werden. Die Nachfrage ist unsicher. Herstellkosten 12 € pro Torte, Verkaufspreis 35 €. Wie viele Torten sollen gebacken werden, um möglichst viel Gewinn zu machen?"
+  },
+  {
+    "id": "eoq_ebikes",
+    "accepted": ["eoq"],
+    "description": "Die Bike-World GmbH verkauft ein E-Bike-Modell dauerhaft und bestellt es regelmäßig nach. Für die kommenden 365 Tage erwarten wir einen Bedarf von 1.200 E-Bikes, ungefähr gleichmäßig über die Zeit. Es gibt keine Mengenrabatte und wir planen keine Fehlbestände. Jede Bestellung verursacht feste Bestellkosten von 150 €. Die Lagerhaltung kostet 25 € pro E-Bike und Jahr. Wir möchten die Bestellmenge bestimmen, bei der die jährlichen Bestell- und Lagerhaltungskosten zusammen am geringsten sind."
+  },
+  {
+    "id": "eoq_office_paper",
+    "accepted": ["eoq"],
+    "description": "Wir bestellen Kopierpapier für unser Büro regelmäßig nach. Der Verbrauch ist sehr konstant und liegt bei 2.400 Kartons pro Jahr. Jede Bestellung kostet uns 40 € an Verwaltungs- und Lieferkosten, die Lagerung eines Kartons kostet 2 € pro Jahr. Rabatte gibt es keine, Engpässe sollen nicht entstehen. Welche Bestellmenge minimiert die jährlichen Gesamtkosten aus Bestellen und Lagern?"
+  },
+  {
+    "id": "eoq_screws",
+    "accepted": ["eoq"],
+    "description": "Ein Montagebetrieb verbraucht dauerhaft gleichmäßig 50.000 Schrauben pro Jahr und beschafft sie immer wieder beim selben Lieferanten. Pro Bestellung fallen fixe Kosten von 60 € an, die Lagerkosten betragen 0,02 € je Schraube und Jahr. Der Preis ist unabhängig von der Bestellmenge, Fehlmengen werden nicht zugelassen. Wir suchen die kostenminimale Bestellmenge."
+  },
+  {
+    "id": "eoq_coffee_beans",
+    "accepted": ["eoq"],
+    "description": "Unsere Café-Kette bezieht Kaffeebohnen fortlaufend von einer Rösterei. Der Jahresbedarf liegt stabil bei 6.000 kg und verteilt sich gleichmäßig über das Jahr. Jede Lieferung kostet pauschal 90 €, die Lagerung kostet 1,50 € pro kg und Jahr. Wir bekommen keine Mengenrabatte und wollen nie ohne Bohnen dastehen. Welche Bestellmenge senkt Bestell- und Lagerkosten am stärksten?"
+  },
+  {
+    "id": "eoq_filters",
+    "accepted": ["eoq"],
+    "description": "Wir tauschen in unseren Anlagen regelmäßig Luftfilter und bestellen sie laufend nach. Der Bedarf ist bekannt und konstant: 900 Filter im Jahr. Eine Bestellung kostet 75 €, die Lagerhaltung 6 € pro Filter und Jahr. Es gibt keine Staffelpreise. Wie viel sollen wir pro Bestellung ordern, damit die jährlichen Kosten minimal sind?"
+  },
+  {
+    "id": "qr_tshirts",
+    "accepted": ["continuous_review_q_r"],
+    "description": "Wir verkaufen ein T-Shirt-Modell dauerhaft und bestellen regelmäßig nach. Der Lagerbestand wird laufend überwacht. Die Lieferzeit beträgt konstant drei Tage. Die Nachfrage ist unsicher: Für diese drei Tage erwarten wir 60 verkaufte T-Shirts; die Nachfragequantile sind Q10 = 51,12, Q50 = 60 und Q90 = 68,88. Wir möchten die Bestellmenge und den Meldebestand bestimmen und die jährlichen Bestell-, Lagerhaltungs- und Fehlmengenkosten minimieren. Jede Bestellung kostet 250 €, die Lagerhaltung 50 € je T-Shirt und Jahr und jede fehlende Einheit 10 €."
+  },
+  {
+    "id": "qr_spare_parts",
+    "accepted": ["continuous_review_q_r"],
+    "description": "Ein Ersatzteillager führt ein Ventil dauerhaft. Der Bestand wird über das Warenwirtschaftssystem kontinuierlich erfasst; sobald er eine Schwelle unterschreitet, wird eine feste Menge nachbestellt. Die Lieferzeit beträgt zehn Tage, die Nachfrage schwankt stark. Bestellkosten 80 € je Bestellung, Lagerkosten 4 € je Stück und Jahr, jede fehlende Einheit kostet uns 30 €. Wir wollen Bestellmenge und Meldebestand so wählen, dass die erwarteten jährlichen Kosten minimal sind."
+  },
+  {
+    "id": "qr_pharmacy",
+    "accepted": ["continuous_review_q_r"],
+    "description": "Eine Apotheke führt ein rezeptfreies Schmerzmittel ständig im Sortiment und bestellt es immer wieder nach. Der Bestand wird laufend per Scanner überwacht. Vom Großhändler kommt die Ware nach zwei Tagen. Die tägliche Nachfrage ist unsicher. Eine Bestellung kostet 15 €, die Lagerung 0,80 € pro Packung und Jahr, eine verpasste Verkaufschance bewerten wir mit 3 €. Bei welchem Meldebestand und welcher Bestellmenge sind die Gesamtkosten am niedrigsten?"
+  },
+  {
+    "id": "qr_tires",
+    "accepted": ["continuous_review_q_r"],
+    "description": "Unser Reifenhändler führt einen gängigen Sommerreifen ganzjährig und bestellt regelmäßig nach. Der Lagerbestand ist jederzeit im System sichtbar und wird kontinuierlich geprüft. Die Lieferzeit beträgt eine Woche, die wöchentliche Nachfrage ist unsicher. Bestellkosten 120 €, Lagerkosten 10 € pro Reifen und Jahr, Fehlmengenkosten 25 € pro nicht lieferbarem Reifen. Gesucht sind Meldebestand und Bestellmenge mit minimalen erwarteten Kosten."
+  },
+  {
+    "id": "qr_printer_toner",
+    "accepted": ["continuous_review_q_r"],
+    "description": "Wir verkaufen Druckertoner online, dauerhaft und mit regelmäßigen Nachbestellungen. Der Bestand wird laufend überwacht, und bei Erreichen eines Meldebestands lösen wir automatisch eine Bestellung aus. Die Lieferung dauert fünf Tage, die Nachfrage in dieser Zeit ist unsicher. Pro Bestellung zahlen wir 50 €, Lagerung kostet 3 € pro Toner und Jahr, jeder Fehlbestand kostet 12 €. Wir wollen die Kosten aus Bestellen, Lagern und Fehlmengen minimieren."
+  },
+  {
+    "id": "unsupported_quantity_discounts",
+    "accepted": ["unsupported", "needs_clarification"],
+    "description": "Wir bestellen ein Bauteil regelmäßig nach, der Bedarf ist konstant 5.000 Stück pro Jahr. Unser Lieferant gewährt Mengenrabatte: ab 1.000 Stück 5 % und ab 2.500 Stück 10 % Nachlass auf den Stückpreis. Wir möchten die kostenminimale Bestellmenge unter Berücksichtigung der Rabattstaffel bestimmen."
+  },
+  {
+    "id": "unsupported_production_plan",
+    "accepted": ["unsupported", "needs_clarification"],
+    "description": "Wir planen die monatliche Produktion von drei Produkten auf zwei Maschinen für das nächste Jahr. Jede Maschine hat eine begrenzte Kapazität in Stunden, und die Rüstzeiten hängen von der Reihenfolge der Produkte ab. Ziel ist ein Produktionsplan mit minimalen Rüst- und Lagerkosten."
+  },
+  {
+    "id": "unsupported_route_planning",
+    "accepted": ["unsupported", "needs_clarification"],
+    "description": "Wir beliefern täglich 25 Filialen mit drei Lieferwagen und möchten die Touren so planen, dass die gefahrenen Kilometer minimal sind. Jeder Wagen hat eine begrenzte Ladekapazität."
+  },
+  {
+    "id": "ambiguous_horizon",
+    "accepted": ["needs_clarification"],
+    "description": "Wir verkaufen Sonnenschirme und wollen wissen, wie viele wir bestellen sollen. Die Nachfrage ist unsicher. Ein Schirm kostet 20 € im Einkauf und wird für 45 € verkauft."
+  },
+  {
+    "id": "ambiguous_review",
+    "accepted": ["needs_clarification", "eoq", "continuous_review_q_r"],
+    "description": "Wir führen einen Artikel dauerhaft und bestellen immer wieder nach. Die Lieferzeit beträgt vier Tage, die Nachfrage schwankt etwas. Bestellkosten 30 €, Lagerkosten 2 € pro Stück und Jahr. Wie viel sollen wir bestellen?"
+  }
+]

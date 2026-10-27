@@ -26,6 +26,7 @@ from agentic_optimization.models.validator import (
     MissingInput,
     validate_model_specification,
 )
+from agentic_optimization.i18n import t
 
 
 class ReviewObjectiveComponent(TypedDict):
@@ -99,7 +100,7 @@ def _validate_proposal_specification_alignment(
 
     if proposal["core_id"] != specification["core_id"]:
         errors.append(
-            "Grundmodell von Vorschlag und Spezifikation stimmt nicht überein."
+            t("Grundmodell von Vorschlag und Spezifikation stimmt nicht überein.")
         )
 
     if (
@@ -107,7 +108,7 @@ def _validate_proposal_specification_alignment(
         != specification["objective"]["sense"]
     ):
         errors.append(
-            "Zielrichtung von Vorschlag und Spezifikation stimmt nicht überein."
+            t("Zielrichtung von Vorschlag und Spezifikation stimmt nicht überein.")
         )
 
     proposed_objective_ids = [
@@ -120,8 +121,7 @@ def _validate_proposal_specification_alignment(
 
     if proposed_objective_ids != specification_objective_ids:
         errors.append(
-            "Zielfunktionsbausteine von Vorschlag und "
-            "Spezifikation stimmen nicht überein."
+            t("Zielfunktionsbausteine von Vorschlag und Spezifikation stimmen nicht überein.")
         )
 
     proposed_constraints = [
@@ -141,13 +141,12 @@ def _validate_proposal_specification_alignment(
 
     if proposed_constraints != specification_constraints:
         errors.append(
-            "Nebenbedingungen von Vorschlag und "
-            "Spezifikation stimmen nicht überein."
+            t("Nebenbedingungen von Vorschlag und Spezifikation stimmen nicht überein.")
         )
 
     if errors:
         raise ValueError(
-            "Inkonsistente Review-Daten: "
+            t("Inkonsistente Review-Daten: ")
             + "; ".join(errors)
         )
 
@@ -163,7 +162,7 @@ def build_modular_selection_issue_data(
 
     if proposal_errors:
         raise ValueError(
-            "Ungültiger Bausteinvorschlag: "
+            t("Ungültiger Bausteinvorschlag: ")
             + "; ".join(proposal_errors)
         )
 
@@ -173,9 +172,9 @@ def build_modular_selection_issue_data(
 
     return {
         "core_id": proposal["core_id"],
-        "core_name": registered_core[
+        "core_name": t(registered_core[
             "definition"
-        ]["name"],
+        ]["name"]),
         "selection_status": proposal[
             "selection_status"
         ],
@@ -193,8 +192,7 @@ def _build_objective_summary(
 
     if not components:
         return (
-            "Es wurden keine Zielfunktionsbausteine "
-            "ausgewählt."
+            t("Es wurden keine Zielfunktionsbausteine ausgewählt.")
         )
 
     positive_effect = (
@@ -208,7 +206,7 @@ def _build_objective_summary(
         is_positive = (
             component["effect"] == positive_effect
         )
-        component_name = component["name"]
+        component_name = t(component["name"])
 
         if not expression_parts:
             expression_parts.append(
@@ -246,48 +244,40 @@ def build_default_review_explanation(
     product_count = len(review["products"])
 
     if product_count == 1:
-        product_text = "Für ein Produkt"
+        product_text = t("Für ein Produkt")
     else:
-        product_text = f"Für {product_count} Produkte"
+        product_text = t("Für {product_count} Produkte", product_count=product_count)
 
     explanation = (
-        f"{product_text} wird das Modell "
-        f"„{review['core_name']}“ verwendet. "
-        f"{review['decision_description']} "
-        f"Das Ziel lautet: "
-        f"{review['objective_summary']}."
+        t("{product_text} wird das Modell „{core_name}“ verwendet. {decision_description} Das Ziel lautet: {objective_summary}.", product_text=product_text, core_name=review['core_name'], decision_description=review['decision_description'], objective_summary=review['objective_summary'])
     )
 
     constraint_names = list(
         dict.fromkeys(
-            constraint["name"]
+            t(constraint["name"])
             for constraint in review["constraints"]
         )
     )
 
     if constraint_names:
         explanation += (
-            " Zusätzlich berücksichtigt das Modell "
-            "folgende betriebliche Vorgaben: "
+            t(" Zusätzlich berücksichtigt das Modell folgende betriebliche Vorgaben: ")
             + ", ".join(constraint_names)
             + "."
         )
     else:
         explanation += (
-            " Weitere betriebliche Vorgaben werden "
-            "nicht berücksichtigt."
+            t(" Weitere betriebliche Vorgaben werden nicht berücksichtigt.")
         )
 
     if review["excluded_requirements"]:
         explanation += (
-            " Mindestens eine weitere Anforderung "
-            "wird bei der Berechnung ausdrücklich "
-            "nicht berücksichtigt."
+            t(" Mindestens eine weitere Anforderung wird bei der Berechnung ausdrücklich nicht berücksichtigt.")
         )
 
     if pending_core_assumptions:
         explanation = (
-            "Diese Modellwahl ist vorläufig. Noch zu bestätigen: "
+            t("Diese Modellwahl ist vorläufig. Noch zu bestätigen: ")
             + " ".join(pending_core_assumptions)
             + " "
             + explanation
@@ -308,7 +298,7 @@ def build_modular_review_data(
 
     if proposal_errors:
         raise ValueError(
-            "Ungültiger Bausteinvorschlag: "
+            t("Ungültiger Bausteinvorschlag: ")
             + "; ".join(proposal_errors)
         )
 
@@ -337,7 +327,7 @@ def build_modular_review_data(
         objective_components.append(
             {
                 "component_id": component_id,
-                "name": definition["name"],
+                "name": t(definition["name"]),
                 "effect": definition["effect"],
                 "reason": proposed_component["reason"],
                 "sources": list(
@@ -365,7 +355,7 @@ def build_modular_review_data(
         constraints.append(
             {
                 "component_id": component_id,
-                "name": definition["name"],
+                "name": t(definition["name"]),
                 "scope": definition["scope"],
                 "product_id": specification_constraint.get(
                     "product_id"
@@ -382,13 +372,13 @@ def build_modular_review_data(
 
     return {
         "core_id": specification["core_id"],
-        "core_name": registered_core["definition"]["name"],
-        "core_description": registered_core[
+        "core_name": t(registered_core["definition"]["name"]),
+        "core_description": t(registered_core[
             "definition"
-        ]["description"],
-        "decision_description": registered_core[
+        ]["description"]),
+        "decision_description": t(registered_core[
             "definition"
-        ]["decision_description"],
+        ]["decision_description"]),
         "products": [
             {
                 "product_id": product["product_id"],
@@ -401,9 +391,10 @@ def build_modular_review_data(
             }
             for product in specification["products"]
         ],
-        "assumptions": list(
-            registered_core["definition"]["assumptions"]
-        ),
+        "assumptions": [
+            t(assumption)
+            for assumption in registered_core["definition"]["assumptions"]
+        ],
         "excluded_requirements": deepcopy(
             specification.get(
                 "excluded_requirements",

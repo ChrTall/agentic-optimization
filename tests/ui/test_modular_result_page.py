@@ -301,3 +301,39 @@ def test_requests_result_explanation_on_button_click(
         width="stretch",
         key="explain_modular_optimization_result",
     )
+
+def test_renders_result_warnings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    streamlit = MagicMock()
+    streamlit.button.return_value = False
+    monkeypatch.setattr(modular_result_page, "st", streamlit)
+
+    specification = {
+        "core_id": "eoq",
+        "products": [],
+        "global_facts": {},
+        "objective": {
+            "sense": "minimize",
+            "component_ids": [
+                "annual_ordering_cost",
+                "annual_holding_cost",
+            ],
+        },
+        "constraints": [],
+    }
+    result = {
+        "status": "optimal",
+        "solution_method": "analytical",
+        "objective_value": 100.0,
+        "decisions": [],
+        "metrics": [],
+        "technical_representation": None,
+        "errors": [],
+        "warnings": ["Sicherheitsbestand ist negativ."],
+    }
+
+    render_modular_result_page(specification, result)
+
+    streamlit.success.assert_called_once()
+    streamlit.warning.assert_any_call("Sicherheitsbestand ist negativ.")

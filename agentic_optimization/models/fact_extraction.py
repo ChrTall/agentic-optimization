@@ -11,6 +11,7 @@ from agentic_optimization.models.component_catalog import (
 from agentic_optimization.models.specification import (
     ProductSpecification,
 )
+from agentic_optimization.i18n import t
 
 
 def _has_value(value: Any) -> bool:
@@ -111,14 +112,12 @@ def merge_extracted_facts(
 
     if not isinstance(extracted_products, list):
         raise TypeError(
-            "'products' der Faktenextraktion muss "
-            "eine Liste sein."
+            t("'products' der Faktenextraktion muss eine Liste sein.")
         )
 
     if not isinstance(extracted_global_facts, dict):
         raise TypeError(
-            "'global_facts' der Faktenextraktion muss "
-            "ein Objekt sein."
+            t("'global_facts' der Faktenextraktion muss ein Objekt sein.")
         )
 
     updated_products = deepcopy(products)
@@ -133,8 +132,7 @@ def merge_extracted_facts(
     for extracted_product in extracted_products:
         if not isinstance(extracted_product, dict):
             raise TypeError(
-                "Jedes extrahierte Produkt muss ein "
-                "Objekt sein."
+                t("Jedes extrahierte Produkt muss ein Objekt sein.")
             )
 
         product_id = extracted_product.get(
@@ -143,14 +141,12 @@ def merge_extracted_facts(
 
         if not isinstance(product_id, str):
             raise TypeError(
-                "Jedes extrahierte Produkt benötigt "
-                "eine product_id."
+                t("Jedes extrahierte Produkt benötigt eine product_id.")
             )
 
         if product_id in seen_product_ids:
             raise ValueError(
-                f"Das Produkt '{product_id}' wurde in der "
-                "Faktenextraktion mehrfach angegeben."
+                t("Das Produkt '{product_id}' wurde in der Faktenextraktion mehrfach angegeben.", product_id=product_id)
             )
 
         seen_product_ids.add(product_id)
@@ -159,8 +155,7 @@ def merge_extracted_facts(
 
         if product is None:
             raise ValueError(
-                f"Das extrahierte Produkt '{product_id}' "
-                "ist nicht im Modellentwurf vorhanden."
+                t("Das extrahierte Produkt '{product_id}' ist nicht im Modellentwurf vorhanden.", product_id=product_id)
             )
 
         forecast = extracted_product.get(
@@ -174,14 +169,12 @@ def merge_extracted_facts(
 
         if not isinstance(forecast, dict):
             raise TypeError(
-                f"Der Forecast von '{product_id}' muss "
-                "ein Objekt sein."
+                t("Der Forecast von '{product_id}' muss ein Objekt sein.", product_id=product_id)
             )
 
         if not isinstance(facts, dict):
             raise TypeError(
-                f"Die Fakten von '{product_id}' müssen "
-                "ein Objekt sein."
+                t("Die Fakten von '{product_id}' müssen ein Objekt sein.", product_id=product_id)
             )
 
         unknown_forecast_fields = (
@@ -195,7 +188,7 @@ def merge_extracted_facts(
 
         if unknown_forecast_fields:
             raise ValueError(
-                "Nicht erlaubte Forecast-Felder: "
+                t("Nicht erlaubte Forecast-Felder: ")
                 + ", ".join(
                     sorted(unknown_forecast_fields)
                 )
@@ -203,7 +196,7 @@ def merge_extracted_facts(
 
         if unknown_product_fields:
             raise ValueError(
-                "Nicht erlaubte Produktfelder: "
+                t("Nicht erlaubte Produktfelder: ")
                 + ", ".join(
                     sorted(unknown_product_fields)
                 )
@@ -237,7 +230,7 @@ def merge_extracted_facts(
 
     if unknown_global_fields:
         raise ValueError(
-            "Nicht erlaubte globale Felder: "
+            t("Nicht erlaubte globale Felder: ")
             + ", ".join(
                 sorted(unknown_global_fields)
             )

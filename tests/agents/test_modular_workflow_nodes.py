@@ -609,3 +609,70 @@ def test_corrects_existing_invalid_product_fact() -> None:
     assert get_workflow_status(result) == (
         WORKFLOW_READY_FOR_REVIEW
     )
+
+
+def test_specification_edits_rename_product_and_add_component() -> None:
+    from agentic_optimization.agents.modular_workflow_nodes import (
+        apply_modular_specification_edits_node,
+    )
+
+    specification = {
+        "core_id": "eoq",
+        "products": [
+            {
+                "product_id": "Produkt 1",
+                "forecast": {"expected_value": 1200.0, "horizon_days": 365},
+                "facts": {"ordering_cost": 150.0, "holding_cost": 25.0},
+            }
+        ],
+        "global_facts": {},
+        "objective": {
+            "sense": "minimize",
+            "component_ids": ["annual_ordering_cost", "annual_holding_cost"],
+        },
+        "constraints": [],
+    }
+    proposal = {
+        "core_id": "eoq",
+        "selection_status": "complete",
+        "objective_sense": "minimize",
+        "objective_components": [
+            {"component_id": cid, "reason": "x", "sources": ["raw_input"]}
+            for cid in ["annual_ordering_cost", "annual_holding_cost"]
+        ],
+        "constraints": [],
+        "unresolved_requirements": [],
+    }
+
+    result = apply_modular_specification_edits_node({
+        "control": {"event": "modular_specification_edited"},
+        "modular_model": {
+            "specification": specification,
+            "proposal": proposal,
+            "products": specification["products"],
+            "inputs_confirmed": True,
+            "pending_specification_edits": {
+                "renames": [["Produkt 1", "E-Bike"]],
+                "active_component_ids": [
+                    "annual_ordering_cost",
+                    "annual_holding_cost",
+                    "maximum_order_quantity",
+                ],
+            },
+        },
+    })
+
+    modular = result["modular_model"]
+    assert modular["specification"]["products"][0]["product_id"] == "E-Bike"
+    assert modular["specification"]["constraints"] == [
+        {
+            "component_id": "maximum_order_quantity",
+            "product_id": "E-Bike",
+            "parameters": {},
+        }
+    ]
+    assert modular["inputs_confirmed"] is False
+    assert result["control"]["workflow_status"] == "needs_model_specific_inputs"
+    assert modular["validation"]["missing_inputs"][0]["field"]["name"] == (
+        "quantity"
+    )

@@ -96,14 +96,16 @@ def test_calculates_classical_eoq() -> None:
         holding_cost=12.0,
     )
 
-    assert result.order_quantity == pytest.approx(
+    assert result.unconstrained_order_quantity == pytest.approx(
         264.5751311064591
     )
+    # Ganzzahlige Empfehlung: 265 ist günstiger als 264.
+    assert result.order_quantity == 265.0
     assert result.annual_ordering_cost == pytest.approx(
-        result.annual_holding_cost
+        result.annual_holding_cost, rel=1e-2
     )
     assert result.annual_relevant_cost == pytest.approx(
-        3174.9015732775088
+        3174.9056603773583
     )
 
 
