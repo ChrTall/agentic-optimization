@@ -186,7 +186,7 @@ def prepare_demand_forecast(
 
         if previous_value is not None and value < previous_value:
             raise ValueError(
-                t("Quantilswerte müssen mit steigendem Quantilsniveau monoton steigen.")
+                t("Quantilswerte müssen mit steigendem Quantilsniveau monoton steigen – der Wert bei 90 % muss mindestens so hoch sein wie bei 50 %, dieser mindestens so hoch wie bei 10 % (z. B. 0.1: 150; 0.5: 300; 0.9: 350).")
             )
 
         previous_level = level

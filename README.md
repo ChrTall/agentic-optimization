@@ -209,6 +209,9 @@ beides lässt sich jederzeit mischen.
   Ein Umbenennen des Produkts löst kein erneutes Erinnern aus.
 - **Rückfragen zuerst:** Eine Bestätigung in „Erkannte Anforderungen“ springt nicht an einer noch offenen Rückfrage
   vorbei zu Formular 3.
+- **Geschwindigkeit:** Mit `LLM_REASONING_EFFORT=low` (oder `minimal`) in der `.env` antworten Reasoning-Modelle wie
+  `gpt-5.4-mini` deutlich schneller. Frühere Aussagen werden pro offener Angabe nur einmal durchsucht, damit pro
+  Chatnachricht nur ein Modellaufruf nötig ist.
 - **Sofortige Übernahme:** Eingaben in den Formularen (Zahlen, Produktname, Antworten auf Rückfragen) werden ohne
   Bestätigungsknopf übernommen; der Assistent sieht sie sofort und stellt direkt die nächste Frage.
 - **Ehrliche Grenzen:** Passt eine Situation zu keinem verfügbaren Rechenmodell, sagt der Assistent das klar, statt

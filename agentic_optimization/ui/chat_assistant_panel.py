@@ -58,6 +58,7 @@ from agentic_optimization.ui.chat_assistant_builder import (
     merge_product_rows,
     current_input_value,
     flatten_filled_inputs,
+    open_model_inputs,
     inputs_by_chat_id,
     resolve_input_submissions,
     resolve_question_answers,
@@ -295,15 +296,18 @@ def _recall_known_answers(handlers: ChatWorkflowHandlers) -> None:
         LOGGER.exception("Offene Angaben für das Erinnern fehlen.")
         return
 
-    digest = hashlib.sha1(statements.encode("utf-8")).hexdigest()
+    # Jede offene Angabe wird nur einmal gegen den bisherigen Verlauf
+    # geprüft (wenn sie neu auftaucht). Neue Nachrichten wertet der
+    # Chat-Assistent ohnehin selbst aus – das spart pro Nachricht einen
+    # Modellaufruf.
     attempts = st.session_state.setdefault(RECALL_ATTEMPTS_KEY, {})
-    done = set(attempts.get(digest, []))
+    done = set(attempts.get("checked", []))
     pending = [item for item in items if item["key"] not in done]
 
     if not pending:
         return
 
-    attempts[digest] = sorted(done | {item["key"] for item in pending})
+    attempts["checked"] = sorted(done | {item["key"] for item in pending})
 
     try:
         recalled = recall_from_statements(
@@ -341,10 +345,8 @@ def _recall_known_answers(handlers: ChatWorkflowHandlers) -> None:
                     answers,
                 )
         else:
-            missing_inputs = flatten_missing_inputs(
-                build_modular_input_layout(
-                    graph_state["modular_model"]["specification"]
-                )
+            missing_inputs = open_model_inputs(
+                graph_state["modular_model"]["specification"]
             )
             submissions = []
 
@@ -457,7 +459,7 @@ def _sentence_around(quote: str, text: str) -> str:
 
 
 def _missing_inputs_for(specification: ProductSpecification | Any) -> list[Any]:
-    return flatten_missing_inputs(build_modular_input_layout(specification))
+    return open_model_inputs(specification)
 
 
 def _current_specification() -> Any:
@@ -780,6 +782,7 @@ def _apply_model_input_decision(
 
     notes: list[str] = []
     errors: list[str] = []
+    submissions: list[Any] = []
     user_message = next(
         (
             message["content"]
@@ -868,12 +871,33 @@ def _apply_model_input_decision(
         return notes
 
     if errors:
+        if not submissions and not notes:
+            # Nichts übernommen: Die Antwort des Sprachmodells („übernommen“)
+            # wäre irreführend und wird durch den Hinweis ersetzt.
+            _drop_last_assistant_part()
+
         notes.append(
             t("Diese Werte konnte ich nicht übernehmen:\n")
             + "\n".join(f"- {error}" for error in errors)
+            + t("\n\nBitte nennen Sie den Wert noch einmal oder tragen Sie ihn im Formular ein.")
         )
 
     return notes
+
+
+def _drop_last_assistant_part() -> None:
+    messages = _messages()
+
+    if not messages or messages[-1]["role"] != "assistant":
+        return
+
+    parts = messages[-1].get("parts", [messages[-1]["content"]])[:-1]
+
+    if parts:
+        messages[-1]["parts"] = parts
+        messages[-1]["content"] = "\n\n".join(parts)
+    else:
+        messages.pop()
 
 
 def _process_user_message(

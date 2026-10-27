@@ -1,6 +1,8 @@
 """LLM-Vorschläge für registrierte Modellkerne, ohne automatische Auswahl."""
 
 import json
+
+from agentic_optimization.llm.evidence import find_verbatim_excerpt
 from collections.abc import Callable
 from typing import TypedDict
 
@@ -63,7 +65,7 @@ def validate_core_candidate_proposal(
     """Prüft Struktur, Registry-IDs und wörtliche Quellenbelege."""
 
     parsed = _parse_json_response(response_content)
-    if set(parsed) != {"candidates", "reason"}:
+    if not {"candidates", "reason"} <= set(parsed):
         raise ValueError("Die Antwort benötigt candidates und reason.")
     if (
         not isinstance(parsed["candidates"], list)
@@ -89,9 +91,10 @@ def validate_core_candidate_proposal(
     candidates: list[CoreCandidate] = []
     seen: set[str] = set()
     for position, item in enumerate(parsed["candidates"], start=1):
-        if not isinstance(item, dict) or set(item) != {
+        # Zusätzliche Felder (z. B. eine Begründung) sind unschädlich.
+        if not isinstance(item, dict) or not {
             "core_id", "source_id", "excerpt"
-        }:
+        } <= set(item):
             raise ValueError(
                 f"Kandidat {position}: Erwartet werden genau core_id, "
                 "source_id und excerpt."
@@ -115,7 +118,12 @@ def validate_core_candidate_proposal(
             raise ValueError(
                 f"Kandidat {position}: excerpt muss ein nicht leerer Textbeleg sein."
             )
-        if excerpt not in sources[source_id]:
+        # Tolerant prüfen (Anführungszeichen, Groß-/Kleinschreibung,
+        # Leerzeichen) und den wörtlichen Ausschnitt übernehmen.
+        verbatim = find_verbatim_excerpt(excerpt, sources[source_id])
+        if verbatim is not None:
+            excerpt = verbatim
+        if verbatim is None:
             raise ValueError(
                 f"Kandidat {position}: excerpt kommt in Quelle {source_id!r} "
                 "nicht wörtlich vor. Übernimm eine zusammenhängende Passage exakt."

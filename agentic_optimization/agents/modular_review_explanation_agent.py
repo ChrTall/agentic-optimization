@@ -78,7 +78,7 @@ def _parse_explanation_response(
         ),
     )
 
-    if set(parsed_response) != {"explanation"}:
+    if not {"explanation"} <= set(parsed_response):
         raise ValueError(
             "Die LLM-Antwort darf ausschließlich das Feld "
             "'explanation' enthalten."

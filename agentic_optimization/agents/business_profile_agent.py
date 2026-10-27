@@ -160,9 +160,9 @@ def _repair_invalid_excerpts(
         return
 
     for repair in repairs:
-        if not isinstance(repair, dict) or set(repair) != {
+        if not isinstance(repair, dict) or not {
             "group", "field_id", "excerpt"
-        }:
+        } <= set(repair):
             continue
         if (
             not isinstance(repair["group"], str)
@@ -220,7 +220,7 @@ def recover_missing_product_scope(
     except (TypeError, ValueError):
         return profile
 
-    if set(answer) != {"value", "excerpt"}:
+    if not {"value", "excerpt"} <= set(answer):
         return profile
     value = answer["value"]
     excerpt = find_verbatim_excerpt(answer["excerpt"], raw_input)
@@ -406,7 +406,12 @@ def create_business_profile_agent(
                         "fehlt ein Textbeleg."
                     )
 
-                if excerpt not in raw_input:
+                verbatim = find_verbatim_excerpt(excerpt, raw_input)
+
+                if verbatim is not None:
+                    excerpt = verbatim
+
+                if verbatim is None:
                     LOGGER.warning(
                         "Das abgeleitete Profilfeld '%s' wird "
                         "wegen eines nicht überprüfbaren "
@@ -514,7 +519,12 @@ def create_business_profile_agent(
                         "fehlt ein Textbeleg."
                     )
 
-                if excerpt not in raw_input:
+                verbatim = find_verbatim_excerpt(excerpt, raw_input)
+
+                if verbatim is not None:
+                    excerpt = verbatim
+
+                if verbatim is None:
                     LOGGER.warning(
                         "Das mehrdeutige Profilfeld '%s' wird "
                         "wegen eines nicht überprüfbaren "

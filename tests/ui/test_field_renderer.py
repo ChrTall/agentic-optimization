@@ -364,3 +364,20 @@ def test_rejects_invalid_forecast_quantile_level() -> None:
             create_forecast_quantiles_field(),
             "1.2: 100",
         )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "10%: 150; 50%: 300; 90%: 350",
+        "10: 150; 50: 300; 90: 350",
+        "0.1: 150, 0.5: 300, 0.9: 350",
+        "0,1: 150\n0,5: 300\n0,9: 350",
+    ],
+)
+def test_accepts_common_quantile_notations(text) -> None:
+    assert parse_input_value(create_forecast_quantiles_field(), text) == [
+        {"level": 0.1, "value": 150.0},
+        {"level": 0.5, "value": 300.0},
+        {"level": 0.9, "value": 350.0},
+    ]

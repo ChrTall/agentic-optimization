@@ -25,6 +25,10 @@ class LLMConfig:
     timeout_seconds: float = 60.0
     max_retries: int = 2
     temperature: float | None = None
+    reasoning_effort: str | None = None
+
+
+VALID_REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high"]
 
 
 def load_llm_configuration(load_env_file: bool = True) -> LLMConfig:
@@ -68,6 +72,11 @@ def load_llm_configuration(load_env_file: bool = True) -> LLMConfig:
         if temperature_text
         else None
     )
+    reasoning_effort = os.getenv("LLM_REASONING_EFFORT", "").strip().lower() or None
+    if reasoning_effort is not None and reasoning_effort not in VALID_REASONING_EFFORTS:
+        raise ValueError(
+            f"LLM_REASONING_EFFORT must be one of: {VALID_REASONING_EFFORTS}"
+        )
     print(f"Using LLM Provider: {llm_provider}, Model: {llm_model}")
     return LLMConfig(
         provider=llm_provider,
@@ -76,6 +85,7 @@ def load_llm_configuration(load_env_file: bool = True) -> LLMConfig:
         timeout_seconds=timeout_seconds,
         max_retries=max_retries,
         temperature=temperature,
+        reasoning_effort=reasoning_effort,
     )
 
 

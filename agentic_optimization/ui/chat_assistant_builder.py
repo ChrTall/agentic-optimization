@@ -211,14 +211,33 @@ def _filled_input_id(index: int) -> str:
     return f"k{index + 1}"
 
 
+def open_model_inputs(specification: dict[str, Any]) -> list[MissingInput]:
+    """Wirklich offene Eingaben in Formular 3.
+
+    Bei ungültigen Angaben (z. B. Quantile nicht aufsteigend) liefert das
+    Layout alle Felder zum Bearbeiten. Offen sind dann nur die Felder
+    ohne Wert – sonst würde der Chat bereits ausgefüllte Angaben erneut
+    abfragen.
+    """
+
+    layout = build_modular_input_layout(specification)
+    items = flatten_missing_inputs(layout)
+
+    if not layout["validation_errors"]:
+        return items
+
+    return [
+        item
+        for item in items
+        if current_input_value(specification, item) in (None, "", [])
+    ]
+
+
 def flatten_filled_inputs(specification: dict[str, Any]) -> list[MissingInput]:
     """Bereits ausgefüllte Eingaben in Formular 3 (änderbar)."""
 
     missing_keys = {
-        input_key(item)
-        for item in flatten_missing_inputs(
-            build_modular_input_layout(specification)
-        )
+        input_key(item) for item in open_model_inputs(specification)
     }
 
     return [
@@ -806,12 +825,22 @@ def build_next_question(
             return None
 
         layout = build_modular_input_layout(specification)
-        missing_inputs = flatten_missing_inputs(layout)
+        missing_inputs = open_model_inputs(specification)
+
+        if layout["validation_errors"]:
+            # Erst den Widerspruch klären, dann weiterfragen.
+            return {
+                "key": "model_input:invalid:"
+                + "|".join(layout["validation_errors"]),
+                "text": t(
+                    "⚠️ **Da passt etwas noch nicht:** {errors}\n\nBitte korrigieren Sie den Wert im Formular oder nennen Sie mir einfach den richtigen Wert.",
+                    errors=" ".join(layout["validation_errors"]),
+                ),
+                "target": {"kind": "validation_error"},
+                "remaining": len(missing_inputs),
+            }
 
         if not missing_inputs:
-            if layout["validation_errors"]:
-                return None
-
             return {
                 "key": "model_input:complete",
                 "text": _inputs_complete_text(specification),
@@ -1024,7 +1053,7 @@ def _build_step_context(
 
         if specification is not None:
             layout = build_modular_input_layout(specification)
-            missing_inputs = flatten_missing_inputs(layout)
+            missing_inputs = open_model_inputs(specification)
             filled_inputs = flatten_filled_inputs(specification)
             validation_errors = layout["validation_errors"]
             optional_components = [
@@ -1300,9 +1329,7 @@ def build_recall_items(
         if specification is None:
             return []
 
-        missing_inputs = flatten_missing_inputs(
-            build_modular_input_layout(specification)
-        )
+        missing_inputs = open_model_inputs(specification)
 
         product_positions = {
             product["product_id"]: position

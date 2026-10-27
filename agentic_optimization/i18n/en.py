@@ -372,7 +372,7 @@ EN: dict[str, str] = {
     "Für das EOQ-Produkt '{product_id}' existiert innerhalb der Bestellmengengrenzen kein positives zulässiges Bestellvielfaches.": "For the EOQ product '{product_id}', there is no positive permissible order multiple within the order quantity limits.",
     "Für das Grundmodell '{core_id}' ist kein Builder registriert.": "No builder is registered for the base model '{core_id}'.",
     "Für das Grundmodell '{core_id}' ist kein Executor registriert.": "No executor is registered for the base model '{core_id}'.",
-    "Für das Produkt '{product_id}' bieten die ausgewählten Zielfunktionsbausteine keinen positiven Anreiz zur Deckung der Nachfrage. Die Summe aus Verkaufspreis und Fehlmengenkosten muss größer als der Restwert sein.": "For the product '{product_id}', the selected objective building blocks provide no positive incentive to meet demand. The sum of selling price and shortage cost must be greater than the salvage value.",
+    "Für das Produkt '{product_id}' bieten die ausgewählten Zielfunktionsbausteine keinen positiven Anreiz zur Deckung der Nachfrage. Die Summe aus Verkaufspreis und Fehlmengenkosten muss größer als der Restwert sein – bitte prüfen Sie Verkaufspreis und Restwert.": "For the product '{product_id}', the selected objective building blocks provide no positive incentive to meet demand. The sum of selling price and shortage cost must be greater than the salvage value – please check the selling price and salvage value.",
     "Für das Produkt '{product_id}' darf die Mindestbestellmenge die Höchstbestellmenge nicht überschreiten.": "For the product '{product_id}', the minimum order quantity must not exceed the maximum order quantity.",
     "Für das Produkt '{product_id}' enthält die Nachfrageprognose kein Nachfragequantil auf oder oberhalb des geforderten Servicelevels von {service_level_percent:g} %.": "For the product '{product_id}', the demand forecast contains no demand quantile at or above the required service level of {service_level_percent:g} %.",
     "Für das Produkt '{product_id}' existiert zwischen Mindest- und Höchstbestellmenge kein zulässiges Bestellvielfaches.": "For the product '{product_id}', there is no permissible order multiple between the minimum and maximum order quantity.",
@@ -450,7 +450,7 @@ EN: dict[str, str] = {
     "Jede Produkt-ID darf nur einmal vorkommen.": "Each product ID may only appear once.",
     "Jedes Nachfragequantil benötigt 'level' und 'value'.": "Each demand quantile needs 'level' and 'value'.",
     "Jedes Nachfragequantil muss ein Objekt sein.": "Each demand quantile must be an object.",
-    "Jedes Nachfragequantil muss im Format 'Niveau: Wert' angegeben werden.": "Each demand quantile must be given in the format 'level: value'.",
+    "Jedes Nachfragequantil muss im Format 'Niveau: Wert' angegeben werden, z. B. „0.1: 150; 0.5: 300; 0.9: 350“ (10 %, 50 %, 90 %).": "Each demand quantile must use the format 'level: value', e.g. “0.1: 150; 0.5: 300; 0.9: 350” (10 %, 50 %, 90 %).",
     "Jedes Quantilsniveau darf nur einmal vorkommen.": "Each quantile level may only appear once.",
     "Jedes extrahierte Produkt benötigt eine product_id.": "Each extracted product needs a product_id.",
     "Jedes extrahierte Produkt muss ein Objekt sein.": "Each extracted product must be an object.",
@@ -546,7 +546,7 @@ EN: dict[str, str] = {
     "Quantilniveau und Nachfragewert müssen endliche Zahlen sein.": "Quantile level and demand value must be finite numbers.",
     "Quantilsniveaus müssen endliche Zahlen zwischen 0 und 1 sein.": "Quantile levels must be finite numbers between 0 and 1.",
     "Quantilswerte müssen endliche, nicht negative Zahlen sein.": "Quantile values must be finite, non-negative numbers.",
-    "Quantilswerte müssen mit steigendem Quantilsniveau monoton steigen.": "Quantile values must increase monotonically with the quantile level.",
+    "Quantilswerte müssen mit steigendem Quantilsniveau monoton steigen – der Wert bei 90 % muss mindestens so hoch sein wie bei 50 %, dieser mindestens so hoch wie bei 10 % (z. B. 0.1: 150; 0.5: 300; 0.9: 350).": "Quantile values must increase with the quantile level – the value at 90 % must be at least as high as at 50 %, and that at least as high as at 10 % (e.g. 0.1: 150; 0.5: 300; 0.9: 350).",
     "Quelle: ": "Source: ",
     "Regelmäßig nachbestellt": "Reordered regularly",
     "Restbestand": "Leftover stock",
@@ -706,6 +706,8 @@ EN: dict[str, str] = {
     "Erkannt: {items}. _Rechts oben können Sie das bestätigen oder ändern._": "Detected: {items}. _You can confirm or change this at the top right._",
     "Übernommen: **{name}** = {value} _(„{quote}“)_": "Applied: **{name}** = {value} _(“{quote}”)_",
     "Ergänzt: **{name}** _(„{quote}“)_ – den Wert frage ich gleich ab.": "Added: **{name}** _(“{quote}”)_ – I'll ask for the value next.",
+    "⚠️ **Da passt etwas noch nicht:** {errors}\n\nBitte korrigieren Sie den Wert im Formular oder nennen Sie mir einfach den richtigen Wert.": "⚠️ **Something doesn't fit yet:** {errors}\n\nPlease correct the value in the form or just tell me the right value.",
+    "\n\nBitte nennen Sie den Wert noch einmal oder tragen Sie ihn im Formular ein.": "\n\nPlease give the value again or enter it in the form.",
 }
 
 

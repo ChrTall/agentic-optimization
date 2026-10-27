@@ -229,7 +229,7 @@ def validate_single_period_newsvendor_semantics(
 
         if fulfillment_incentive <= 0:
             errors.append(
-                t("Für das Produkt '{product_id}' bieten die ausgewählten Zielfunktionsbausteine keinen positiven Anreiz zur Deckung der Nachfrage. Die Summe aus Verkaufspreis und Fehlmengenkosten muss größer als der Restwert sein.", product_id=product_id)
+                t("Für das Produkt '{product_id}' bieten die ausgewählten Zielfunktionsbausteine keinen positiven Anreiz zur Deckung der Nachfrage. Die Summe aus Verkaufspreis und Fehlmengenkosten muss größer als der Restwert sein – bitte prüfen Sie Verkaufspreis und Restwert.", product_id=product_id)
             )
 
     products_by_id = {

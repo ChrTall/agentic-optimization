@@ -686,7 +686,7 @@ def _repair_unresolved_requirements_list(
     ])
     repair = _parse_json_response(response.content)
     if (
-        set(repair) != {"unresolved_requirements"}
+        not {"unresolved_requirements"} <= set(repair)
         or not isinstance(repair["unresolved_requirements"], list)
     ):
         raise ValueError(

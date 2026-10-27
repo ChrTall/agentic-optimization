@@ -15,6 +15,13 @@ def create_chat_model(config: LLMConfig) -> BaseChatModel:
     if config.temperature is not None:
         options["temperature"] = config.temperature
 
+    # Weniger „Nachdenken“ = deutlich schnellere Antworten bei
+    # Reasoning-Modellen (z. B. gpt-5.x-mini, gpt-oss bei Groq).
+    if config.reasoning_effort is not None and config.provider in {
+        "openai", "groq",
+    }:
+        options["reasoning_effort"] = config.reasoning_effort
+
     return init_chat_model(
         model=config.model,
         model_provider=config.provider,

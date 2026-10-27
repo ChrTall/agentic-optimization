@@ -2,6 +2,7 @@
 Rendert Registry-definierte Eingabefelder und konvertiert ihre Widgetwerte.
 """
 import math
+import re
 
 from typing import Any, TypeAlias
 
@@ -198,18 +199,21 @@ def _validate_numeric_bounds(
     max_value = field_definition.get("max_value")
     label = t(field_definition["label"])
 
+    def _plain(number: float) -> str:
+        return f"{number:g}"
+
     if min_value is not None:
         for value in values:
             if value < min_value:
                 raise ValueError(
-                    t("'{label}' darf keine Werte kleiner als {min_value} enthalten.", label=label, min_value=min_value)
+                    t("'{label}' darf keine Werte kleiner als {min_value} enthalten.", label=label, min_value=_plain(min_value))
                 )
 
     if max_value is not None:
         for value in values:
             if value > max_value:
                 raise ValueError(
-                    t("'{label}' darf keine Werte größer als {max_value} enthalten.", label=label, max_value=max_value)
+                    t("'{label}' darf keine Werte größer als {max_value} enthalten.", label=label, max_value=_plain(max_value))
                 )
 
 
@@ -224,9 +228,14 @@ def _parse_forecast_quantiles(
     raw_quantiles: list[tuple[Any, Any]] = []
 
     if isinstance(raw_value, str):
+        # Trennzeichen: Semikolon, Zeilenumbruch oder Komma vor dem
+        # nächsten „Niveau:“ (z. B. „0.1: 70, 0.5: 100“).
         entries = [
             entry.strip()
-            for entry in raw_value.split(";")
+            for entry in re.split(
+                r";|\n|,\s+(?=\d+(?:[.,]\d+)?\s*%?\s*:)",
+                raw_value,
+            )
             if entry.strip()
         ]
 
@@ -237,7 +246,7 @@ def _parse_forecast_quantiles(
 
             if not separator:
                 raise ValueError(
-                    t("Jedes Nachfragequantil muss im Format 'Niveau: Wert' angegeben werden.")
+                    t("Jedes Nachfragequantil muss im Format 'Niveau: Wert' angegeben werden, z. B. „0.1: 150; 0.5: 300; 0.9: 350“ (10 %, 50 %, 90 %).")
                 )
 
             raw_quantiles.append(
@@ -288,9 +297,20 @@ def _parse_forecast_quantiles(
                 t("Quantilniveau und Nachfragewert müssen Zahlen sein.")
             )
 
+        # Prozentangaben („10 %“ oder „10“) als Anteil lesen.
+        is_percent = isinstance(raw_level, str) and raw_level.strip().endswith("%")
+        if is_percent:
+            raw_level = raw_level.strip().rstrip("%").strip()
+
         try:
             level = float(raw_level)
             forecast_value = float(raw_forecast_value)
+            if is_percent or (
+                isinstance(raw_level, str)
+                and re.fullmatch(r"\d+", raw_level.strip())
+                and 1.0 < level < 100.0
+            ):
+                level /= 100.0
         except (TypeError, ValueError) as error:
             raise ValueError(
                 t("Quantilniveau und Nachfragewert müssen Zahlen sein.")
@@ -320,6 +340,21 @@ def _parse_forecast_quantiles(
                 "value": forecast_value,
             }
         )
+
+    # Sofort prüfen statt erst bei der Berechnung: aufsteigend sortieren,
+    # jedes Niveau nur einmal, Werte dürfen nicht fallen.
+    parsed_quantiles.sort(key=lambda quantile: quantile["level"])
+
+    for previous, current in zip(parsed_quantiles, parsed_quantiles[1:]):
+        if current["level"] == previous["level"]:
+            raise ValueError(
+                t("Jedes Quantilsniveau darf nur einmal vorkommen.")
+            )
+
+        if current["value"] < previous["value"]:
+            raise ValueError(
+                t("Quantilswerte müssen mit steigendem Quantilsniveau monoton steigen – der Wert bei 90 % muss mindestens so hoch sein wie bei 50 %, dieser mindestens so hoch wie bei 10 % (z. B. 0.1: 150; 0.5: 300; 0.9: 350).")
+            )
 
     return parsed_quantiles
 

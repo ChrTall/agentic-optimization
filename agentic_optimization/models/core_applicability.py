@@ -3,6 +3,7 @@
 from collections.abc import Collection, Mapping, Sequence
 from typing import Literal, TypedDict
 from agentic_optimization.i18n import t
+from agentic_optimization.llm.evidence import find_verbatim_excerpt
 
 
 Finding = Literal["supported", "contradicted", "conflict"]
@@ -202,7 +203,7 @@ def ground_applicability_findings(
             or source_id not in sources
             or not isinstance(excerpt, str)
             or not excerpt.strip()
-            or excerpt not in sources[source_id]
+            or find_verbatim_excerpt(excerpt, sources[source_id]) is None
         ):
             raise ValueError(
                 t("Nicht belegter Befund für {condition_id}.", condition_id=condition_id)

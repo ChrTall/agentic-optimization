@@ -19,6 +19,7 @@ from agentic_optimization.models.specification import (
     ModelSpecification,
 )
 from agentic_optimization.models.specification_updates import (
+    validate_product_name,
     list_optional_components,
 )
 from agentic_optimization.models.validator import (
@@ -369,8 +370,24 @@ def render_modular_input_page(
                         ),
                     )
 
-                    if new_name.strip() and new_name.strip() != product_id:
-                        renames.append((product_id, new_name.strip()))
+                    cleaned_name = " ".join(new_name.split())
+
+                    if cleaned_name and cleaned_name != product_id:
+                        # Erst hier prüfen: Ein ungültiger Name soll einen
+                        # Hinweis zeigen, aber das Formular nicht blockieren.
+                        try:
+                            validate_product_name(
+                                cleaned_name,
+                                old_name=product_id,
+                                existing_names=[
+                                    product["product_id"]
+                                    for product in specification["products"]
+                                ],
+                            )
+                        except ValueError as error:
+                            st.warning(str(error))
+                        else:
+                            renames.append((product_id, cleaned_name))
 
                     if product_group["forecast_inputs"]:
                         st.markdown(t("#### Nachfrageprognose"))
