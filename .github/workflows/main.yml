@@ -31,6 +31,7 @@ jobs:
           IMAGE: ghcr.io/chrtall/${{ github.event.repository.name }}
         run: |
           IMAGE="${IMAGE,,}"
+          RELEASE_TAG="${RELEASE_TAG#v}"
           docker build \
             --label "org.opencontainers.image.source=https://github.com/${REPOSITORY}" \
             --tag "${IMAGE}:${RELEASE_TAG}" \
