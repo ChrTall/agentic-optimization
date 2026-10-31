@@ -1,0 +1,39 @@
+name: Publish container image
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        env:
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || format('test-{0}', github.run_number) }}
+          IMAGE: ghcr.io/chrtall/${{ github.event.repository.name }}
+        run: |
+          IMAGE="${IMAGE,,}"
+          docker build \
+            --label "org.opencontainers.image.source=https://github.com/${REPOSITORY}" \
+            --tag "${IMAGE}:${RELEASE_TAG}" \
+            .
+
+          docker push "${IMAGE}:${RELEASE_TAG}"
