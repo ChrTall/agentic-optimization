@@ -2,7 +2,7 @@ name: agentic-optimization
 
 services:
   agentic-optimization:
-    image: localhost/agentic-optimization:1.0.0
+    image: ghcr.io/chrtall/agentic-optimization:1.0.0
     ports:
       - "8501:8501"
     environment:
