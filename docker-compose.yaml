@@ -5,16 +5,6 @@ services:
     image: ghcr.io/chrtall/agentic-optimization:1.0.0
     ports:
       - "8501:8501"
-    environment:
-      # LLM provider to use.
-      # Supported values: anthropic | groq | openai
-      LLM_PROVIDER: "openai"
-      # Model name for the selected provider.
-      # Examples:
-      # - openai: gpt-5.4-mini
-      # - groq: llama-3.1-8b-instant
-      # - anthropic: claude-3-5-haiku-latest
-      LLM_MODEL: "gpt-5.4-mini"
-      # API key for the selected provider.
-      LLM_API_KEY: ""
-
+    env_file:
+      # Configure the environment variables for the service using a .env file
+      - .env
