@@ -63,6 +63,8 @@ Run the application using the prebuilt container image. No local Python installa
 - Docker with Docker Compose installed.
 - The [`docker-compose.yaml`](docker-compose.yaml) and a configured `.env` file
   as described in [Application Configuration](#2-application-configuration).
+- Supported platform: Published container images currently target linux/amd64 (64-bit Intel/AMD systems).
+  Native ARM64 images, including for Apple Silicon and ARM-based Raspberry Pi systems, are not provided.
 
 ### 3.2. Start the Application
 
