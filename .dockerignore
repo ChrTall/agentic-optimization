@@ -1,0 +1,15 @@
+.dockerignore
+.env
+.git
+.gitignore
+.idea
+.pytest_cache
+.ruff_cache
+.venv
+Dockerfile
+__pycache__
+evals
+example.env
+gv-sprint
+model-selection.md
+tests
