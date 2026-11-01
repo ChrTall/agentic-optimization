@@ -21,6 +21,8 @@ This project explores how agentic AI can support users in formulating structured
 
 You can run the application using a prebuilt container image or set up a local development environment. Both options use the same `.env` file for application settings and secrets.
 
+See the [project wiki](https://github.com/ChrTall/agentic-optimization/wiki) for detailed documentation.
+
 ## 2. Application Configuration
 
 The application requires access to a Large Language Model. Before starting it, create a `.env` file from the provided [`example.env`](example.env) template.
