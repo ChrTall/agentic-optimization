@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - 77-implement-ci-for-main-branch-via-github-actions
   pull_request:
     branches:
       - main

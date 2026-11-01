@@ -8,7 +8,6 @@ on:
       - completed
     branches:
       - main
-      - 77-implement-ci-for-main-branch-via-github-actions
 
 permissions:
   contents: read
