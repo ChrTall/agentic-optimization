@@ -1,5 +1,8 @@
 # agentic-optimization <!-- omit from toc -->
 
+[![Build](https://github.com/ChrTall/agentic-optimization/actions/workflows/build.yml/badge.svg?branch=main&event=push)](https://github.com/ChrTall/agentic-optimization/actions/workflows/build.yml)
+[![Tests](https://github.com/ChrTall/agentic-optimization/actions/workflows/tests.yml/badge.svg?branch=main&event=push)](https://github.com/ChrTall/agentic-optimization/actions/workflows/tests.yml)
+
 Repository for the agentic optimization project.
 
 - [1. Introduction](#1-introduction)
